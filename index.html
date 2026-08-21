@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Neuro Commerce MVP</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" onclick="showStore()">NEURO<span>COMMERCE</span></div>
+    <nav>
+      <button class="nav-btn" onclick="showStore()">Store</button>
+      <button class="nav-btn" onclick="showAdmin()">Admin</button>
+      <button class="cart-btn" onclick="openCart()">Cart <span id="cartCount">0</span></button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="storeView">
+      <div class="hero">
+        <div>
+          <p class="eyebrow">SMART COMMERCE, SIMPLE CHECKOUT</p>
+          <h1>Belanja lebih cepat.<br/>Kelola lebih mudah.</h1>
+          <p class="hero-copy">MVP web commerce dengan katalog produk, cart, checkout, dan dashboard admin.</p>
+          <button class="primary" onclick="scrollToProducts()">Lihat Produk</button>
+        </div>
+        <div class="hero-card">
+          <div class="stat"><strong id="heroProductCount">0</strong><span>Produk</span></div>
+          <div class="stat"><strong id="heroOrderCount">0</strong><span>Order</span></div>
+          <div class="stat"><strong>24/7</strong><span>Online Store</span></div>
+        </div>
+      </div>
+
+      <section id="productsSection" class="section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">CATALOG</p>
+            <h2>Produk</h2>
+          </div>
+          <input id="searchInput" class="search" placeholder="Cari produk..." oninput="renderProducts()" />
+        </div>
+        <div id="productGrid" class="product-grid"></div>
+      </section>
+    </section>
+
+    <section id="adminView" class="hidden section admin-layout">
+      <div>
+        <p class="eyebrow">ADMIN PANEL</p>
+        <h2>Kelola Toko</h2>
+        <div class="tabs">
+          <button onclick="setAdminTab('products')" id="tabProducts" class="active">Produk</button>
+          <button onclick="setAdminTab('orders')" id="tabOrders">Order</button>
+        </div>
+      </div>
+
+      <div id="adminProducts">
+        <div class="admin-grid">
+          <form id="productForm" class="panel" onsubmit="saveProduct(event)">
+            <h3>Tambah Produk</h3>
+            <input type="hidden" id="editId"/>
+            <label>Nama Produk</label>
+            <input id="productName" required placeholder="Contoh: Oversized T-Shirt"/>
+            <label>Harga</label>
+            <input id="productPrice" required type="number" min="0" placeholder="150000"/>
+            <label>Stok</label>
+            <input id="productStock" required type="number" min="0" placeholder="20"/>
+            <label>Kategori</label>
+            <input id="productCategory" placeholder="Fashion"/>
+            <label>Deskripsi</label>
+            <textarea id="productDescription" rows="4" placeholder="Deskripsi produk"></textarea>
+            <label>Foto Produk</label>
+            <input id="productImage" type="file" accept="image/*"/>
+            <div class="form-actions">
+              <button class="primary" type="submit">Simpan Produk</button>
+              <button class="secondary" type="button" onclick="resetProductForm()">Reset</button>
+            </div>
+          </form>
+
+          <div class="panel">
+            <h3>Daftar Produk</h3>
+            <div id="adminProductList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="adminOrders" class="hidden">
+        <div class="panel">
+          <h3>Order Masuk</h3>
+          <div id="orderList"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="cartDrawer" class="drawer hidden">
+    <div class="drawer-panel">
+      <div class="drawer-head">
+        <h3>Keranjang</h3>
+        <button onclick="closeCart()">✕</button>
+      </div>
+      <div id="cartItems"></div>
+      <div class="cart-total">
+        <span>Total</span>
+        <strong id="cartTotal">Rp0</strong>
+      </div>
+      <button class="primary full" onclick="goCheckout()">Checkout</button>
+    </div>
+    <div class="drawer-backdrop" onclick="closeCart()"></div>
+  </div>
+
+  <div id="checkoutModal" class="modal hidden">
+    <div class="modal-card">
+      <button class="close-modal" onclick="closeCheckout()">✕</button>
+      <p class="eyebrow">CHECKOUT</p>
+      <h2>Selesaikan Pesanan</h2>
+      <form onsubmit="submitOrder(event)">
+        <label>Nama</label>
+        <input id="custName" required />
+        <label>No. WhatsApp</label>
+        <input id="custPhone" required placeholder="08xxxxxxxxxx"/>
+        <label>Alamat</label>
+        <textarea id="custAddress" required rows="3"></textarea>
+        <label>Metode Pembayaran</label>
+        <select id="paymentMethod">
+          <option>Transfer Bank</option>
+          <option>QRIS</option>
+          <option>COD</option>
+        </select>
+        <div class="checkout-summary" id="checkoutSummary"></div>
+        <button class="primary full" type="submit">Buat Pesanan</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
