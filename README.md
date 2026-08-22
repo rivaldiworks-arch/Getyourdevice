@@ -5,8 +5,10 @@ Storefront e-commerce gadget Indonesia yang berjalan sepenuhnya di browser dan d
 ## Fitur
 
 - Katalog, pencarian, kategori, pengurutan, serta rekomendasi berdasarkan kebutuhan dan anggaran
+- Detail produk lengkap dengan spesifikasi, kontrol jumlah, dan rekomendasi produk terkait
 - Keranjang dengan kontrol jumlah dan validasi stok
-- Alur **Beli Sekarang**, checkout, pilihan pengiriman, dan pilihan pembayaran
+- Alur **Beli Sekarang** dan checkout bertahap dengan alamat, pengiriman, pembayaran, tinjauan, dan konfirmasi
+- Riwayat pesanan pelanggan dan pengelolaan status pesanan melalui panel admin lokal
 - Status loading, kosong, error, dan sukses yang jelas
 - Panel admin lokal untuk tambah, edit, hapus produk, dan memperbarui status pesanan
 - Penyimpanan produk, keranjang, dan pesanan melalui `localStorage`
@@ -21,6 +23,16 @@ python3 -m http.server 4173
 ```
 
 Kemudian buka `http://localhost:4173`.
+
+## Verifikasi
+
+Jalankan pemeriksaan statis berikut setelah mengubah HTML, CSS, atau JavaScript:
+
+```bash
+node scripts/verify-static-site.mjs
+```
+
+Pemeriksaan ini memvalidasi sintaks JavaScript, referensi aset utama, elemen yang dibutuhkan alur belanja, fungsi perdagangan utama, dan sisa penanda konflik Git.
 
 ## Batasan versi statis
 
