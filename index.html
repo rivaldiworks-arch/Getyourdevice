@@ -1,140 +1,106 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Get Your Device</title>
-  <link rel="stylesheet" href="styles.css"/>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GETYOURDEVICE — toko gadget terpercaya untuk smartphone, laptop, tablet, smartwatch, audio, dan aksesori.">
+  <title>GETYOURDEVICE — Gadget Pilihan untuk Semua</title>
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand" onclick="showStore()">Getyourdevice<span>by<span>Neurotech</span></span></div>
-    <nav>
-      <button class="nav-btn" onclick="showStore()">Store</button>
-      <button class="nav-btn" onclick="showAdmin()">Admin</button>
-      <button class="cart-btn" onclick="openCart()">Cart <span id="cartCount">0</span></button>
-    </nav>
+  <a class="skip-link" href="#mainContent">Lewati ke konten utama</a>
+  <header class="site-header">
+    <div class="utility-bar"><div class="container utility-inner"><span>Gratis konsultasi produk</span><span>Produk bergaransi resmi</span><span>Pengiriman seluruh Indonesia</span></div></div>
+    <div class="container header-main">
+      <button class="brand" type="button" data-action="show-store" aria-label="Kembali ke beranda"><span class="brand-mark">G</span><span>GETYOUR<span>DEVICE</span></span></button>
+      <form class="search-wrap" id="searchForm" role="search">
+        <label class="sr-only" for="searchInput">Cari produk</label>
+        <input id="searchInput" type="search" autocomplete="off" placeholder="Cari smartphone, laptop, atau aksesori...">
+        <button type="submit" aria-label="Cari produk">⌕ <span>Cari</span></button>
+      </form>
+      <nav class="header-actions" aria-label="Navigasi utama">
+        <button type="button" class="icon-button" data-action="open-helper"><span aria-hidden="true">♡</span><span>Bantu Pilih</span></button>
+        <button type="button" class="icon-button cart-button" data-action="open-cart"><span aria-hidden="true">🛒</span><span>Keranjang</span><b id="cartCount" aria-label="0 item">0</b></button>
+      </nav>
+    </div>
+    <div class="category-bar"><nav class="container categories" aria-label="Kategori produk" id="categoryNav"></nav></div>
   </header>
 
-  <main>
-    <section id="storeView">
-      <div class="hero">
-        <div>
-          <p class="eyebrow">YOUR DEVICE, YOUR CHOICE</p>
-          <h1>Temukan device yang cocok buat lo.<br/>Saatnya upgrade!</h1>
-          <p class="hero-copy">Smartphone, laptop, tablet, dan gadget pilihan dalam satu tempat.</p>
-          <button class="primary" onclick="scrollToProducts()">Lihat Produk</button>
-        </div>
-        <div class="hero-card">
-          <div class="stat"><strong id="heroProductCount">0</strong><span>Produk</span></div>
-          <div class="stat"><strong id="heroOrderCount">0</strong><span>Order</span></div>
-          <div class="stat"><strong>24/7</strong><span>Online Store</span></div>
-        </div>
-      </div>
-
-      <section id="productsSection" class="section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">CATALOG</p>
-            <h2>Produk</h2>
+  <main id="mainContent">
+    <div id="storeView">
+      <section class="hero premium-hero">
+        <div class="container hero-grid">
+          <div class="hero-copy reveal">
+            <span class="hero-kicker">Teknologi untuk keseharian Anda</span>
+            <h1>Temukan device yang tepat.</h1>
+            <p>Gadget pilihan dengan desain, performa, dan dukungan yang bisa Anda andalkan setiap hari.</p>
+            <div class="hero-actions"><button class="primary" type="button" data-action="scroll-products">Belanja Sekarang</button><button class="secondary" type="button" data-action="open-helper">Bantu Saya Pilih</button></div>
+            <ul class="trust-list"><li>✓ Garansi resmi</li><li>✓ Pembayaran aman</li><li>✓ Dukungan pelanggan</li></ul>
           </div>
-          <input id="searchInput" class="search" placeholder="Cari produk..." oninput="renderProducts()" />
+          <div class="hero-visual reveal" aria-label="Koleksi device terbaru">
+            <div class="hero-orbit hero-orbit-one"></div><div class="hero-orbit hero-orbit-two"></div>
+            <img class="hero-device" src="https://images.unsplash.com/photo-1605236453806-6ff36851218e?auto=format&fit=crop&w=1100&q=90" alt="Smartphone premium dengan layar modern" width="1100" height="780">
+            <div class="hero-product-note"><small>KOLEKSI TERBARU</small><strong>Smartphone untuk setiap momen</strong></div>
+          </div>
         </div>
-        <div id="productGrid" class="product-grid"></div>
       </section>
-    </section>
 
-    <section id="adminView" class="hidden section admin-layout">
-      <div>
-        <p class="eyebrow">ADMIN PANEL</p>
-        <h2>Kelola Toko</h2>
-        <div class="tabs">
-          <button onclick="setAdminTab('products')" id="tabProducts" class="active">Produk</button>
-          <button onclick="setAdminTab('orders')" id="tabOrders">Order</button>
+      <section class="benefits container" aria-label="Keunggulan toko">
+        <article><span>✓</span><div><strong>Produk Terjamin</strong><small>Garansi resmi & barang asli</small></div></article>
+        <article><span>♢</span><div><strong>Pengiriman Aman</strong><small>Kemasan terlindungi</small></div></article>
+        <article><span>↻</span><div><strong>7 Hari Pengembalian</strong><small>Syarat mudah dan jelas</small></div></article>
+        <article><span>☎</span><div><strong>Butuh Bantuan?</strong><small>Tim kami siap membantu</small></div></article>
+      </section>
+
+      <section class="container category-section reveal" aria-labelledby="categoryTitle">
+        <div class="section-title"><div><span class="overline">JELAJAHI</span><h2 id="categoryTitle">Belanja berdasarkan kategori</h2></div></div>
+        <div class="category-cards" id="categoryCards"></div>
+      </section>
+
+      <section class="showcase-section reveal" aria-labelledby="latestPhonesTitle">
+        <div class="container"><div class="section-title"><div><span class="overline">RILIS TERKINI</span><h2 id="latestPhonesTitle">Smartphone Terbaru</h2><p>Performa cepat dan kamera cerdas dalam genggaman.</p></div><button class="text-link" type="button" data-category="Smartphone">Lihat semua <span aria-hidden="true">→</span></button></div><div id="smartphoneShowcase" class="showcase-grid"></div></div>
+      </section>
+
+      <section class="container feature-story reveal" aria-labelledby="laptopTitle">
+        <div class="feature-story-image"><img src="https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=1200&q=90" alt="Laptop tipis untuk bekerja dan berkarya" width="1200" height="760" loading="lazy"></div>
+        <div class="feature-story-copy"><span class="overline">LAPTOP PILIHAN</span><h2 id="laptopTitle">Lebih ringan. Lebih produktif.</h2><p>Temukan laptop dengan performa andal untuk pekerjaan, belajar, dan ide besar berikutnya.</p><button class="primary" type="button" data-category="Laptop">Jelajahi Laptop</button></div>
+      </section>
+
+      <section class="showcase-section popular-section reveal" aria-labelledby="popularTitle"><div class="container"><div class="section-title"><div><span class="overline">PALING DICARI</span><h2 id="popularTitle">Gadget Populer</h2><p>Pilihan favorit pelanggan GETYOURDEVICE minggu ini.</p></div></div><div id="popularShowcase" class="showcase-grid"></div></div></section>
+
+      <section class="container weekly-deal reveal" aria-labelledby="dealTitle"><div class="weekly-deal-copy"><span class="overline">PENAWARAN MINGGU INI</span><h2 id="dealTitle">Lengkapi setup Anda.</h2><p>Hemat untuk audio dan aksesori pilihan yang membuat setiap aktivitas lebih nyaman.</p><button class="deal-button" type="button" data-category="Accessories">Lihat Penawaran</button></div><div class="weekly-deal-image"><img src="https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=1000&q=90" alt="Headphone premium berwarna hitam" width="1000" height="650" loading="lazy"></div></section>
+
+      <section class="products-section" id="productsSection" aria-labelledby="productsTitle">
+        <div class="container">
+          <div class="section-title product-heading"><div><span class="overline">PRODUK PILIHAN</span><h2 id="productsTitle">Rekomendasi untuk Anda</h2><p id="resultText">Produk gadget terbaik dan paling dicari.</p></div><select id="sortSelect" aria-label="Urutkan produk"><option value="featured">Paling relevan</option><option value="low">Harga terendah</option><option value="high">Harga tertinggi</option><option value="name">Nama A–Z</option></select></div>
+          <div id="productGrid" class="product-grid" aria-live="polite"></div>
         </div>
-      </div>
+      </section>
 
-      <div id="adminProducts">
-        <div class="admin-grid">
-          <form id="productForm" class="panel" onsubmit="saveProduct(event)">
-            <h3>Tambah Produk</h3>
-            <input type="hidden" id="editId"/>
-            <label>Nama Produk</label>
-            <input id="productName" required placeholder="Contoh: Oversized T-Shirt"/>
-            <label>Harga</label>
-            <input id="productPrice" required type="number" min="0" placeholder="150000"/>
-            <label>Stok</label>
-            <input id="productStock" required type="number" min="0" placeholder="20"/>
-            <label>Kategori</label>
-            <input id="productCategory" placeholder="Fashion"/>
-            <label>Deskripsi</label>
-            <textarea id="productDescription" rows="4" placeholder="Deskripsi produk"></textarea>
-            <label>Foto Produk</label>
-            <input id="productImage" type="file" accept="image/*"/>
-            <div class="form-actions">
-              <button class="primary" type="submit">Simpan Produk</button>
-              <button class="secondary" type="button" onclick="resetProductForm()">Reset</button>
-            </div>
-          </form>
+      <section class="why-section reveal" aria-labelledby="whyTitle"><div class="container"><div class="section-title centered-title"><div><span class="overline">BELANJA DENGAN TENANG</span><h2 id="whyTitle">Mengapa GETYOURDEVICE?</h2><p>Dukungan yang jelas sebelum dan sesudah Anda membeli.</p></div></div><div class="why-grid"><article><span aria-hidden="true">✓</span><h3>Produk Bergaransi</h3><p>Produk asli dengan perlindungan garansi yang mudah dipahami.</p></article><article><span aria-hidden="true">⌕</span><h3>Pilihan Lebih Mudah</h3><p>Panduan kebutuhan dan anggaran membantu Anda memilih dengan yakin.</p></article><article><span aria-hidden="true">□</span><h3>Pengiriman Terlindungi</h3><p>Perangkat dikemas aman dan dapat dikirim ke seluruh Indonesia.</p></article><article><span aria-hidden="true">♡</span><h3>Dukungan Manusia</h3><p>Tim kami siap membantu tanpa istilah teknis yang membingungkan.</p></article></div></div></section>
+    </div>
 
-          <div class="panel">
-            <h3>Daftar Produk</h3>
-            <div id="adminProductList"></div>
-          </div>
-        </div>
+    <section id="adminView" class="container admin-view hidden" aria-labelledby="adminTitle">
+      <div class="section-title"><div><span class="overline">PENGELOLAAN LOKAL</span><h1 id="adminTitle">Admin Toko</h1><p>Data tersimpan hanya di browser ini.</p></div><button class="secondary" type="button" data-action="show-store">Kembali ke Toko</button></div>
+      <div class="tabs" role="tablist"><button id="tabProducts" type="button" class="active" data-admin-tab="products">Produk</button><button id="tabOrders" type="button" data-admin-tab="orders">Pesanan</button></div>
+      <div id="adminProducts" class="admin-grid">
+        <form id="productForm" class="panel"><h2 id="productFormTitle">Tambah Produk</h2><input type="hidden" id="editId"><label for="productName">Nama produk</label><input id="productName" required><div class="field-row"><div><label for="productPrice">Harga (Rp)</label><input id="productPrice" required type="number" min="0"></div><div><label for="productStock">Stok</label><input id="productStock" required type="number" min="0"></div></div><label for="productCategory">Kategori</label><select id="productCategory"></select><label for="productDescription">Deskripsi</label><textarea id="productDescription" rows="3"></textarea><label for="productImage">Foto produk</label><input id="productImage" type="file" accept="image/*"><div class="form-actions"><button class="primary" type="submit">Simpan Produk</button><button class="secondary" type="button" data-action="reset-product">Reset</button></div></form>
+        <div class="panel"><h2>Daftar Produk</h2><div id="adminProductList"></div></div>
       </div>
-
-      <div id="adminOrders" class="hidden">
-        <div class="panel">
-          <h3>Order Masuk</h3>
-          <div id="orderList"></div>
-        </div>
-      </div>
+      <div id="adminOrders" class="panel hidden"><h2>Pesanan Masuk</h2><div id="orderList"></div></div>
     </section>
   </main>
 
-  <div id="cartDrawer" class="drawer hidden">
-    <div class="drawer-panel">
-      <div class="drawer-head">
-        <h3>Keranjang</h3>
-        <button onclick="closeCart()">✕</button>
-      </div>
-      <div id="cartItems"></div>
-      <div class="cart-total">
-        <span>Total</span>
-        <strong id="cartTotal">Rp0</strong>
-      </div>
-      <button class="primary full" onclick="goCheckout()">Checkout</button>
-    </div>
-    <div class="drawer-backdrop" onclick="closeCart()"></div>
-  </div>
+  <footer><div class="container footer-grid"><div><button class="brand footer-brand" type="button" data-action="show-store"><span class="brand-mark">G</span><span>GETYOUR<span>DEVICE</span></span></button><p>Teman terpercaya untuk menemukan device yang paling sesuai dengan kebutuhan Anda.</p></div><div><strong>Belanja</strong><button data-category="Smartphone">Smartphone</button><button data-category="Laptop">Laptop</button><button data-category="Accessories">Aksesori</button></div><div><strong>Bantuan</strong><button data-action="open-helper">Bantu Saya Pilih</button><button data-action="open-cart">Keranjang Saya</button><button data-action="show-admin">Admin Toko</button></div><div><strong>Informasi</strong><p>Senin–Sabtu, 09.00–18.00 WIB</p><p>support@getyourdevice.id</p></div></div><div class="container copyright">© 2026 GETYOURDEVICE. Demo toko statis.</div></footer>
 
-  <div id="checkoutModal" class="modal hidden">
-    <div class="modal-card">
-      <button class="close-modal" onclick="closeCheckout()">✕</button>
-      <p class="eyebrow">CHECKOUT</p>
-      <h2>Selesaikan Pesanan</h2>
-      <form onsubmit="submitOrder(event)">
-        <label>Nama</label>
-        <input id="custName" required />
-        <label>No. WhatsApp</label>
-        <input id="custPhone" required placeholder="08xxxxxxxxxx"/>
-        <label>Alamat</label>
-        <textarea id="custAddress" required rows="3"></textarea>
-        <label>Metode Pembayaran</label>
-        <select id="paymentMethod">
-          <option>Transfer Bank</option>
-          <option>QRIS</option>
-          <option>COD</option>
-        </select>
-        <div class="checkout-summary" id="checkoutSummary"></div>
-        <button class="primary full" type="submit">Buat Pesanan</button>
-      </form>
-    </div>
-  </div>
+  <div id="cartDrawer" class="overlay hidden" aria-hidden="true"><button class="backdrop" data-action="close-cart" aria-label="Tutup keranjang"></button><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="cartTitle"><div class="drawer-head"><div><span class="overline">BELANJAAN ANDA</span><h2 id="cartTitle">Keranjang</h2></div><button class="close-button" type="button" data-action="close-cart" aria-label="Tutup">×</button></div><div id="cartItems" class="cart-items"></div><div class="cart-footer"><div><span>Subtotal</span><strong id="cartTotal">Rp0</strong></div><small>Ongkos kirim dihitung saat checkout.</small><button id="checkoutButton" class="primary full" type="button" data-action="checkout">Lanjut ke Checkout</button><button class="text-button full" type="button" data-action="close-cart">Lanjut Belanja</button></div></aside></div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="checkoutModal" class="modal hidden" aria-hidden="true"><div class="modal-card checkout-card" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle"><button class="close-button" type="button" data-action="close-checkout" aria-label="Tutup">×</button><span class="overline">LANGKAH TERAKHIR</span><h2 id="checkoutTitle">Checkout</h2><div class="checkout-layout"><form id="checkoutForm"><fieldset><legend>1. Informasi penerima</legend><label for="custName">Nama lengkap</label><input id="custName" required autocomplete="name"><div class="field-row"><div><label for="custPhone">Nomor WhatsApp</label><input id="custPhone" required inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx" pattern="[0-9+ -]{9,16}"></div><div><label for="custEmail">Email</label><input id="custEmail" required type="email" autocomplete="email"></div></div><label for="custAddress">Alamat lengkap</label><textarea id="custAddress" required rows="3" autocomplete="street-address" placeholder="Nama jalan, nomor rumah, kecamatan, kota, kode pos"></textarea></fieldset><fieldset><legend>2. Metode pengiriman</legend><div id="shippingOptions" class="choice-list"></div></fieldset><fieldset><legend>3. Metode pembayaran</legend><div class="choice-list"><label class="choice"><input type="radio" name="payment" value="Transfer Bank" checked><span><strong>Transfer Bank</strong><small>BCA, BNI, BRI, atau Mandiri</small></span></label><label class="choice"><input type="radio" name="payment" value="QRIS"><span><strong>QRIS</strong><small>Bayar dari aplikasi e-wallet atau bank</small></span></label><label class="choice"><input type="radio" name="payment" value="COD"><span><strong>Bayar di Tempat (COD)</strong><small>Bayar tunai saat pesanan tiba</small></span></label></div></fieldset><button class="primary full" type="submit">Buat Pesanan</button><p class="secure-note">🔒 Data Anda hanya digunakan untuk simulasi pesanan ini.</p></form><aside class="order-summary"><h3>Ringkasan Pesanan</h3><div id="checkoutSummary"></div><div class="summary-line"><span>Subtotal</span><span id="summarySubtotal"></span></div><div class="summary-line"><span>Pengiriman</span><span id="summaryShipping"></span></div><div class="summary-line total"><span>Total</span><strong id="summaryTotal"></strong></div></aside></div></div></div>
 
-  <script src="app.js"></script>
+  <div id="helperModal" class="modal hidden" aria-hidden="true"><div class="modal-card helper-card" role="dialog" aria-modal="true" aria-labelledby="helperTitle"><button class="close-button" type="button" data-action="close-helper" aria-label="Tutup">×</button><span class="overline">PANDUAN PRAKTIS</span><h2 id="helperTitle">Bantu Saya Pilih</h2><p>Jawab dua pertanyaan sederhana. Kami akan menampilkan produk yang paling cocok.</p><form id="helperForm"><fieldset><legend>Device digunakan untuk apa?</legend><div class="option-grid" id="needOptions"><label><input type="radio" name="need" value="Komunikasi" required><span>📱<strong>Komunikasi</strong><small>Chat, sosial media, foto</small></span></label><label><input type="radio" name="need" value="Produktivitas"><span>💼<strong>Kerja & Belajar</strong><small>Dokumen, meeting, tugas</small></span></label><label><input type="radio" name="need" value="Hiburan"><span>🎧<strong>Hiburan</strong><small>Film, musik, dan game</small></span></label><label><input type="radio" name="need" value="Kesehatan"><span>⌚<strong>Gaya Hidup</strong><small>Olahraga dan kesehatan</small></span></label></div></fieldset><label for="budgetSelect">Berapa anggaran maksimal Anda?</label><select id="budgetSelect" required><option value="">Pilih anggaran</option><option value="2000000">Hingga Rp2 juta</option><option value="5000000">Hingga Rp5 juta</option><option value="10000000">Hingga Rp10 juta</option><option value="20000000">Hingga Rp20 juta</option><option value="999999999">Di atas Rp20 juta</option></select><button class="primary full" type="submit">Lihat Rekomendasi</button></form></div></div>
+
+  <div id="successModal" class="modal hidden" aria-hidden="true"><div class="modal-card success-card" role="dialog" aria-modal="true" aria-labelledby="successTitle"><div class="success-icon">✓</div><h2 id="successTitle">Pesanan berhasil dibuat!</h2><p id="successMessage"></p><button class="primary full" type="button" data-action="close-success">Kembali Belanja</button></div></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
 </body>
 </html>
