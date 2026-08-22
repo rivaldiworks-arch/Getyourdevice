@@ -10,7 +10,6 @@
 <body>
   <a class="skip-link" href="#mainContent">Lewati ke konten utama</a>
   <header class="site-header">
-    <div class="utility-bar"><div class="container utility-inner"><span>Gratis konsultasi produk</span><span>Produk bergaransi resmi</span><span>Pengiriman seluruh Indonesia</span></div></div>
     <div class="container header-main">
       <button class="brand" type="button" data-action="show-store" aria-label="Kembali ke beranda"><span class="brand-mark">G</span><span>GETYOUR<span>DEVICE</span></span></button>
       <form class="search-wrap" id="searchForm" role="search">
@@ -19,8 +18,8 @@
         <button type="submit" aria-label="Cari produk">⌕ <span>Cari</span></button>
       </form>
       <nav class="header-actions" aria-label="Navigasi utama">
-        <button type="button" class="icon-button" data-action="open-helper"><span aria-hidden="true">♡</span><span>Bantu Pilih</span></button>
-        <button type="button" class="icon-button cart-button" data-action="open-cart"><span aria-hidden="true">🛒</span><span>Keranjang</span><b id="cartCount" aria-label="0 item">0</b></button>
+        <button type="button" class="icon-button" data-action="open-helper"><span class="action-symbol" aria-hidden="true">?</span><span>Bantu Pilih</span></button>
+        <button type="button" class="icon-button cart-button" data-action="open-cart"><span class="action-symbol" aria-hidden="true">⌑</span><span>Keranjang</span><b id="cartCount" aria-label="0 item">0</b></button>
       </nav>
     </div>
     <div class="category-bar"><nav class="container categories" aria-label="Kategori produk" id="categoryNav"></nav></div>
@@ -28,24 +27,20 @@
 
   <main id="mainContent">
     <div id="storeView">
-      <section class="hero premium-hero">
+      <section class="hero premium-hero" aria-labelledby="heroTitle">
+        <div class="hero-media" aria-hidden="true"><img class="hero-device" src="https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=2000&q=92" alt="" width="2000" height="1100"></div>
         <div class="container hero-grid">
           <div class="hero-copy reveal">
-            <span class="hero-kicker">Teknologi untuk keseharian Anda</span>
-            <h1>Temukan device yang tepat.</h1>
-            <p>Gadget pilihan dengan desain, performa, dan dukungan yang bisa Anda andalkan setiap hari.</p>
+            <span class="hero-kicker">SMARTPHONE PILIHAN 2026</span>
+            <h1 id="heroTitle">Teknologi yang terasa lebih dekat.</h1>
+            <p>Perangkat pilihan untuk bekerja, berkarya, dan menikmati setiap momen—dengan dukungan yang mudah dipahami.</p>
             <div class="hero-actions"><button class="primary" type="button" data-action="scroll-products">Belanja Sekarang</button><button class="secondary" type="button" data-action="open-helper">Bantu Saya Pilih</button></div>
-            <ul class="trust-list"><li>✓ Garansi resmi</li><li>✓ Pembayaran aman</li><li>✓ Dukungan pelanggan</li></ul>
-          </div>
-          <div class="hero-visual reveal" aria-label="Koleksi device terbaru">
-            <div class="hero-orbit hero-orbit-one"></div><div class="hero-orbit hero-orbit-two"></div>
-            <img class="hero-device" src="https://images.unsplash.com/photo-1605236453806-6ff36851218e?auto=format&fit=crop&w=1100&q=90" alt="Smartphone premium dengan layar modern" width="1100" height="780">
-            <div class="hero-product-note"><small>KOLEKSI TERBARU</small><strong>Smartphone untuk setiap momen</strong></div>
           </div>
         </div>
+        <div class="hero-caption"><span>Kamera jernih</span><span>Baterai sepanjang hari</span><span>Garansi resmi</span></div>
       </section>
 
-      <section class="benefits container" aria-label="Keunggulan toko">
+      <section class="benefits container reveal" aria-label="Keunggulan toko">
         <article><span>✓</span><div><strong>Produk Terjamin</strong><small>Garansi resmi & barang asli</small></div></article>
         <article><span>♢</span><div><strong>Pengiriman Aman</strong><small>Kemasan terlindungi</small></div></article>
         <article><span>↻</span><div><strong>7 Hari Pengembalian</strong><small>Syarat mudah dan jelas</small></div></article>
@@ -53,22 +48,22 @@
       </section>
 
       <section class="container category-section reveal" aria-labelledby="categoryTitle">
-        <div class="section-title"><div><span class="overline">JELAJAHI</span><h2 id="categoryTitle">Belanja berdasarkan kategori</h2></div></div>
+        <div class="section-title editorial-heading"><div><span class="overline">JELAJAHI DEVICE</span><h2 id="categoryTitle">Mulai dari yang Anda butuhkan.</h2></div><p>Pilih kategori untuk melihat perangkat yang paling sesuai dengan keseharian Anda.</p></div>
         <div class="category-cards" id="categoryCards"></div>
       </section>
 
-      <section class="showcase-section reveal" aria-labelledby="latestPhonesTitle">
-        <div class="container"><div class="section-title"><div><span class="overline">RILIS TERKINI</span><h2 id="latestPhonesTitle">Smartphone Terbaru</h2><p>Performa cepat dan kamera cerdas dalam genggaman.</p></div><button class="text-link" type="button" data-category="Smartphone">Lihat semua <span aria-hidden="true">→</span></button></div><div id="smartphoneShowcase" class="showcase-grid"></div></div>
+      <section class="showcase-section phone-story reveal" aria-labelledby="latestPhonesTitle">
+        <div class="container"><div class="section-title"><div><span class="overline">SMARTPHONE PILIHAN</span><h2 id="latestPhonesTitle">Abadikan lebih banyak. Lakukan lebih cepat.</h2><p>Pilihan ponsel dengan kamera andal, layar jernih, dan baterai untuk sepanjang hari.</p></div><button class="text-link" type="button" data-category="Smartphone">Semua smartphone <span aria-hidden="true">→</span></button></div><div id="smartphoneShowcase" class="showcase-grid editorial-products"></div></div>
       </section>
 
       <section class="container feature-story reveal" aria-labelledby="laptopTitle">
         <div class="feature-story-image"><img src="https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=1200&q=90" alt="Laptop tipis untuk bekerja dan berkarya" width="1200" height="760" loading="lazy"></div>
-        <div class="feature-story-copy"><span class="overline">LAPTOP PILIHAN</span><h2 id="laptopTitle">Lebih ringan. Lebih produktif.</h2><p>Temukan laptop dengan performa andal untuk pekerjaan, belajar, dan ide besar berikutnya.</p><button class="primary" type="button" data-category="Laptop">Jelajahi Laptop</button></div>
+        <div class="feature-story-copy"><span class="overline">LAPTOP UNTUK PRODUKTIVITAS</span><h2 id="laptopTitle">Ruang untuk ide-ide besar.</h2><p>Performa andal, layar nyaman, dan daya tahan baterai yang menemani pekerjaan dari mana saja.</p><ul class="story-specs"><li>Ringan dibawa</li><li>Siap untuk multitasking</li><li>Garansi resmi</li></ul><button class="primary" type="button" data-category="Laptop">Jelajahi Laptop</button></div>
       </section>
 
-      <section class="showcase-section popular-section reveal" aria-labelledby="popularTitle"><div class="container"><div class="section-title"><div><span class="overline">PALING DICARI</span><h2 id="popularTitle">Gadget Populer</h2><p>Pilihan favorit pelanggan GETYOURDEVICE minggu ini.</p></div></div><div id="popularShowcase" class="showcase-grid"></div></div></section>
+      <section class="showcase-section popular-section reveal" aria-labelledby="popularTitle"><div class="container"><div class="section-title"><div><span class="overline">GADGET UNTUK KESEHARIAN</span><h2 id="popularTitle">Kecil detailnya. Besar perbedaannya.</h2><p>Audio, wearable, tablet, dan aksesori yang membuat rutinitas terasa lebih praktis.</p></div></div><div id="popularShowcase" class="showcase-grid lifestyle-grid"></div></div></section>
 
-      <section class="container weekly-deal reveal" aria-labelledby="dealTitle"><div class="weekly-deal-copy"><span class="overline">PENAWARAN MINGGU INI</span><h2 id="dealTitle">Lengkapi setup Anda.</h2><p>Hemat untuk audio dan aksesori pilihan yang membuat setiap aktivitas lebih nyaman.</p><button class="deal-button" type="button" data-category="Accessories">Lihat Penawaran</button></div><div class="weekly-deal-image"><img src="https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=1000&q=90" alt="Headphone premium berwarna hitam" width="1000" height="650" loading="lazy"></div></section>
+      <section class="container weekly-deal reveal" aria-labelledby="dealTitle"><div class="weekly-deal-copy"><span class="overline">PILIHAN MINGGU INI</span><h2 id="dealTitle">Dengarkan dunia Anda.</h2><p>Headphone noise cancelling pilihan untuk fokus bekerja dan menikmati musik tanpa gangguan.</p><div class="deal-price"><small>Mulai dari</small><strong>Rp1.699.000</strong></div><button class="deal-button" type="button" data-category="Audio">Lihat Audio Pilihan</button></div><div class="weekly-deal-image"><img src="https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=1200&q=92" alt="Headphone premium berwarna hitam" width="1200" height="800" loading="lazy"></div></section>
 
       <section class="products-section" id="productsSection" aria-labelledby="productsTitle">
         <div class="container">
