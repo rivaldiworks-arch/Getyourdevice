@@ -11,13 +11,15 @@ const requiredAssets = ["./styles.css", "./app.js"];
 const requiredIds = [
   "searchInput", "categoryNav", "categoryCards", "productGrid", "sortSelect",
   "productModal", "productDetail", "relatedProducts", "cartDrawer", "cartItems",
-  "cartItemTotal", "checkoutForm", "shippingOptions", "helperForm",
-  "adminView", "productForm", "orderList", "toast"
+  "cartItemTotal", "checkoutForm", "checkoutProgress", "checkoutError", "shippingOptions",
+  "paymentOptions", "finalReview", "summaryDiscount", "customerOrdersView",
+  "customerOrderList", "helperForm", "adminView", "productForm", "orderList", "toast"
 ];
 const requiredFunctions = [
   "renderProducts", "filteredProducts", "openProductDetail", "renderProductDetail",
-  "addToCart", "changeQty", "renderCart", "renderCheckout",
-  "submitOrder", "renderAdminProducts", "renderOrders", "initializeMotion"
+  "addToCart", "changeQty", "renderCart", "renderCheckout", "renderCheckoutStep",
+  "validateCheckoutStep", "checkoutTotals", "submitOrder", "renderCustomerOrders",
+  "renderAdminProducts", "renderOrders", "initializeMotion"
 ];
 
 for (const asset of requiredAssets) {
@@ -28,6 +30,12 @@ for (const id of requiredIds) {
 }
 for (const functionName of requiredFunctions) {
   if (!javascript.includes(`function ${functionName}`)) throw new Error(`Commerce function missing: ${functionName}`);
+}
+if ((html.match(/data-checkout-step=/g) || []).length !== 5) {
+  throw new Error("Checkout must contain exactly five reviewable steps");
+}
+for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko", "Virtual Account", "QRIS", "COD"]) {
+  if (!`${html}\n${javascript}`.includes(option)) throw new Error(`Checkout option missing: ${option}`);
 }
 
 const combined = `${html}\n${css}\n${javascript}`;
