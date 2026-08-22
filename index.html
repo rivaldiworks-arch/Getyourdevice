@@ -28,19 +28,19 @@
 
   <main id="mainContent">
     <div id="storeView">
-      <section class="hero">
+      <section class="hero premium-hero">
         <div class="container hero-grid">
-          <div class="hero-copy">
-            <span class="pill">Belanja gadget jadi lebih mudah</span>
-            <h1>Device tepat untuk setiap kebutuhan.</h1>
-            <p>Temukan gadget bergaransi dengan harga transparan, panduan yang mudah dipahami, dan proses belanja yang aman.</p>
+          <div class="hero-copy reveal">
+            <span class="hero-kicker">Teknologi untuk keseharian Anda</span>
+            <h1>Temukan device yang tepat.</h1>
+            <p>Gadget pilihan dengan desain, performa, dan dukungan yang bisa Anda andalkan setiap hari.</p>
             <div class="hero-actions"><button class="primary" type="button" data-action="scroll-products">Belanja Sekarang</button><button class="secondary" type="button" data-action="open-helper">Bantu Saya Pilih</button></div>
             <ul class="trust-list"><li>✓ Garansi resmi</li><li>✓ Pembayaran aman</li><li>✓ Dukungan pelanggan</li></ul>
           </div>
-          <div class="hero-visual" aria-label="Penawaran utama">
-            <div class="deal-badge">PILIHAN MINGGU INI</div>
-            <img src="https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=900&q=85" alt="Laptop modern di atas meja" width="900" height="650">
-            <div class="deal-copy"><span>Produktivitas tanpa batas</span><strong>Laptop mulai Rp7 jutaan</strong></div>
+          <div class="hero-visual reveal" aria-label="Koleksi device terbaru">
+            <div class="hero-orbit hero-orbit-one"></div><div class="hero-orbit hero-orbit-two"></div>
+            <img class="hero-device" src="https://images.unsplash.com/photo-1605236453806-6ff36851218e?auto=format&fit=crop&w=1100&q=90" alt="Smartphone premium dengan layar modern" width="1100" height="780">
+            <div class="hero-product-note"><small>KOLEKSI TERBARU</small><strong>Smartphone untuk setiap momen</strong></div>
           </div>
         </div>
       </section>
@@ -52,10 +52,23 @@
         <article><span>☎</span><div><strong>Butuh Bantuan?</strong><small>Tim kami siap membantu</small></div></article>
       </section>
 
-      <section class="container category-section" aria-labelledby="categoryTitle">
+      <section class="container category-section reveal" aria-labelledby="categoryTitle">
         <div class="section-title"><div><span class="overline">JELAJAHI</span><h2 id="categoryTitle">Belanja berdasarkan kategori</h2></div></div>
         <div class="category-cards" id="categoryCards"></div>
       </section>
+
+      <section class="showcase-section reveal" aria-labelledby="latestPhonesTitle">
+        <div class="container"><div class="section-title"><div><span class="overline">RILIS TERKINI</span><h2 id="latestPhonesTitle">Smartphone Terbaru</h2><p>Performa cepat dan kamera cerdas dalam genggaman.</p></div><button class="text-link" type="button" data-category="Smartphone">Lihat semua <span aria-hidden="true">→</span></button></div><div id="smartphoneShowcase" class="showcase-grid"></div></div>
+      </section>
+
+      <section class="container feature-story reveal" aria-labelledby="laptopTitle">
+        <div class="feature-story-image"><img src="https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=1200&q=90" alt="Laptop tipis untuk bekerja dan berkarya" width="1200" height="760" loading="lazy"></div>
+        <div class="feature-story-copy"><span class="overline">LAPTOP PILIHAN</span><h2 id="laptopTitle">Lebih ringan. Lebih produktif.</h2><p>Temukan laptop dengan performa andal untuk pekerjaan, belajar, dan ide besar berikutnya.</p><button class="primary" type="button" data-category="Laptop">Jelajahi Laptop</button></div>
+      </section>
+
+      <section class="showcase-section popular-section reveal" aria-labelledby="popularTitle"><div class="container"><div class="section-title"><div><span class="overline">PALING DICARI</span><h2 id="popularTitle">Gadget Populer</h2><p>Pilihan favorit pelanggan GETYOURDEVICE minggu ini.</p></div></div><div id="popularShowcase" class="showcase-grid"></div></div></section>
+
+      <section class="container weekly-deal reveal" aria-labelledby="dealTitle"><div class="weekly-deal-copy"><span class="overline">PENAWARAN MINGGU INI</span><h2 id="dealTitle">Lengkapi setup Anda.</h2><p>Hemat untuk audio dan aksesori pilihan yang membuat setiap aktivitas lebih nyaman.</p><button class="deal-button" type="button" data-category="Accessories">Lihat Penawaran</button></div><div class="weekly-deal-image"><img src="https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=1000&q=90" alt="Headphone premium berwarna hitam" width="1000" height="650" loading="lazy"></div></section>
 
       <section class="products-section" id="productsSection" aria-labelledby="productsTitle">
         <div class="container">
@@ -63,6 +76,8 @@
           <div id="productGrid" class="product-grid" aria-live="polite"></div>
         </div>
       </section>
+
+      <section class="why-section reveal" aria-labelledby="whyTitle"><div class="container"><div class="section-title centered-title"><div><span class="overline">BELANJA DENGAN TENANG</span><h2 id="whyTitle">Mengapa GETYOURDEVICE?</h2><p>Dukungan yang jelas sebelum dan sesudah Anda membeli.</p></div></div><div class="why-grid"><article><span aria-hidden="true">✓</span><h3>Produk Bergaransi</h3><p>Produk asli dengan perlindungan garansi yang mudah dipahami.</p></article><article><span aria-hidden="true">⌕</span><h3>Pilihan Lebih Mudah</h3><p>Panduan kebutuhan dan anggaran membantu Anda memilih dengan yakin.</p></article><article><span aria-hidden="true">□</span><h3>Pengiriman Terlindungi</h3><p>Perangkat dikemas aman dan dapat dikirim ke seluruh Indonesia.</p></article><article><span aria-hidden="true">♡</span><h3>Dukungan Manusia</h3><p>Tim kami siap membantu tanpa istilah teknis yang membingungkan.</p></article></div></div></section>
     </div>
 
     <section id="adminView" class="container admin-view hidden" aria-labelledby="adminTitle">
