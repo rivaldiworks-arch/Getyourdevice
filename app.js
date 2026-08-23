@@ -19,25 +19,26 @@ const SHIPPING = [
 const ORDER_STATUSES = ["Pending", "Paid", "Processing", "Shipped", "Completed", "Cancelled"];
 const CHECKOUT_STEPS = ["Pelanggan", "Alamat", "Pengiriman", "Pembayaran", "Tinjau"];
 const starterProducts = [
-  {id:"phone-01",brand:"Samsung",name:"Galaxy A56 5G",spec:"8 GB / 256 GB · Kamera 50 MP",price:6199000,originalPrice:6799000,rating:4.8,stock:14,category:"Smartphone",description:"Layar Super AMOLED jernih, kamera 50 MP, dan baterai tahan lama.",needs:["Komunikasi","Hiburan"],badge:"TERLARIS",image:"https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=80"},
-  {id:"laptop-01",brand:"ASUS",name:"Vivobook 14",spec:"Intel Core i5 · 16 GB · 512 GB SSD",price:8999000,originalPrice:9499000,rating:4.7,stock:8,category:"Laptop",description:"Laptop tipis untuk bekerja dan belajar dengan layar 14 inci.",needs:["Produktivitas","Hiburan"],badge:"PILIHAN",image:"https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=80"},
-  {id:"tablet-01",brand:"Samsung",name:"Galaxy Tab S9 FE",spec:"10,9 inci · 6 GB / 128 GB · S Pen",price:6499000,rating:4.8,stock:10,category:"Tablet",description:"Tablet serbaguna dengan S Pen untuk catatan, kreasi, dan hiburan.",needs:["Produktivitas","Hiburan"],image:"https://images.unsplash.com/photo-1561154464-82e9adf32764?auto=format&fit=crop&w=700&q=80"},
-  {id:"watch-01",brand:"Samsung",name:"Galaxy Watch7",spec:"Bluetooth · 40 mm · GPS",price:3999000,rating:4.7,stock:6,category:"Smartwatch",description:"Pantau aktivitas, tidur, dan kesehatan langsung dari pergelangan.",needs:["Kesehatan"],badge:"BARU",image:"https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=700&q=80"},
-  {id:"audio-01",brand:"Sony",name:"WH-CH720N",spec:"Wireless · Noise Cancelling · 35 jam",price:1699000,originalPrice:1999000,rating:4.9,stock:18,category:"Audio",description:"Headphone nirkabel ringan dengan peredam bising aktif.",needs:["Hiburan","Produktivitas"],image:"https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80"},
-  {id:"acc-01",brand:"Logitech",name:"Pebble 2 Combo",spec:"Bluetooth · Multi-device · Silent keys",price:949000,rating:4.7,stock:22,category:"Accessories",description:"Keyboard dan mouse ringkas, senyap, dan mudah dibawa.",needs:["Produktivitas"],image:"https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=700&q=80"},
-  {id:"phone-02",brand:"Apple",name:"iPhone 15 128GB",spec:"128 GB · Kamera 48 MP · USB-C",price:12999000,originalPrice:13999000,rating:4.9,stock:5,category:"Smartphone",description:"Performa cepat, kamera andal, dan desain yang nyaman digunakan.",needs:["Komunikasi","Hiburan"],image:"https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=700&q=80"},
-  {id:"laptop-02",brand:"Apple",name:"MacBook Air M3",spec:"Apple M3 · 8 GB · 256 GB SSD",price:17999000,rating:4.9,stock:4,category:"Laptop",description:"Ringan, senyap, dan bertenaga untuk produktivitas sepanjang hari.",needs:["Produktivitas"],badge:"PREMIUM",image:"https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=700&q=80"},
-  {id:"audio-02",brand:"JBL",name:"Flip 6",spec:"Bluetooth · Tahan air IP67 · 12 jam",price:1999000,rating:4.8,stock:0,category:"Audio",description:"Speaker portabel tahan air dengan suara kuat dan jernih.",needs:["Hiburan"],image:"https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?auto=format&fit=crop&w=700&q=80"},
-  {id:"acc-02",brand:"Anker",name:"PowerCore 20K",spec:"20.000 mAh · Fast charging · USB-C",price:799000,rating:4.8,stock:31,category:"Accessories",description:"Power bank kapasitas besar dengan pengisian cepat dan aman.",needs:["Komunikasi","Produktivitas"],image:"https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?auto=format&fit=crop&w=700&q=80"}
+  {id:"00000000-0000-4000-8000-000000000002",brand:"Samsung",name:"Galaxy A56 5G",spec:"8 GB / 256 GB · Kamera 50 MP",price:6199000,originalPrice:6799000,rating:4.8,stock:14,category:"Smartphone",description:"Layar Super AMOLED jernih, kamera 50 MP, dan baterai tahan lama.",needs:["Komunikasi","Hiburan"],badge:"TERLARIS",image:"https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000003",brand:"ASUS",name:"Vivobook 14",spec:"Intel Core i5 · 16 GB · 512 GB SSD",price:8999000,originalPrice:9499000,rating:4.7,stock:8,category:"Laptop",description:"Laptop tipis untuk bekerja dan belajar dengan layar 14 inci.",needs:["Produktivitas","Hiburan"],badge:"PILIHAN",image:"https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000004",brand:"Samsung",name:"Galaxy Tab S9 FE",spec:"10,9 inci · 6 GB / 128 GB · S Pen",price:6499000,rating:4.8,stock:10,category:"Tablet",description:"Tablet serbaguna dengan S Pen untuk catatan, kreasi, dan hiburan.",needs:["Produktivitas","Hiburan"],image:"https://images.unsplash.com/photo-1561154464-82e9adf32764?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000005",brand:"Samsung",name:"Galaxy Watch7",spec:"Bluetooth · 40 mm · GPS",price:3999000,rating:4.7,stock:6,category:"Smartwatch",description:"Pantau aktivitas, tidur, dan kesehatan langsung dari pergelangan.",needs:["Kesehatan"],badge:"BARU",image:"https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000006",brand:"Sony",name:"WH-CH720N",spec:"Wireless · Noise Cancelling · 35 jam",price:1699000,originalPrice:1999000,rating:4.9,stock:18,category:"Audio",description:"Headphone nirkabel ringan dengan peredam bising aktif.",needs:["Hiburan","Produktivitas"],image:"https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000007",brand:"Logitech",name:"Pebble 2 Combo",spec:"Bluetooth · Multi-device · Silent keys",price:949000,rating:4.7,stock:22,category:"Accessories",description:"Keyboard dan mouse ringkas, senyap, dan mudah dibawa.",needs:["Produktivitas"],image:"https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000008",brand:"Apple",name:"iPhone 15 128GB",spec:"128 GB · Kamera 48 MP · USB-C",price:12999000,originalPrice:13999000,rating:4.9,stock:5,category:"Smartphone",description:"Performa cepat, kamera andal, dan desain yang nyaman digunakan.",needs:["Komunikasi","Hiburan"],image:"https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000009",brand:"Apple",name:"MacBook Air M3",spec:"Apple M3 · 8 GB · 256 GB SSD",price:17999000,rating:4.9,stock:4,category:"Laptop",description:"Ringan, senyap, dan bertenaga untuk produktivitas sepanjang hari.",needs:["Produktivitas"],badge:"PREMIUM",image:"https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000010",brand:"JBL",name:"Flip 6",spec:"Bluetooth · Tahan air IP67 · 12 jam",price:1999000,rating:4.8,stock:0,category:"Audio",description:"Speaker portabel tahan air dengan suara kuat dan jernih.",needs:["Hiburan"],image:"https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?auto=format&fit=crop&w=700&q=80"},
+  {id:"00000000-0000-4000-8000-000000000011",brand:"Anker",name:"PowerCore 20K",spec:"20.000 mAh · Fast charging · USB-C",price:799000,rating:4.8,stock:31,category:"Accessories",description:"Power bank kapasitas besar dengan pengisian cepat dan aman.",needs:["Komunikasi","Produktivitas"],image:"https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?auto=format&fit=crop&w=700&q=80"}
 ];
 
 const storage = {
   get(key, fallback) { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { showToast("Penyimpanan browser penuh. Hapus beberapa foto produk.", "error"); } }
 };
-let products = storage.get("gyd_products", null) || migrateLegacyProducts() || starterProducts;
+let products = starterProducts;
 let cart = storage.get("gyd_cart", storage.get("nc_cart", []));
-let orders = storage.get("gyd_orders", storage.get("nc_orders", []));
+// Orders are session-only here: Supabase, not localStorage, is the durable source of truth.
+let orders = [];
 let activeCategory = "Semua";
 let recommendation = null;
 let detailProductId = null;
@@ -55,7 +56,29 @@ function migrateLegacyProducts() {
   if (!old?.length) return null;
   return old.map(product => ({ ...product, category: CATEGORIES.includes(product.category) ? product.category : "Accessories", needs: product.needs || ["Produktivitas"] }));
 }
-function persist() { storage.set("gyd_products", products); storage.set("gyd_cart", cart); storage.set("gyd_orders", orders); updateCartCount(); }
+function persist() { storage.set("gyd_cart", cart); updateCartCount(); }
+function mapProduct(row) {
+  const specifications = row.specifications;
+  const spec = typeof specifications === "string" ? specifications : Array.isArray(specifications) ? specifications.join(" · ") : specifications?.summary || (specifications && typeof specifications === "object" ? Object.entries(specifications).map(([key,value]) => `${key}: ${value}`).join(" · ") : "");
+  return { id:String(row.id), name:row.name, brand:row.brand || "", category:row.category || "Accessories", description:row.description || "", spec, price:Number(row.price), originalPrice:row.original_price == null ? null : Number(row.original_price), stock:Number(row.stock || 0), image:row.image_url || "", rating:Number(row.rating || 0), isActive:row.is_active !== false, needs: categoryNeeds(row.category) };
+}
+function categoryNeeds(category) { return ({Smartphone:["Komunikasi","Hiburan"],Laptop:["Produktivitas","Hiburan"],Tablet:["Produktivitas","Hiburan"],Smartwatch:["Kesehatan"],Audio:["Hiburan"],Accessories:["Produktivitas"]})[category] || ["Produktivitas"]; }
+async function loadProducts() {
+  $("resultText").textContent = "Memuat produk dari database…";
+  $("productGrid").innerHTML = '<div class="empty-state"><span class="state-icon">…</span><h3>Memuat produk</h3><p>Mohon tunggu sebentar.</p></div>';
+  try {
+    const response = await fetch("/api/products", { headers:{ Accept:"application/json" } });
+    if (!response.ok) throw new Error((await response.json().catch(()=>null))?.error || "Produk tidak dapat dimuat");
+    products = (await response.json()).products.map(mapProduct).filter(product => product.isActive);
+    if (!products.length) throw new Error("Katalog Supabase masih kosong. Jalankan berkas seed SQL.");
+  } catch (error) {
+    console.error("Supabase product load failed; showing built-in fallback.", error);
+    products = starterProducts;
+    showToast("Database belum dapat dihubungi. Menampilkan katalog demo sementara.");
+    $("resultText").textContent = "Katalog demo sementara — koneksi database bermasalah.";
+  }
+  validCart(); persist(); renderShowcases(); renderProducts();
+}
 function showToast(message) { clearTimeout(toastTimer); $("toast").textContent = message; $("toast").classList.remove("hidden"); toastTimer = setTimeout(() => $("toast").classList.add("hidden"), 2600); }
 function updateCartCount() { const count = cart.reduce((sum, item) => sum + item.qty, 0); $("cartCount").textContent = count; $("cartCount").setAttribute("aria-label", `${count} item`); }
 function setModal(id, open) { const element = $(id); element.classList.toggle("hidden", !open); element.setAttribute("aria-hidden", String(!open)); document.body.style.overflow = document.querySelector(".modal:not(.hidden), .overlay:not(.hidden)") ? "hidden" : ""; if (open) setTimeout(() => element.querySelector("button, input, select")?.focus(), 0); }
@@ -143,11 +166,18 @@ function validateCheckoutStep() { const section=document.querySelector(`[data-ch
 function changeCheckoutStep(delta) { if(delta>0&&!validateCheckoutStep())return; checkoutStep=Math.max(1,Math.min(CHECKOUT_STEPS.length,checkoutStep+delta)); renderCheckoutStep(); $("checkoutModal").querySelector(".modal-card").scrollTop=0; }
 function renderFinalReview() { const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank"; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value)}</strong><small>${escapeHTML($("custPhone").value)} · ${escapeHTML($("custEmail").value)}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value)}, ${escapeHTML($("custPostal").value)}</strong><small>${escapeHTML($("custAddress").value)}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong><small>${escapeHTML(shipping.detail)} · ${shipping.price?money(shipping.price):"Gratis"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong><small>Simulasi pembayaran lokal</small></div>`; }
 function startCheckout() { if (!cart.length) return showToast("Keranjang masih kosong."); setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
-function submitOrder(event) {
+async function submitOrder(event) {
   event.preventDefault(); if(checkoutStep!==5||!validateCheckoutStep())return; const totals=checkoutTotals(); const shipping=totals.shipping; const payment=document.querySelector("input[name='payment']:checked").value;
-  const items = cart.map(item => { const product = products.find(entry => entry.id === item.id); return { id:item.id, name:product.name, qty:item.qty, price:product.price }; });
-  const order = { id:`GYD-${Date.now().toString().slice(-8)}`, createdAt:new Date().toISOString(), customer:{name:$("custName").value.trim(),phone:$("custPhone").value.trim(),email:$("custEmail").value.trim(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postalCode:$("custPostal").value.trim(),notes:$("custNotes").value.trim()}, payment, shipping:shipping.name, shippingId:shipping.id, shippingCost:shipping.price, subtotal:totals.subtotal, discount:totals.discount, total:totals.total, status:"Pending", items };
-  orders.unshift(order); items.forEach(item => { const product = products.find(entry => entry.id===item.id); if(product)product.stock=Math.max(0,product.stock-item.qty); }); cart=[]; persist(); renderProducts(); renderShowcases(); event.target.reset(); setModal("checkoutModal",false); $("successMessage").innerHTML=`Nomor pesanan <strong>${escapeHTML(order.id)}</strong> telah dibuat dengan total <strong>${money(order.total)}</strong>. Anda dapat memantau statusnya melalui menu Pesanan.`; setModal("successModal",true);
+  const customer={full_name:$("custName").value.trim(),whatsapp:$("custPhone").value.trim(),email:$("custEmail").value.trim(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postal_code:$("custPostal").value.trim()};
+  const button=$("checkoutSubmit"); button.disabled=true; button.textContent="Menyimpan Pesanan…"; $("checkoutError").classList.add("hidden");
+  try {
+    const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({customer,payment,shippingId:shipping.id,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
+    const result=await response.json().catch(()=>({})); if(!response.ok)throw new Error(result.error||"Pesanan gagal disimpan.");
+    const items=cart.map(item=>{const product=products.find(entry=>entry.id===item.id);return{id:item.id,name:product?.name||"Produk",qty:item.qty,price:product?.price||0};});
+    const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:shipping.name,shippingId:shipping.id,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",items};
+    orders.unshift(order); cart=[]; persist(); await loadProducts(); event.target.reset(); setModal("checkoutModal",false); $("successMessage").innerHTML=`Nomor pesanan <strong>${escapeHTML(order.id)}</strong> telah dibuat dengan total <strong>${money(order.total)}</strong>. Anda dapat memantau statusnya selama sesi ini melalui menu Pesanan.`; setModal("successModal",true);
+  } catch(error) { $("checkoutError").textContent=error.message; $("checkoutError").classList.remove("hidden"); }
+  finally { button.disabled=false; button.textContent="Buat Pesanan"; }
 }
 
 function hideMainViews(){ $("storeView").classList.add("hidden"); $("adminView").classList.add("hidden"); $("customerOrdersView").classList.add("hidden"); }
@@ -156,10 +186,10 @@ function showAdmin() { hideMainViews(); $("adminView").classList.remove("hidden"
 function showCustomerOrders() { hideMainViews(); $("customerOrdersView").classList.remove("hidden"); renderCustomerOrders(); window.scrollTo({top:0,behavior:"smooth"}); }
 function setAdminTab(tab) { const productsTab = tab === "products"; $("adminProducts").classList.toggle("hidden", !productsTab); $("adminOrders").classList.toggle("hidden", productsTab); $("tabProducts").classList.toggle("active", productsTab); $("tabOrders").classList.toggle("active", !productsTab); productsTab ? renderAdminProducts() : renderOrders(); }
 const fileToDataURL = file => new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(file); });
-async function saveProduct(event) { event.preventDefault(); const id=$("editId").value, file=$("productImage").files[0]; let image=""; if (file) image=await fileToDataURL(file); const payload={name:$("productName").value.trim(),price:Number($("productPrice").value),stock:Number($("productStock").value),category:$("productCategory").value,description:$("productDescription").value.trim(),needs:["Produktivitas"]}; if(id){const product=products.find(item=>item.id===id);Object.assign(product,payload);if(image)product.image=image;showToast("Produk berhasil diperbarui.");}else{products.unshift({id:crypto.randomUUID(),...payload,image:image||"https://placehold.co/700x700/eef1f5/172033?text=GETYOURDEVICE"});showToast("Produk berhasil ditambahkan.");}persist();resetProductForm();renderAdminProducts(); }
+async function saveProduct(event) { event.preventDefault(); showToast("Mode demo: perubahan admin tidak disimpan. Autentikasi admin Supabase diperlukan."); }
 function resetProductForm(){ $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; }
 function editProduct(id){const product=products.find(item=>item.id===id);if(!product)return;$("editId").value=product.id;$("productName").value=product.name;$("productPrice").value=product.price;$("productStock").value=product.stock;$("productCategory").value=product.category;$("productDescription").value=product.description||"";$("productFormTitle").textContent="Edit Produk";$("productForm").scrollIntoView({behavior:"smooth"});}
-function deleteProduct(id){if(!confirm("Hapus produk ini dari toko?"))return;products=products.filter(item=>item.id!==id);cart=cart.filter(item=>item.id!==id);persist();renderAdminProducts();showToast("Produk telah dihapus.");}
+function deleteProduct(){showToast("Mode demo: penghapusan dinonaktifkan sampai autentikasi admin tersedia.");}
 function renderAdminProducts(){const target=$("adminProductList");if(!products.length){target.innerHTML='<div class="empty-state"><h3>Belum ada produk</h3></div>';return;}target.innerHTML=products.map(product=>`<div class="admin-item"><img class="admin-thumb" src="${safeImage(product.image)}" alt=""><div><strong>${escapeHTML(product.name)}</strong><small>${money(product.price)} · Stok ${product.stock}</small></div><div class="admin-item-actions"><button class="mini" type="button" data-edit="${escapeHTML(product.id)}">Edit</button><button class="mini danger" type="button" data-delete="${escapeHTML(product.id)}">Hapus</button></div></div>`).join("");}
 function normalizeOrderStatus(status){return ({"Menunggu Pembayaran":"Pending","Dibayar":"Paid","Diproses":"Processing","Dikirim":"Shipped","Selesai":"Completed","Dibatalkan":"Cancelled"})[status]||status||"Pending";}
 function statusLabel(status){return ({Pending:"Menunggu Pembayaran",Paid:"Sudah Dibayar",Processing:"Sedang Diproses",Shipped:"Dalam Pengiriman",Completed:"Selesai",Cancelled:"Dibatalkan"})[normalizeOrderStatus(status)]||status;}
@@ -185,4 +215,4 @@ function initializeMotion() {
   window.addEventListener("scroll", () => { if (!ticking) requestAnimationFrame(() => { header.classList.toggle("scrolled", window.scrollY > 24); if (!matchMedia("(prefers-reduced-motion: reduce)").matches && window.innerWidth > 680) { const heroImage = document.querySelector(".hero-device"); if (heroImage && window.scrollY < 600) heroImage.style.transform = `translateY(${Math.min(window.scrollY * .035, 14)}px) scale(1.01)`; } ticking = false; }); ticking = true; }, { passive:true });
 }
 
-buildNavigation(); persist(); renderShowcases(); renderProducts(); initializeMotion();
+buildNavigation(); persist(); initializeMotion(); loadProducts();
