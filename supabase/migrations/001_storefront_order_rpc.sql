@@ -18,14 +18,16 @@ begin
   if jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 50 then raise exception 'invalid items'; end if;
   v_shipping := case p_shipping_id when 'regular' then 25000 when 'express' then 50000 when 'sameday' then 85000 when 'pickup' then 0 else null end;
   if v_shipping is null then raise exception 'invalid shipping'; end if;
-  insert into customers (name,email,phone,address,city,postal_code,notes)
-  values (p_customer->>'name',lower(p_customer->>'email'),p_customer->>'phone',p_customer->>'address',p_customer->>'city',p_customer->>'postal_code',p_customer->>'notes') returning id into v_customer_id;
+  insert into customers (full_name,email,phone,address,city,postal_code)
+  values (p_customer->>'name',lower(p_customer->>'email'),p_customer->>'phone',p_customer->>'address',p_customer->>'city',p_customer->>'postal_code') returning id into v_customer_id;
   v_order_number := 'GYD-' || to_char(clock_timestamp(),'YYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
   insert into orders (customer_id,order_number,status,payment_method,shipping_method,shipping_cost,subtotal,grand_total)
   values (v_customer_id,v_order_number,'Pending',p_payment_method,p_shipping_id,v_shipping,0,0) returning id into v_order_id;
   for v_item in select * from jsonb_array_elements(p_items) loop
     select id,name,price,stock into v_product from products where id=(v_item->>'product_id')::uuid and is_active=true for update;
-    if not found or (v_item->>'quantity')::integer < 1 or v_product.stock < (v_item->>'quantity')::integer then raise exception 'invalid product or stock'; end if;
+    if not found then raise exception using message = 'INVALID_PRODUCT', errcode = 'P0001'; end if;
+    if (v_item->>'quantity')::integer < 1 then raise exception using message = 'INVALID_QUANTITY', errcode = 'P0001'; end if;
+    if v_product.stock < (v_item->>'quantity')::integer then raise exception using message = 'INSUFFICIENT_STOCK', errcode = 'P0001'; end if;
     v_subtotal := v_subtotal + v_product.price * (v_item->>'quantity')::integer;
     insert into order_items (order_id,product_id,product_name,quantity,unit_price,subtotal)
     values (v_order_id,v_product.id,v_product.name,(v_item->>'quantity')::integer,v_product.price,v_product.price*(v_item->>'quantity')::integer);
