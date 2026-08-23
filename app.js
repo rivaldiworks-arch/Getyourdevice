@@ -59,7 +59,7 @@ function migrateLegacyProducts() {
 function persist() { storage.set("gyd_cart", cart); updateCartCount(); }
 function mapProduct(row) {
   const specifications = row.specifications;
-  const spec = typeof specifications === "string" ? specifications : Array.isArray(specifications) ? specifications.join(" · ") : specifications && typeof specifications === "object" ? Object.entries(specifications).map(([key,value]) => `${key}: ${value}`).join(" · ") : "";
+  const spec = typeof specifications === "string" ? specifications : Array.isArray(specifications) ? specifications.join(" · ") : specifications?.summary || (specifications && typeof specifications === "object" ? Object.entries(specifications).map(([key,value]) => `${key}: ${value}`).join(" · ") : "");
   return { id:String(row.id), name:row.name, brand:row.brand || "", category:row.category || "Accessories", description:row.description || "", spec, price:Number(row.price), originalPrice:row.original_price == null ? null : Number(row.original_price), stock:Number(row.stock || 0), image:row.image_url || "", rating:Number(row.rating || 0), isActive:row.is_active !== false, needs: categoryNeeds(row.category) };
 }
 function categoryNeeds(category) { return ({Smartphone:["Komunikasi","Hiburan"],Laptop:["Produktivitas","Hiburan"],Tablet:["Produktivitas","Hiburan"],Smartwatch:["Kesehatan"],Audio:["Hiburan"],Accessories:["Produktivitas"]})[category] || ["Produktivitas"]; }
