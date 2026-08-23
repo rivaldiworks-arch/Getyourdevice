@@ -168,13 +168,13 @@ function renderFinalReview() { const shipping=selectedShipping(); const payment=
 function startCheckout() { if (!cart.length) return showToast("Keranjang masih kosong."); setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
 async function submitOrder(event) {
   event.preventDefault(); if(checkoutStep!==5||!validateCheckoutStep())return; const totals=checkoutTotals(); const shipping=totals.shipping; const payment=document.querySelector("input[name='payment']:checked").value;
-  const customer={name:$("custName").value.trim(),phone:$("custPhone").value.trim(),email:$("custEmail").value.trim(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postalCode:$("custPostal").value.trim(),notes:$("custNotes").value.trim()};
+  const customer={full_name:$("custName").value.trim(),whatsapp:$("custPhone").value.trim(),email:$("custEmail").value.trim(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postal_code:$("custPostal").value.trim()};
   const button=$("checkoutSubmit"); button.disabled=true; button.textContent="Menyimpan Pesanan…"; $("checkoutError").classList.add("hidden");
   try {
     const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({customer,payment,shippingId:shipping.id,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
     const result=await response.json().catch(()=>({})); if(!response.ok)throw new Error(result.error||"Pesanan gagal disimpan.");
     const items=cart.map(item=>{const product=products.find(entry=>entry.id===item.id);return{id:item.id,name:product?.name||"Produk",qty:item.qty,price:product?.price||0};});
-    const order={id:result.orderNumber,createdAt:result.createdAt,customer,payment,shipping:shipping.name,shippingId:shipping.id,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",items};
+    const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:shipping.name,shippingId:shipping.id,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",items};
     orders.unshift(order); cart=[]; persist(); await loadProducts(); event.target.reset(); setModal("checkoutModal",false); $("successMessage").innerHTML=`Nomor pesanan <strong>${escapeHTML(order.id)}</strong> telah dibuat dengan total <strong>${money(order.total)}</strong>. Anda dapat memantau statusnya selama sesi ini melalui menu Pesanan.`; setModal("successModal",true);
   } catch(error) { $("checkoutError").textContent=error.message; $("checkoutError").classList.remove("hidden"); }
   finally { button.disabled=false; button.textContent="Buat Pesanan"; }

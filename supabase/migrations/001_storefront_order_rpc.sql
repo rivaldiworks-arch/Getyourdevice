@@ -16,10 +16,17 @@ declare
   v_subtotal numeric(14,2) := 0; v_shipping numeric(14,2); v_item jsonb; v_product record;
 begin
   if jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 50 then raise exception 'invalid items'; end if;
+  if nullif(btrim(p_customer->>'full_name'),'') is null
+    or nullif(btrim(p_customer->>'whatsapp'),'') is null
+    or nullif(btrim(p_customer->>'email'),'') is null
+    or nullif(btrim(p_customer->>'address'),'') is null
+    or nullif(btrim(p_customer->>'city'),'') is null
+    or nullif(btrim(p_customer->>'postal_code'),'') is null
+  then raise exception using message = 'INVALID_CUSTOMER', errcode = 'P0001'; end if;
   v_shipping := case p_shipping_id when 'regular' then 25000 when 'express' then 50000 when 'sameday' then 85000 when 'pickup' then 0 else null end;
   if v_shipping is null then raise exception 'invalid shipping'; end if;
   insert into customers (full_name,whatsapp,email,address,city,postal_code)
-  values (p_customer->>'full_name',p_customer->>'whatsapp',lower(p_customer->>'email'),p_customer->>'address',p_customer->>'city',p_customer->>'postal_code') returning id into v_customer_id;
+  values (btrim(p_customer->>'full_name'),btrim(p_customer->>'whatsapp'),lower(btrim(p_customer->>'email')),btrim(p_customer->>'address'),btrim(p_customer->>'city'),btrim(p_customer->>'postal_code')) returning id into v_customer_id;
   v_order_number := 'GYD-' || to_char(clock_timestamp(),'YYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,6));
   insert into orders (customer_id,order_number,status,payment_method,shipping_method,shipping_cost,subtotal,total)
   values (v_customer_id,v_order_number,'Pending',p_payment_method,p_shipping_id,v_shipping,0,0) returning id into v_order_id;
