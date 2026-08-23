@@ -1,4 +1,5 @@
 -- Idempotent demo catalog. Run in the Supabase SQL editor.
+-- These UUIDs exactly match starterProducts in app.js so fallback carts remain checkout-compatible.
 insert into public.products (id,name,brand,category,description,specifications,price,original_price,stock,image_url,rating,is_active) values
   ('00000000-0000-4000-8000-000000000002','Galaxy A56 5G','Samsung','Smartphone','Layar Super AMOLED jernih, kamera 50 MP, dan baterai tahan lama.','8 GB / 256 GB · Kamera 50 MP',6199000,6799000,14,'https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=80',4.8,true),
   ('00000000-0000-4000-8000-000000000003','Vivobook 14','ASUS','Laptop','Laptop tipis untuk bekerja dan belajar dengan layar 14 inci.','Intel Core i5 · 16 GB · 512 GB SSD',8999000,9499000,8,'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=80',4.7,true),

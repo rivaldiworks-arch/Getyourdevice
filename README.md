@@ -25,7 +25,7 @@ Jangan memakai `SUPABASE_SERVICE_ROLE_KEY`. Deploy ulang sesudah mengubah enviro
 
 1. Periksa bahwa tabel yang sudah ada memakai nama kolom yang tercantum dalam migration.
 2. Jalankan `supabase/migrations/001_storefront_order_rpc.sql` di Supabase SQL Editor. RPC ini diperlukan sebelum checkout dapat disimpan.
-3. Jalankan `supabase/seed/products.sql` untuk memasukkan/memperbarui katalog demo secara idempotent.
+3. Jalankan `supabase/seed/products.sql` untuk memasukkan/memperbarui katalog demo secara idempotent. UUID dalam seed sama persis dengan katalog fallback di `app.js`, sehingga item keranjang dapat divalidasi oleh RPC checkout.
 4. Pastikan RLS `products` memiliki policy `SELECT` untuk produk aktif bagi role `anon`. Jangan tambahkan policy anonymous untuk insert/update/delete tabel.
 
 Tabel yang dipakai adalah `products`, `customers`, `orders`, dan `order_items`. `admin_profiles` disiapkan untuk fase autentikasi berikutnya.
