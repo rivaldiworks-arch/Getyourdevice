@@ -35,9 +35,10 @@ const storage = {
   get(key, fallback) { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { showToast("Penyimpanan browser penuh. Hapus beberapa foto produk.", "error"); } }
 };
-let products = storage.get("gyd_products", null) || migrateLegacyProducts() || starterProducts;
+let products = starterProducts;
 let cart = storage.get("gyd_cart", storage.get("nc_cart", []));
-let orders = storage.get("gyd_orders", storage.get("nc_orders", []));
+// Orders are session-only here: Supabase, not localStorage, is the durable source of truth.
+let orders = [];
 let activeCategory = "Semua";
 let recommendation = null;
 let detailProductId = null;
@@ -55,7 +56,29 @@ function migrateLegacyProducts() {
   if (!old?.length) return null;
   return old.map(product => ({ ...product, category: CATEGORIES.includes(product.category) ? product.category : "Accessories", needs: product.needs || ["Produktivitas"] }));
 }
-function persist() { storage.set("gyd_products", products); storage.set("gyd_cart", cart); storage.set("gyd_orders", orders); updateCartCount(); }
+function persist() { storage.set("gyd_cart", cart); updateCartCount(); }
+function mapProduct(row) {
+  const specifications = row.specifications;
+  const spec = typeof specifications === "string" ? specifications : Array.isArray(specifications) ? specifications.join(" · ") : specifications && typeof specifications === "object" ? Object.entries(specifications).map(([key,value]) => `${key}: ${value}`).join(" · ") : "";
+  return { id:String(row.id), name:row.name, brand:row.brand || "", category:row.category || "Accessories", description:row.description || "", spec, price:Number(row.price), originalPrice:row.original_price == null ? null : Number(row.original_price), stock:Number(row.stock || 0), image:row.image_url || "", rating:Number(row.rating || 0), isActive:row.is_active !== false, needs: categoryNeeds(row.category) };
+}
+function categoryNeeds(category) { return ({Smartphone:["Komunikasi","Hiburan"],Laptop:["Produktivitas","Hiburan"],Tablet:["Produktivitas","Hiburan"],Smartwatch:["Kesehatan"],Audio:["Hiburan"],Accessories:["Produktivitas"]})[category] || ["Produktivitas"]; }
+async function loadProducts() {
+  $("resultText").textContent = "Memuat produk dari database…";
+  $("productGrid").innerHTML = '<div class="empty-state"><span class="state-icon">…</span><h3>Memuat produk</h3><p>Mohon tunggu sebentar.</p></div>';
+  try {
+    const response = await fetch("/api/products", { headers:{ Accept:"application/json" } });
+    if (!response.ok) throw new Error((await response.json().catch(()=>null))?.error || "Produk tidak dapat dimuat");
+    products = (await response.json()).products.map(mapProduct).filter(product => product.isActive);
+    if (!products.length) throw new Error("Katalog Supabase masih kosong. Jalankan berkas seed SQL.");
+  } catch (error) {
+    console.error("Supabase product load failed; showing built-in fallback.", error);
+    products = starterProducts;
+    showToast("Database belum dapat dihubungi. Menampilkan katalog demo sementara.");
+    $("resultText").textContent = "Katalog demo sementara — koneksi database bermasalah.";
+  }
+  validCart(); persist(); renderShowcases(); renderProducts();
+}
 function showToast(message) { clearTimeout(toastTimer); $("toast").textContent = message; $("toast").classList.remove("hidden"); toastTimer = setTimeout(() => $("toast").classList.add("hidden"), 2600); }
 function updateCartCount() { const count = cart.reduce((sum, item) => sum + item.qty, 0); $("cartCount").textContent = count; $("cartCount").setAttribute("aria-label", `${count} item`); }
 function setModal(id, open) { const element = $(id); element.classList.toggle("hidden", !open); element.setAttribute("aria-hidden", String(!open)); document.body.style.overflow = document.querySelector(".modal:not(.hidden), .overlay:not(.hidden)") ? "hidden" : ""; if (open) setTimeout(() => element.querySelector("button, input, select")?.focus(), 0); }
@@ -143,11 +166,18 @@ function validateCheckoutStep() { const section=document.querySelector(`[data-ch
 function changeCheckoutStep(delta) { if(delta>0&&!validateCheckoutStep())return; checkoutStep=Math.max(1,Math.min(CHECKOUT_STEPS.length,checkoutStep+delta)); renderCheckoutStep(); $("checkoutModal").querySelector(".modal-card").scrollTop=0; }
 function renderFinalReview() { const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank"; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value)}</strong><small>${escapeHTML($("custPhone").value)} · ${escapeHTML($("custEmail").value)}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value)}, ${escapeHTML($("custPostal").value)}</strong><small>${escapeHTML($("custAddress").value)}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong><small>${escapeHTML(shipping.detail)} · ${shipping.price?money(shipping.price):"Gratis"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong><small>Simulasi pembayaran lokal</small></div>`; }
 function startCheckout() { if (!cart.length) return showToast("Keranjang masih kosong."); setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
-function submitOrder(event) {
+async function submitOrder(event) {
   event.preventDefault(); if(checkoutStep!==5||!validateCheckoutStep())return; const totals=checkoutTotals(); const shipping=totals.shipping; const payment=document.querySelector("input[name='payment']:checked").value;
-  const items = cart.map(item => { const product = products.find(entry => entry.id === item.id); return { id:item.id, name:product.name, qty:item.qty, price:product.price }; });
-  const order = { id:`GYD-${Date.now().toString().slice(-8)}`, createdAt:new Date().toISOString(), customer:{name:$("custName").value.trim(),phone:$("custPhone").value.trim(),email:$("custEmail").value.trim(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postalCode:$("custPostal").value.trim(),notes:$("custNotes").value.trim()}, payment, shipping:shipping.name, shippingId:shipping.id, shippingCost:shipping.price, subtotal:totals.subtotal, discount:totals.discount, total:totals.total, status:"Pending", items };
-  orders.unshift(order); items.forEach(item => { const product = products.find(entry => entry.id===item.id); if(product)product.stock=Math.max(0,product.stock-item.qty); }); cart=[]; persist(); renderProducts(); renderShowcases(); event.target.reset(); setModal("checkoutModal",false); $("successMessage").innerHTML=`Nomor pesanan <strong>${escapeHTML(order.id)}</strong> telah dibuat dengan total <strong>${money(order.total)}</strong>. Anda dapat memantau statusnya melalui menu Pesanan.`; setModal("successModal",true);
+  const customer={name:$("custName").value.trim(),phone:$("custPhone").value.trim(),email:$("custEmail").value.trim(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postalCode:$("custPostal").value.trim(),notes:$("custNotes").value.trim()};
+  const button=$("checkoutSubmit"); button.disabled=true; button.textContent="Menyimpan Pesanan…"; $("checkoutError").classList.add("hidden");
+  try {
+    const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({customer,payment,shippingId:shipping.id,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
+    const result=await response.json().catch(()=>({})); if(!response.ok)throw new Error(result.error||"Pesanan gagal disimpan.");
+    const items=cart.map(item=>{const product=products.find(entry=>entry.id===item.id);return{id:item.id,name:product?.name||"Produk",qty:item.qty,price:product?.price||0};});
+    const order={id:result.orderNumber,createdAt:result.createdAt,customer,payment,shipping:shipping.name,shippingId:shipping.id,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",items};
+    orders.unshift(order); cart=[]; persist(); await loadProducts(); event.target.reset(); setModal("checkoutModal",false); $("successMessage").innerHTML=`Nomor pesanan <strong>${escapeHTML(order.id)}</strong> telah dibuat dengan total <strong>${money(order.total)}</strong>. Anda dapat memantau statusnya selama sesi ini melalui menu Pesanan.`; setModal("successModal",true);
+  } catch(error) { $("checkoutError").textContent=error.message; $("checkoutError").classList.remove("hidden"); }
+  finally { button.disabled=false; button.textContent="Buat Pesanan"; }
 }
 
 function hideMainViews(){ $("storeView").classList.add("hidden"); $("adminView").classList.add("hidden"); $("customerOrdersView").classList.add("hidden"); }
@@ -156,10 +186,10 @@ function showAdmin() { hideMainViews(); $("adminView").classList.remove("hidden"
 function showCustomerOrders() { hideMainViews(); $("customerOrdersView").classList.remove("hidden"); renderCustomerOrders(); window.scrollTo({top:0,behavior:"smooth"}); }
 function setAdminTab(tab) { const productsTab = tab === "products"; $("adminProducts").classList.toggle("hidden", !productsTab); $("adminOrders").classList.toggle("hidden", productsTab); $("tabProducts").classList.toggle("active", productsTab); $("tabOrders").classList.toggle("active", !productsTab); productsTab ? renderAdminProducts() : renderOrders(); }
 const fileToDataURL = file => new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(file); });
-async function saveProduct(event) { event.preventDefault(); const id=$("editId").value, file=$("productImage").files[0]; let image=""; if (file) image=await fileToDataURL(file); const payload={name:$("productName").value.trim(),price:Number($("productPrice").value),stock:Number($("productStock").value),category:$("productCategory").value,description:$("productDescription").value.trim(),needs:["Produktivitas"]}; if(id){const product=products.find(item=>item.id===id);Object.assign(product,payload);if(image)product.image=image;showToast("Produk berhasil diperbarui.");}else{products.unshift({id:crypto.randomUUID(),...payload,image:image||"https://placehold.co/700x700/eef1f5/172033?text=GETYOURDEVICE"});showToast("Produk berhasil ditambahkan.");}persist();resetProductForm();renderAdminProducts(); }
+async function saveProduct(event) { event.preventDefault(); showToast("Mode demo: perubahan admin tidak disimpan. Autentikasi admin Supabase diperlukan."); }
 function resetProductForm(){ $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; }
 function editProduct(id){const product=products.find(item=>item.id===id);if(!product)return;$("editId").value=product.id;$("productName").value=product.name;$("productPrice").value=product.price;$("productStock").value=product.stock;$("productCategory").value=product.category;$("productDescription").value=product.description||"";$("productFormTitle").textContent="Edit Produk";$("productForm").scrollIntoView({behavior:"smooth"});}
-function deleteProduct(id){if(!confirm("Hapus produk ini dari toko?"))return;products=products.filter(item=>item.id!==id);cart=cart.filter(item=>item.id!==id);persist();renderAdminProducts();showToast("Produk telah dihapus.");}
+function deleteProduct(){showToast("Mode demo: penghapusan dinonaktifkan sampai autentikasi admin tersedia.");}
 function renderAdminProducts(){const target=$("adminProductList");if(!products.length){target.innerHTML='<div class="empty-state"><h3>Belum ada produk</h3></div>';return;}target.innerHTML=products.map(product=>`<div class="admin-item"><img class="admin-thumb" src="${safeImage(product.image)}" alt=""><div><strong>${escapeHTML(product.name)}</strong><small>${money(product.price)} · Stok ${product.stock}</small></div><div class="admin-item-actions"><button class="mini" type="button" data-edit="${escapeHTML(product.id)}">Edit</button><button class="mini danger" type="button" data-delete="${escapeHTML(product.id)}">Hapus</button></div></div>`).join("");}
 function normalizeOrderStatus(status){return ({"Menunggu Pembayaran":"Pending","Dibayar":"Paid","Diproses":"Processing","Dikirim":"Shipped","Selesai":"Completed","Dibatalkan":"Cancelled"})[status]||status||"Pending";}
 function statusLabel(status){return ({Pending:"Menunggu Pembayaran",Paid:"Sudah Dibayar",Processing:"Sedang Diproses",Shipped:"Dalam Pengiriman",Completed:"Selesai",Cancelled:"Dibatalkan"})[normalizeOrderStatus(status)]||status;}
@@ -185,4 +215,4 @@ function initializeMotion() {
   window.addEventListener("scroll", () => { if (!ticking) requestAnimationFrame(() => { header.classList.toggle("scrolled", window.scrollY > 24); if (!matchMedia("(prefers-reduced-motion: reduce)").matches && window.innerWidth > 680) { const heroImage = document.querySelector(".hero-device"); if (heroImage && window.scrollY < 600) heroImage.style.transform = `translateY(${Math.min(window.scrollY * .035, 14)}px) scale(1.01)`; } ticking = false; }); ticking = true; }, { passive:true });
 }
 
-buildNavigation(); persist(); renderShowcases(); renderProducts(); initializeMotion();
+buildNavigation(); persist(); initializeMotion(); loadProducts();
