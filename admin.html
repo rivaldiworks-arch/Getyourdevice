@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><title>Admin — GETYOURDEVICE</title>
+  <link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="./admin.css">
+</head>
+<body class="admin-body">
+  <main class="admin-shell">
+    <section id="loginView" class="login-card">
+      <a class="admin-brand" href="./index.html"><span class="brand-mark">G</span> GETYOUR<span>DEVICE</span></a>
+      <p class="eyebrow">ADMIN PORTAL</p><h1>Masuk ke dashboard</h1><p>Gunakan akun yang telah diberi role <strong>admin</strong>.</p>
+      <form id="loginForm"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required minlength="6"><p id="loginError" class="admin-error hidden" role="alert"></p><button class="primary full" type="submit">Masuk</button></form>
+      <a href="./index.html">← Kembali ke toko</a>
+    </section>
+    <section id="dashboardView" class="dashboard hidden">
+      <header class="admin-topbar"><div><a class="admin-brand" href="./index.html"><span class="brand-mark">G</span> GETYOUR<span>DEVICE</span></a><small id="adminIdentity"></small></div><button id="signOut" class="secondary" type="button">Keluar</button></header>
+      <div class="admin-heading"><div><p class="eyebrow">ADMIN DASHBOARD</p><h1>Kelola toko</h1></div><button id="addProduct" class="primary" type="button">+ Tambah produk</button></div>
+      <nav class="admin-tabs"><button class="active" data-tab="products">Produk</button><button data-tab="orders">Pesanan</button></nav>
+      <section id="productsPanel">
+        <div class="admin-toolbar"><input id="productSearch" type="search" placeholder="Cari nama, brand, kategori…"><select id="statusFilter"><option value="all">Semua status</option><option value="active">Aktif</option><option value="inactive">Nonaktif</option></select></div>
+        <p id="productMessage" class="admin-message" role="status"></p><div id="productTable" class="admin-table-wrap"></div>
+      </section>
+      <section id="ordersPanel" class="hidden"><p class="admin-note">Fondasi baca-saja. Skema checkout tidak diubah pada fase ini.</p><p id="orderMessage" class="admin-message" role="status"></p><div id="orderTable" class="admin-table-wrap"></div></section>
+    </section>
+  </main>
+  <dialog id="productDialog"><form id="productForm" method="dialog"><div class="dialog-head"><h2 id="formTitle">Tambah produk</h2><button type="button" id="closeDialog" aria-label="Tutup">×</button></div><input id="productId" type="hidden"><div class="form-grid"><label>Nama<input id="name" required></label><label>Brand<input id="brand" required></label><label>Kategori<input id="category" required></label><label>Harga<input id="price" type="number" min="0" step="1" required></label><label>Harga asli<input id="originalPrice" type="number" min="0" step="1"></label><label>Stok<input id="stock" type="number" min="0" step="1" required></label><label>Rating<input id="rating" type="number" min="0" max="5" step="0.1"></label><label>URL gambar<input id="imageUrl" type="url"></label><label class="wide">Deskripsi<textarea id="description" rows="3"></textarea></label><label class="wide">Spesifikasi (JSON)<textarea id="specifications" rows="4">{}</textarea></label><label class="check wide"><input id="isActive" type="checkbox" checked> Produk aktif dan terlihat di storefront</label></div><p id="formError" class="admin-error hidden" role="alert"></p><div class="dialog-actions"><button id="cancelDialog" class="secondary" type="button">Batal</button><button class="primary" type="submit">Simpan</button></div></form></dialog>
+  <div id="adminToast" class="toast hidden" role="status"></div><script src="./admin.js"></script>
+</body></html>
