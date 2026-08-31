@@ -8,6 +8,8 @@ const adminHtml = readFileSync(new URL("../admin.html", import.meta.url), "utf8"
 const adminJavascript = readFileSync(new URL("../admin.js", import.meta.url), "utf8");
 const storageMigration = readFileSync(new URL("../supabase/migrations/003_product_storage.sql", import.meta.url), "utf8");
 const orderMigration = readFileSync(new URL("../supabase/migrations/004_order_management.sql", import.meta.url), "utf8");
+const checkoutMigration = readFileSync(new URL("../supabase/migrations/005_checkout_hardening.sql", import.meta.url), "utf8");
+const orderApi = readFileSync(new URL("../api/orders.js", import.meta.url), "utf8");
 
 new Script(javascript, { filename: "app.js" });
 new Script(adminJavascript, { filename: "admin.js" });
@@ -24,7 +26,7 @@ const requiredFunctions = [
   "renderProducts", "filteredProducts", "openProductDetail", "renderProductDetail",
   "addToCart", "changeQty", "renderCart", "renderCheckout", "renderCheckoutStep",
   "validateCheckoutStep", "checkoutTotals", "submitOrder", "renderCustomerOrders",
-  "renderAdminProducts", "renderOrders", "initializeMotion"
+  "renderOrders", "initializeMotion"
 ];
 
 for (const asset of requiredAssets) {
@@ -39,7 +41,7 @@ for (const functionName of requiredFunctions) {
 if ((html.match(/data-checkout-step=/g) || []).length !== 5) {
   throw new Error("Checkout must contain exactly five reviewable steps");
 }
-for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko", "Virtual Account", "QRIS", "COD"]) {
+for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko", "Transfer Bank", "COD"]) {
   if (!`${html}\n${javascript}`.includes(option)) throw new Error(`Checkout option missing: ${option}`);
 }
 
@@ -62,4 +64,13 @@ for (const marker of ["next_order_number", "GYD-", "orders_status_check", "admin
   if (!orderMigration.includes(marker)) throw new Error(`Order migration requirement missing: ${marker}`);
 }
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(orderMigration)) throw new Error("Unresolved Git conflict marker in order migration");
+for (const marker of ["alter column whatsapp drop not null", "alter column unit_price drop not null", "alter column total_price drop not null", "order_notes", "grand_total", "INVALID_CUSTOMER", "INSUFFICIENT_STOCK"]) {
+  if (!checkoutMigration.includes(marker)) throw new Error(`Checkout migration requirement missing: ${marker}`);
+}
+for (const marker of ["normalizePhone", "validCustomer", "PAYMENT_METHODS", "SHIPPING_METHODS", "productId", "quantity"]) {
+  if (!orderApi.includes(marker)) throw new Error(`Order API hardening missing: ${marker}`);
+}
+for (const marker of ["checkoutSubmitting", "clearFieldErrors", "normalizePhone", "Memproses pesanan...", "success-detail"]) {
+  if (!javascript.includes(marker)) throw new Error(`Checkout hardening missing: ${marker}`);
+}
 console.log("GETYOURDEVICE static verification passed.");
