@@ -7,6 +7,7 @@ const javascript = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const adminHtml = readFileSync(new URL("../admin.html", import.meta.url), "utf8");
 const adminJavascript = readFileSync(new URL("../admin.js", import.meta.url), "utf8");
 const storageMigration = readFileSync(new URL("../supabase/migrations/003_product_storage.sql", import.meta.url), "utf8");
+const orderMigration = readFileSync(new URL("../supabase/migrations/004_order_management.sql", import.meta.url), "utf8");
 
 new Script(javascript, { filename: "app.js" });
 new Script(adminJavascript, { filename: "admin.js" });
@@ -46,7 +47,7 @@ const combined = `${html}\n${css}\n${javascript}`;
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(combined)) {
   throw new Error("Unresolved Git conflict marker detected");
 }
-for (const marker of ["loginForm", "dashboardView", "productTable", "ordersPanel", "productDialog", "imageFile", "imagePreview"]) {
+for (const marker of ["loginForm", "dashboardView", "productTable", "ordersPanel", "productDialog", "imageFile", "imagePreview", "orderSearch", "orderStatusFilter", "orderDialog", "orderDetailContent"]) {
   if (!adminHtml.includes(`id="${marker}"`)) throw new Error(`Admin element missing: #${marker}`);
 }
 for (const marker of ["/auth/v1/token", "admin_profiles", "/rest/v1/products", "/rest/v1/orders", "/rest/v1/order_items", "/storage/v1/object/", "MAX_IMAGE_BYTES", "storageObjectPath"]) {
@@ -57,4 +58,8 @@ for (const marker of ["product-images", "public.is_admin()", "for insert", "for 
   if (!storageMigration.includes(marker)) throw new Error(`Storage migration requirement missing: ${marker}`);
 }
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(storageMigration)) throw new Error("Unresolved Git conflict marker in storage migration");
+for (const marker of ["next_order_number", "GYD-", "orders_status_check", "admin_update_orders", "admin_read_order_items", "customer_name", "product_price"]) {
+  if (!orderMigration.includes(marker)) throw new Error(`Order migration requirement missing: ${marker}`);
+}
+if (/^(<<<<<<<|=======|>>>>>>>)/m.test(orderMigration)) throw new Error("Unresolved Git conflict marker in order migration");
 console.log("GETYOURDEVICE static verification passed.");
