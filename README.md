@@ -1,6 +1,6 @@
 # GETYOURDEVICE
 
-Storefront HTML/CSS/JavaScript dengan katalog dan checkout Supabase. Phase 2 menambahkan pengelolaan produk lengkap dan gambar produk di Supabase Storage tanpa merombak storefront atau alur checkout.
+Storefront HTML/CSS/JavaScript dengan katalog dan checkout Supabase. Phase 3 menambahkan fondasi order management dan pengelolaan pesanan admin tanpa merombak storefront atau pembayaran.
 
 ## Arsitektur
 
@@ -17,6 +17,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 1. `supabase/migrations/001_storefront_order_rpc.sql` — RPC checkout dan policy baca katalog yang sudah ada.
 2. `supabase/migrations/002_admin_foundation.sql` — alignment skema produk yang bersifat additive, `admin_profiles`, helper role, trigger timestamp, dan seluruh policy RLS admin.
 3. `supabase/migrations/003_product_storage.sql` — bucket publik `product-images`, batas 5 MB/tipe MIME gambar, dan policy public-read/admin-write. **Migration ini harus dijalankan manual** di SQL Editor sebelum fitur unggah dipakai.
+4. `supabase/migrations/004_order_management.sql` — normalisasi kolom order/item secara additive, snapshot pelanggan dan produk, nomor `GYD-YYYYMMDD-XXXX` dari database, status/trigger/index, admin RLS, serta pembaruan kompatibel RPC checkout. **Jalankan migration ini manual** sebelum membuka tab Pesanan.
 
 `002_admin_foundation.sql` tidak menghapus atau menimpa produk seed. Kolom yang belum ada ditambahkan, sementara baris lama dipertahankan. Jalankan `supabase/seed/products.sql` **hanya jika** katalog demo belum ada; seed bersifat idempotent tetapi akan memperbarui produk demo dengan UUID yang sama.
 
@@ -57,9 +58,13 @@ Admin dapat memilih JPG/JPEG, PNG, atau WebP berukuran maksimal 5 MB. Browser me
 
 Untuk menguji: jalankan migration 003, masuk ke `/admin.html`, tambah/edit produk, pilih file, periksa pratinjau, lalu simpan. Pastikan kartu storefront menampilkan gambar sesudah halaman toko dimuat ulang. Jika tidak memilih file baru ketika mengedit, URL gambar saat ini tetap dipertahankan.
 
-## Orders: batasan Phase 1
+## Order management (Phase 3)
 
-Halaman admin membaca `orders` serta `order_items` secara read-only bila kedua tabel ada. Migration hanya menambahkan policy baca admin dan tidak mengubah struktur tabel. Implementasi checkout saat ini mengasumsikan kolom `orders.customer_id`, `order_number`, `status`, `payment_method`, `shipping_method`, `shipping_cost`, `subtotal`, `total`, serta kolom item yang digunakan di `001_storefront_order_rpc.sql`. Jika database aktual berbeda, catat/perbaiki ketidaksesuaian di fase checkout berikutnya; jangan memigrasikan agresif pada Phase 1.
+Tab **Pesanan** menampilkan order terbaru, pencarian nomor/pelanggan, filter status, jumlah item, metode pembayaran/pengiriman, detail pelanggan dan item, ringkasan nilai, serta pembaruan status. Status database yang didukung adalah `pending`, `confirmed`, `processing`, `shipped`, `completed`, dan `cancelled`; order baru default ke `pending`. Pembatalan tidak mengembalikan stok secara otomatis.
+
+Nomor order dibuat oleh trigger database dan counter harian transaction-safe, bukan browser. RLS menolak akses tabel untuk anon dan hanya mengizinkan JWT authenticated yang lolos `public.is_admin()` untuk membaca order/item atau memperbarui order. RPC checkout tetap menjadi satu-satunya permukaan tulis order storefront dan tetap menghitung harga/stok di database.
+
+Migration 004 mempertahankan data lama, menambahkan kolom yang belum tersedia, menyalin snapshot customer lama bila relasi `customer_id` tersedia, dan menyelaraskan snapshot harga lama dari kolom `price`. Constraint status dibuat `NOT VALID`: perubahan baru tetap terlindungi tanpa menggagalkan migration bila data historis memiliki status di luar vocabulary baru.
 
 ## Pengembangan dan verifikasi
 
