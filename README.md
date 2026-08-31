@@ -1,61 +1,64 @@
 # GETYOURDEVICE
 
-Storefront gadget Indonesia berbasis HTML/CSS/JavaScript dengan katalog dan checkout yang tersambung ke Supabase melalui Vercel Functions. UI storefront tetap statis dan keranjang tetap tersimpan lokal di browser.
+Storefront HTML/CSS/JavaScript dengan katalog dan checkout Supabase. Phase 1 menambahkan portal admin terpisah tanpa merombak storefront atau alur checkout.
 
-## Arsitektur Supabase
+## Arsitektur
 
-- Browser memanggil `GET /api/products`; function membaca produk aktif dari `public.products` menggunakan Supabase REST API.
-- Checkout mengirim **hanya** ID produk dan jumlah ke `POST /api/orders`. Function memanggil RPC `create_storefront_order`.
-- RPC mengunci baris produk, membaca harga dan stok langsung dari database, menghitung subtotal/ongkir/total, lalu menulis `customers`, `orders`, dan `order_items` dalam satu transaksi. Harga atau total dari browser tidak pernah dipercaya.
-- RLS tetap aktif. Tidak ada service-role key dan tidak ada kredensial di source. Anon key hanya berada di environment serverless (meskipun key tersebut bersifat publishable).
-- Keranjang tetap menggunakan `localStorage`. Pesanan yang baru dibuat hanya dicache di memori untuk tampilan sesi; Supabase adalah sumber data permanennya.
+- Storefront tetap membaca produk aktif melalui `GET /api/products` dan memakai fallback katalog ketika API tidak tersedia.
+- Checkout tetap mengirim ID produk dan kuantitas ke `POST /api/orders`, yang memanggil RPC `create_storefront_order_v2`. Harga dan stok dihitung di database.
+- `/admin.html` memakai Supabase email/password Auth. Browser mendapat **publishable/anon key** dari `/api/config`, lalu mengirim access token pengguna ke REST API.
+- Otorisasi tidak bergantung pada UI: RLS memeriksa `public.admin_profiles` melalui `public.is_admin()`. Pengguna terautentikasi tanpa role `admin` tidak dapat membaca produk nonaktif atau menulis data.
+- Jangan pernah menaruh `SUPABASE_SERVICE_ROLE_KEY` di Vercel atau source browser. Admin menggunakan anon key + JWT pengguna + RLS.
 
-## Konfigurasi Vercel
+## SQL yang wajib dijalankan manual
 
-Tambahkan untuk Production, Preview, dan Development:
+Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
+
+1. `supabase/migrations/001_storefront_order_rpc.sql` — RPC checkout dan policy baca katalog yang sudah ada.
+2. `supabase/migrations/002_admin_foundation.sql` — alignment skema produk yang bersifat additive, `admin_profiles`, helper role, trigger timestamp, dan seluruh policy RLS admin.
+
+`002_admin_foundation.sql` tidak menghapus atau menimpa produk seed. Kolom yang belum ada ditambahkan, sementara baris lama dipertahankan. Jalankan `supabase/seed/products.sql` **hanya jika** katalog demo belum ada; seed bersifat idempotent tetapi akan memperbarui produk demo dengan UUID yang sama.
+
+### Membuat admin pertama
+
+1. Di **Authentication → Users**, buat/invite user email/password.
+2. Salin UUID user tersebut.
+3. Jalankan berikut dengan UUID dan nama yang benar:
+
+```sql
+insert into public.admin_profiles (id, full_name, role)
+values ('UUID-DARI-AUTH-USERS', 'Nama Admin', 'admin')
+on conflict (id) do update set full_name=excluded.full_name, role='admin';
+```
+
+Tidak ada pendaftaran admin publik. Ini disengaja agar pengguna tidak dapat menaikkan rolenya sendiri. Setelah itu buka `/admin.html` dan masuk menggunakan email/password user tersebut.
+
+## Environment Vercel
+
+Tambahkan untuk Production, Preview, dan Development, kemudian deploy ulang:
 
 ```text
 SUPABASE_URL=https://PROJECT.supabase.co
 SUPABASE_ANON_KEY=publishable-or-anon-key
 ```
 
-Jangan memakai `SUPABASE_SERVICE_ROLE_KEY`. Deploy ulang sesudah mengubah environment variables.
+Anon/publishable key aman berada di browser bila RLS benar; service-role key **tidak boleh** digunakan. Untuk pengembangan penuh gunakan `vercel dev`. Server statis biasa dapat menampilkan storefront fallback, tetapi endpoint auth/API tidak akan tersedia.
 
-## SQL yang harus dijalankan
+## Product schema final
 
-1. Periksa bahwa tabel yang sudah ada memakai nama kolom yang tercantum dalam migration.
-2. Jalankan ulang `supabase/migrations/001_storefront_order_rpc.sql` di Supabase SQL Editor. Migration memasang RPC versi eksplisit `create_storefront_order_v2`, memakai kolom pelanggan aktual (`full_name`, `whatsapp`, `email`, `address`, `city`, dan `postal_code`), serta mencabut akses ke revisi RPC lama agar checkout tidak memanggil implementasi usang.
-3. Jalankan `supabase/seed/products.sql` untuk memasukkan/memperbarui katalog demo secara idempotent. UUID dalam seed sama persis dengan katalog fallback di `app.js`, sehingga item keranjang dapat divalidasi oleh RPC checkout.
-4. Pastikan RLS `products` memiliki policy `SELECT` untuk produk aktif bagi role `anon`. Jangan tambahkan policy anonymous untuk insert/update/delete tabel.
+`public.products` menggunakan: `id`, `name`, `brand`, `category`, `description`, `specifications jsonb`, `price`, `original_price`, `stock`, `image_url`, `rating`, `is_active`, `created_at`, dan `updated_at`. Admin dapat mencari/filter, menambah, mengedit, mengubah harga/stok/status, dan menghapus dengan konfirmasi.
 
-Tabel yang dipakai adalah `products`, `customers`, `orders`, dan `order_items`. `admin_profiles` disiapkan untuk fase autentikasi berikutnya.
+RLS mengizinkan `anon` dan pengguna biasa membaca hanya `is_active = true`. Hanya pengguna terautentikasi dengan baris `admin_profiles.role = 'admin'` yang dapat membaca semua produk atau melakukan insert/update/delete.
 
-> Karena skema tabel dibuat sebelum repository ini, sesuaikan nama kolom pada migration jika skema aktual berbeda. SQL sengaja tidak mengubah atau menonaktifkan RLS.
+## Orders: batasan Phase 1
 
-## Pengembangan lokal
+Halaman admin membaca `orders` serta `order_items` secara read-only bila kedua tabel ada. Migration hanya menambahkan policy baca admin dan tidak mengubah struktur tabel. Implementasi checkout saat ini mengasumsikan kolom `orders.customer_id`, `order_number`, `status`, `payment_method`, `shipping_method`, `shipping_cost`, `subtotal`, `total`, serta kolom item yang digunakan di `001_storefront_order_rpc.sql`. Jika database aktual berbeda, catat/perbaiki ketidaksesuaian di fase checkout berikutnya; jangan memigrasikan agresif pada Phase 1.
 
-Vercel Functions tidak berjalan melalui server statis biasa. Gunakan Vercel CLI dan file `.env.local` yang tidak di-commit:
+## Pengembangan dan verifikasi
 
 ```bash
 vercel dev
-```
-
-Untuk sekadar melihat fallback katalog demo tanpa API:
-
-```bash
-python3 -m http.server 4173
-```
-
-Lalu buka `http://localhost:4173`. Kegagalan API akan menampilkan katalog fallback dan pesan yang jelas; checkout memerlukan `vercel dev` serta RPC yang sudah dipasang.
-
-## Admin
-
-UI admin dipertahankan, tetapi perubahan produk dan status tidak ditulis secara publik. Kontrol edit/hapus berada dalam mode demo dan memberi pemberitahuan. Langkah berikutnya adalah Supabase Auth, menghubungkan pengguna ke `admin_profiles`, serta policy/RPC khusus role admin. Jangan membuka write policy untuk `anon`.
-
-## Verifikasi
-
-```bash
 node scripts/verify-static-site.mjs
 ```
 
-Pemeriksaan memvalidasi sintaks JavaScript, aset/elemen utama, fungsi perdagangan, dan penanda konflik Git.
+Untuk sekadar memeriksa storefront fallback: `python3 -m http.server 4173` lalu buka `http://localhost:4173`. Admin memerlukan Vercel Functions dan project Supabase yang sudah menjalankan migration.

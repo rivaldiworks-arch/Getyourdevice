@@ -182,7 +182,7 @@ async function submitOrder(event) {
 
 function hideMainViews(){ $("storeView").classList.add("hidden"); $("adminView").classList.add("hidden"); $("customerOrdersView").classList.add("hidden"); }
 function showStore() { hideMainViews(); $("storeView").classList.remove("hidden"); renderShowcases(); renderProducts(); window.scrollTo({top:0,behavior:"smooth"}); }
-function showAdmin() { hideMainViews(); $("adminView").classList.remove("hidden"); setAdminTab("products"); window.scrollTo({top:0,behavior:"smooth"}); }
+function showAdmin() { window.location.href = "./admin.html"; }
 function showCustomerOrders() { hideMainViews(); $("customerOrdersView").classList.remove("hidden"); renderCustomerOrders(); window.scrollTo({top:0,behavior:"smooth"}); }
 function setAdminTab(tab) { const productsTab = tab === "products"; $("adminProducts").classList.toggle("hidden", !productsTab); $("adminOrders").classList.toggle("hidden", productsTab); $("tabProducts").classList.toggle("active", productsTab); $("tabOrders").classList.toggle("active", !productsTab); productsTab ? renderAdminProducts() : renderOrders(); }
 const fileToDataURL = file => new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=reject; reader.readAsDataURL(file); });

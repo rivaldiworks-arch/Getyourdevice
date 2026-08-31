@@ -4,8 +4,11 @@ import { Script } from "node:vm";
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const javascript = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const adminHtml = readFileSync(new URL("../admin.html", import.meta.url), "utf8");
+const adminJavascript = readFileSync(new URL("../admin.js", import.meta.url), "utf8");
 
 new Script(javascript, { filename: "app.js" });
+new Script(adminJavascript, { filename: "admin.js" });
 
 const requiredAssets = ["./styles.css", "./app.js"];
 const requiredIds = [
@@ -41,6 +44,12 @@ for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko
 const combined = `${html}\n${css}\n${javascript}`;
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(combined)) {
   throw new Error("Unresolved Git conflict marker detected");
+}
+for (const marker of ["loginForm", "dashboardView", "productTable", "ordersPanel", "productDialog"]) {
+  if (!adminHtml.includes(`id="${marker}"`)) throw new Error(`Admin element missing: #${marker}`);
+}
+for (const marker of ["/auth/v1/token", "admin_profiles", "/rest/v1/products", "/rest/v1/orders", "/rest/v1/order_items"]) {
+  if (!adminJavascript.includes(marker)) throw new Error(`Admin integration missing: ${marker}`);
 }
 
 console.log("GETYOURDEVICE static verification passed.");
