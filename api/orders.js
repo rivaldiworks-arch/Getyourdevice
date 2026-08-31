@@ -12,9 +12,8 @@ module.exports = async function handler(req, res) {
     if(!customer.full_name) return res.status(400).json({error:"Nama pelanggan wajib diisi sebelum membuat pesanan."});
     if(Object.values(customer).some(value=>!value)) return res.status(400).json({error:"Data pelanggan dan alamat wajib dilengkapi."});
     if(!body.items.every(item=>typeof item.productId==="string" && Number.isInteger(item.quantity) && item.quantity>0 && item.quantity<=99)) return res.status(400).json({error:"Item pesanan tidak valid."});
-    // Include legacy aliases until every deployed RPC revision reads the canonical keys.
-    const rpcCustomer={...customer,name:customer.full_name,fullName:customer.full_name,custName:customer.full_name,phone:customer.whatsapp,phoneNumber:customer.whatsapp,postalCode:customer.postal_code};
-    const response=await supabase("rpc/create_storefront_order",{method:"POST",body:JSON.stringify({p_customer:rpcCustomer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_id:body.shippingId,p_payment_method:body.payment})});
+    console.info("Checkout RPC customer shape", {keys:Object.keys(customer).sort(),fullNamePresent:Boolean(customer.full_name)});
+    const response=await supabase("rpc/create_storefront_order_v2",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_id:body.shippingId,p_payment_method:body.payment})});
     const data=await response.json();
     if(!response.ok) {
       console.error("Supabase order RPC failed", {status:response.status,code:data.code,message:data.message,details:data.details,hint:data.hint});

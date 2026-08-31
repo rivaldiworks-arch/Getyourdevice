@@ -6,7 +6,7 @@ do $$ begin
   end if;
 end $$;
 
-create or replace function public.create_storefront_order(
+create or replace function public.create_storefront_order_v2(
   p_customer jsonb, p_items jsonb, p_shipping_id text, p_payment_method text
 ) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp
@@ -43,5 +43,12 @@ begin
   update orders set subtotal=v_subtotal,total=v_subtotal+v_shipping where id=v_order_id;
   return jsonb_build_object('order_number',v_order_number,'created_at',now(),'subtotal',v_subtotal,'shipping_cost',v_shipping,'grand_total',v_subtotal+v_shipping);
 end $$;
-revoke all on function public.create_storefront_order(jsonb,jsonb,text,text) from public;
-grant execute on function public.create_storefront_order(jsonb,jsonb,text,text) to anon, authenticated;
+revoke all on function public.create_storefront_order_v2(jsonb,jsonb,text,text) from public;
+grant execute on function public.create_storefront_order_v2(jsonb,jsonb,text,text) to anon, authenticated;
+
+-- Prevent clients from accidentally continuing to call an older installed implementation.
+do $$ begin
+  if to_regprocedure('public.create_storefront_order(jsonb,jsonb,text,text)') is not null then
+    revoke execute on function public.create_storefront_order(jsonb,jsonb,text,text) from anon, authenticated;
+  end if;
+end $$;
