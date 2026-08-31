@@ -88,4 +88,19 @@ for (const [label, actual, expected] of [
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} contract drift: ${JSON.stringify(actual)}`);
 }
 if (!checkoutMigration.includes("'pending',p_payment_method")) throw new Error("All payment methods must create pending orders");
+const startupBindings = [...javascript.matchAll(/bindElementEvent\("([^"]+)"/g)].map(match => match[1]);
+for (const id of startupBindings) {
+  if (!html.includes(`id="${id}"`)) throw new Error(`Startup event target missing from storefront: #${id}`);
+}
+if (/\$\("[^"]+"\)\.addEventListener/.test(javascript)) throw new Error("Unsafe top-level element event binding can abort storefront startup");
+if (javascript.includes('bindElementEvent("productForm", "submit", saveProduct)')) throw new Error("Undefined legacy saveProduct handler blocks storefront startup");
+const initializeApp = javascript.match(/async function initializeApp\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+for (const marker of ["try { buildNavigation(); }", "try { persist(); }", "try { initializeMotion(); }", "await loadProducts();"]) {
+  if (!initializeApp.includes(marker)) throw new Error(`Safe startup marker missing: ${marker}`);
+}
+if (!javascript.includes('fetch("/api/products"') || !javascript.includes("Array.isArray(payload?.products)")) throw new Error("Product API path or response-shape validation drift");
+for (const marker of ["products = [...starterProducts]", "renderProducts();", "Katalog belum dapat dimuat"]) {
+  if (!javascript.includes(marker)) throw new Error(`Product fallback protection missing: ${marker}`);
+}
+if (!javascript.includes('$("sortSelect").value = "featured"')) throw new Error("Reset filters must restore featured sorting");
 console.log("GETYOURDEVICE static verification passed.");

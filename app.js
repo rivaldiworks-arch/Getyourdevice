@@ -65,20 +65,28 @@ function mapProduct(row) {
 }
 function categoryNeeds(category) { return ({Smartphone:["Komunikasi","Hiburan"],Laptop:["Produktivitas","Hiburan"],Tablet:["Produktivitas","Hiburan"],Smartwatch:["Kesehatan"],Audio:["Hiburan"],Accessories:["Produktivitas"]})[category] || ["Produktivitas"]; }
 async function loadProducts() {
-  $("resultText").textContent = "Memuat produk dari database…";
-  $("productGrid").innerHTML = '<div class="empty-state"><span class="state-icon">…</span><h3>Memuat produk</h3><p>Mohon tunggu sebentar.</p></div>';
+  const resultText = $("resultText");
+  const productGrid = $("productGrid");
+  if (!resultText || !productGrid) throw new Error("Elemen katalog utama tidak tersedia.");
+  resultText.textContent = "Memuat produk dari database…";
+  productGrid.innerHTML = '<div class="empty-state"><span class="state-icon">…</span><h3>Memuat produk</h3><p>Mohon tunggu sebentar.</p></div>';
   try {
     const response = await fetch("/api/products", { headers:{ Accept:"application/json" } });
     if (!response.ok) throw new Error((await response.json().catch(()=>null))?.error || "Produk tidak dapat dimuat");
-    products = (await response.json()).products.map(mapProduct).filter(product => product.isActive);
+    const payload = await response.json();
+    if (!Array.isArray(payload?.products)) throw new Error("Format katalog produk tidak valid.");
+    products = payload.products.map(mapProduct).filter(product => product.isActive);
     if (!products.length) throw new Error("Katalog Supabase masih kosong. Jalankan berkas seed SQL.");
   } catch (error) {
     console.error("Supabase product load failed; showing built-in fallback.", error);
-    products = starterProducts;
-    showToast("Database belum dapat dihubungi. Menampilkan katalog demo sementara.");
-    $("resultText").textContent = "Katalog demo sementara — koneksi database bermasalah.";
+    products = [...starterProducts];
+    resultText.textContent = "Katalog demo sementara — koneksi database bermasalah.";
+    try { showToast("Database belum dapat dihubungi. Menampilkan katalog demo sementara."); } catch (toastError) { console.error("Fallback notification failed", toastError); }
   }
-  validCart(); persist(); renderShowcases(); renderProducts();
+  validCart();
+  renderProducts();
+  try { persist(); } catch (error) { console.error("Cart initialization failed", error); }
+  try { renderShowcases(); } catch (error) { console.error("Optional product showcases failed", error); }
 }
 function showToast(message) { clearTimeout(toastTimer); $("toast").textContent = message; $("toast").classList.remove("hidden"); toastTimer = setTimeout(() => $("toast").classList.add("hidden"), 2600); }
 function updateCartCount() { const count = cart.reduce((sum, item) => sum + item.qty, 0); $("cartCount").textContent = count; $("cartCount").setAttribute("aria-label", `${count} item`); }
@@ -113,6 +121,11 @@ function filteredProducts() {
 }
 function renderProducts() {
   try {
+    if (!products.length) {
+      $("resultText").textContent = "Katalog belum tersedia.";
+      $("productGrid").innerHTML = '<div class="error-state"><span class="state-icon">!</span><h3>Katalog belum dapat dimuat</h3><p>Silakan muat kembali halaman beberapa saat lagi.</p><button class="secondary" type="button" onclick="location.reload()">Muat Ulang</button></div>';
+      return;
+    }
     const result = filteredProducts();
     const query = $("searchInput").value.trim();
     $("resultText").textContent = recommendation ? `${result.length} pilihan untuk kebutuhan ${recommendation.need.toLowerCase()} sesuai anggaran Anda.` : query || activeCategory !== "Semua" ? `${result.length} produk ditemukan.` : "Produk gadget terbaik dan paling dicari.";
@@ -209,11 +222,11 @@ function handleAction(action) { const actions={"show-store":showStore,"show-orde
 document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
 document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment']"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
 document.addEventListener("keydown", event => { if(event.key === "Escape"){["cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
-$("searchForm").addEventListener("submit", event => { event.preventDefault(); recommendation=null;activeCategory="Semua";buildNavigation();renderProducts();$("productsSection").scrollIntoView({behavior:"smooth"}); });
-$("searchInput").addEventListener("input", () => { recommendation=null;renderProducts(); });
-$("checkoutForm").addEventListener("submit", submitOrder);
-$("productForm").addEventListener("submit", saveProduct);
-$("helperForm").addEventListener("submit", event => { event.preventDefault(); recommendation={need:new FormData(event.target).get("need"),budget:Number($("budgetSelect").value)};activeCategory="Semua";$("searchInput").value="";buildNavigation();renderProducts();setModal("helperModal",false);$("productsSection").scrollIntoView({behavior:"smooth"});showToast("Rekomendasi khusus Anda sudah siap."); });
+function bindElementEvent(id, type, handler) { const element=$(id); if (!element) { console.warn(`Optional UI element #${id} is unavailable.`); return; } element.addEventListener(type, handler); }
+bindElementEvent("searchForm", "submit", event => { event.preventDefault(); recommendation=null;activeCategory="Semua";buildNavigation();renderProducts();$("productsSection")?.scrollIntoView({behavior:"smooth"}); });
+bindElementEvent("searchInput", "input", () => { recommendation=null;renderProducts(); });
+bindElementEvent("checkoutForm", "submit", submitOrder);
+bindElementEvent("helperForm", "submit", event => { event.preventDefault(); recommendation={need:new FormData(event.target).get("need"),budget:Number($("budgetSelect")?.value)};activeCategory="Semua";if($("searchInput"))$("searchInput").value="";buildNavigation();renderProducts();setModal("helperModal",false);$("productsSection")?.scrollIntoView({behavior:"smooth"});showToast("Rekomendasi khusus Anda sudah siap."); });
 
 function initializeMotion() {
   const header = document.querySelector(".site-header");
@@ -221,7 +234,13 @@ function initializeMotion() {
   if (!("IntersectionObserver" in window)) revealItems.forEach(item => item.classList.add("is-visible"));
   else { const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add("is-visible"); observer.unobserve(entry.target); } }), { threshold: .12 }); revealItems.forEach(item => observer.observe(item)); }
   let ticking = false;
-  window.addEventListener("scroll", () => { if (!ticking) requestAnimationFrame(() => { header.classList.toggle("scrolled", window.scrollY > 24); if (!matchMedia("(prefers-reduced-motion: reduce)").matches && window.innerWidth > 680) { const heroImage = document.querySelector(".hero-device"); if (heroImage && window.scrollY < 600) heroImage.style.transform = `translateY(${Math.min(window.scrollY * .035, 14)}px) scale(1.01)`; } ticking = false; }); ticking = true; }, { passive:true });
+  window.addEventListener("scroll", () => { if (!ticking) requestAnimationFrame(() => { header?.classList.toggle("scrolled", window.scrollY > 24); if (!matchMedia("(prefers-reduced-motion: reduce)").matches && window.innerWidth > 680) { const heroImage = document.querySelector(".hero-device"); if (heroImage && window.scrollY < 600) heroImage.style.transform = `translateY(${Math.min(window.scrollY * .035, 14)}px) scale(1.01)`; } ticking = false; }); ticking = true; }, { passive:true });
 }
 
-buildNavigation(); persist(); initializeMotion(); loadProducts();
+async function initializeApp() {
+  try { buildNavigation(); } catch (error) { console.error("Navigation initialization failed", error); }
+  try { persist(); } catch (error) { console.error("Cart initialization failed", error); }
+  try { initializeMotion(); } catch (error) { console.error("Motion initialization failed", error); }
+  await loadProducts();
+}
+initializeApp().catch(error => console.error("Storefront product initialization failed", error));
