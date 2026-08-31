@@ -1,6 +1,6 @@
 # GETYOURDEVICE
 
-Storefront HTML/CSS/JavaScript dengan katalog dan checkout Supabase. Phase 1 menambahkan portal admin terpisah tanpa merombak storefront atau alur checkout.
+Storefront HTML/CSS/JavaScript dengan katalog dan checkout Supabase. Phase 2 menambahkan pengelolaan produk lengkap dan gambar produk di Supabase Storage tanpa merombak storefront atau alur checkout.
 
 ## Arsitektur
 
@@ -16,6 +16,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 
 1. `supabase/migrations/001_storefront_order_rpc.sql` — RPC checkout dan policy baca katalog yang sudah ada.
 2. `supabase/migrations/002_admin_foundation.sql` — alignment skema produk yang bersifat additive, `admin_profiles`, helper role, trigger timestamp, dan seluruh policy RLS admin.
+3. `supabase/migrations/003_product_storage.sql` — bucket publik `product-images`, batas 5 MB/tipe MIME gambar, dan policy public-read/admin-write. **Migration ini harus dijalankan manual** di SQL Editor sebelum fitur unggah dipakai.
 
 `002_admin_foundation.sql` tidak menghapus atau menimpa produk seed. Kolom yang belum ada ditambahkan, sementara baris lama dipertahankan. Jalankan `supabase/seed/products.sql` **hanya jika** katalog demo belum ada; seed bersifat idempotent tetapi akan memperbarui produk demo dengan UUID yang sama.
 
@@ -49,6 +50,12 @@ Anon/publishable key aman berada di browser bila RLS benar; service-role key **t
 `public.products` menggunakan: `id`, `name`, `brand`, `category`, `description`, `specifications jsonb`, `price`, `original_price`, `stock`, `image_url`, `rating`, `is_active`, `created_at`, dan `updated_at`. Admin dapat mencari/filter, menambah, mengedit, mengubah harga/stok/status, dan menghapus dengan konfirmasi.
 
 RLS mengizinkan `anon` dan pengguna biasa membaca hanya `is_active = true`. Hanya pengguna terautentikasi dengan baris `admin_profiles.role = 'admin'` yang dapat membaca semua produk atau melakukan insert/update/delete.
+
+## Gambar produk (Phase 2)
+
+Admin dapat memilih JPG/JPEG, PNG, atau WebP berukuran maksimal 5 MB. Browser mengunggah langsung dengan anon key dan JWT admin; policy Storage memanggil `public.is_admin()`, sehingga tidak ada service-role key di browser. Nama object memakai UUID agar tidak bertabrakan. Saat gambar diganti atau produk dihapus, aplikasi hanya menghapus URL yang origin-nya sama dengan project Supabase dan path-nya tepat berada di bucket `product-images`; URL eksternal tidak pernah dihapus.
+
+Untuk menguji: jalankan migration 003, masuk ke `/admin.html`, tambah/edit produk, pilih file, periksa pratinjau, lalu simpan. Pastikan kartu storefront menampilkan gambar sesudah halaman toko dimuat ulang. Jika tidak memilih file baru ketika mengedit, URL gambar saat ini tetap dipertahankan.
 
 ## Orders: batasan Phase 1
 

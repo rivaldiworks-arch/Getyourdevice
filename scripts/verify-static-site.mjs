@@ -6,6 +6,7 @@ const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const javascript = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const adminHtml = readFileSync(new URL("../admin.html", import.meta.url), "utf8");
 const adminJavascript = readFileSync(new URL("../admin.js", import.meta.url), "utf8");
+const storageMigration = readFileSync(new URL("../supabase/migrations/003_product_storage.sql", import.meta.url), "utf8");
 
 new Script(javascript, { filename: "app.js" });
 new Script(adminJavascript, { filename: "admin.js" });
@@ -45,11 +46,15 @@ const combined = `${html}\n${css}\n${javascript}`;
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(combined)) {
   throw new Error("Unresolved Git conflict marker detected");
 }
-for (const marker of ["loginForm", "dashboardView", "productTable", "ordersPanel", "productDialog"]) {
+for (const marker of ["loginForm", "dashboardView", "productTable", "ordersPanel", "productDialog", "imageFile", "imagePreview"]) {
   if (!adminHtml.includes(`id="${marker}"`)) throw new Error(`Admin element missing: #${marker}`);
 }
-for (const marker of ["/auth/v1/token", "admin_profiles", "/rest/v1/products", "/rest/v1/orders", "/rest/v1/order_items"]) {
+for (const marker of ["/auth/v1/token", "admin_profiles", "/rest/v1/products", "/rest/v1/orders", "/rest/v1/order_items", "/storage/v1/object/", "MAX_IMAGE_BYTES", "storageObjectPath"]) {
   if (!adminJavascript.includes(marker)) throw new Error(`Admin integration missing: ${marker}`);
 }
 
+for (const marker of ["product-images", "public.is_admin()", "for insert", "for update", "for delete", "file_size_limit", "allowed_mime_types"]) {
+  if (!storageMigration.includes(marker)) throw new Error(`Storage migration requirement missing: ${marker}`);
+}
+if (/^(<<<<<<<|=======|>>>>>>>)/m.test(storageMigration)) throw new Error("Unresolved Git conflict marker in storage migration");
 console.log("GETYOURDEVICE static verification passed.");
