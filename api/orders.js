@@ -2,7 +2,7 @@
 const { supabase } = require("./_supabase");
 
 const SHIPPING_METHODS = new Set(["regular", "express", "sameday", "pickup"]);
-const PAYMENT_METHODS = new Set(["Transfer Bank", "COD"]);
+const PAYMENT_METHODS = new Set(["Transfer Bank", "COD", "QRIS"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE = /^\+?\d{9,15}$/;

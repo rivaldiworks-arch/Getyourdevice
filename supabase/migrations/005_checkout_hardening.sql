@@ -30,7 +30,7 @@ begin
     or length(btrim(coalesce(p_customer->>'city','')))<2
     or (p_customer->>'postal_code') !~ '^[0-9]{5}$'
   then raise exception using message='INVALID_CUSTOMER',errcode='P0001'; end if;
-  if p_payment_method not in ('Transfer Bank','COD') then raise exception using message='INVALID_PAYMENT',errcode='P0001'; end if;
+  if p_payment_method not in ('Transfer Bank','COD','QRIS') then raise exception using message='INVALID_PAYMENT',errcode='P0001'; end if;
   v_shipping:=case p_shipping_id when 'regular' then 25000 when 'express' then 50000 when 'sameday' then 85000 when 'pickup' then 0 else null end;
   if v_shipping is null then raise exception using message='INVALID_SHIPPING',errcode='P0001'; end if;
 

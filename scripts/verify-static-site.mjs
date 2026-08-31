@@ -10,6 +10,8 @@ const storageMigration = readFileSync(new URL("../supabase/migrations/003_produc
 const orderMigration = readFileSync(new URL("../supabase/migrations/004_order_management.sql", import.meta.url), "utf8");
 const checkoutMigration = readFileSync(new URL("../supabase/migrations/005_checkout_hardening.sql", import.meta.url), "utf8");
 const orderApi = readFileSync(new URL("../api/orders.js", import.meta.url), "utf8");
+const canonicalPayments = ["Transfer Bank", "COD", "QRIS"];
+const canonicalShipping = ["regular", "express", "sameday", "pickup"];
 
 new Script(javascript, { filename: "app.js" });
 new Script(adminJavascript, { filename: "admin.js" });
@@ -41,7 +43,7 @@ for (const functionName of requiredFunctions) {
 if ((html.match(/data-checkout-step=/g) || []).length !== 5) {
   throw new Error("Checkout must contain exactly five reviewable steps");
 }
-for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko", "Transfer Bank", "COD"]) {
+for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko", ...canonicalPayments]) {
   if (!`${html}\n${javascript}`.includes(option)) throw new Error(`Checkout option missing: ${option}`);
 }
 
@@ -73,4 +75,17 @@ for (const marker of ["normalizePhone", "validCustomer", "PAYMENT_METHODS", "SHI
 for (const marker of ["checkoutSubmitting", "clearFieldErrors", "normalizePhone", "Memproses pesanan...", "success-detail"]) {
   if (!javascript.includes(marker)) throw new Error(`Checkout hardening missing: ${marker}`);
 }
+const frontendPayments = [...html.matchAll(/name="payment" value="([^"]+)"/g)].map(match => match[1]);
+const frontendShipping = [...javascript.matchAll(/\{ id: "([^"]+)", name:/g)].map(match => match[1]);
+const apiPayments = [...orderApi.match(/PAYMENT_METHODS = new Set\(\[([^\]]+)\]/)?.[1].matchAll(/"([^"]+)"/g) || []].map(match => match[1]);
+const apiShipping = [...orderApi.match(/SHIPPING_METHODS = new Set\(\[([^\]]+)\]/)?.[1].matchAll(/"([^"]+)"/g) || []].map(match => match[1]);
+const rpcPayments = [...checkoutMigration.match(/p_payment_method not in \(([^)]+)\)/)?.[1].matchAll(/'([^']+)'/g) || []].map(match => match[1]);
+const rpcShipping = [...checkoutMigration.matchAll(/when '([^']+)' then/g)].map(match => match[1]);
+for (const [label, actual, expected] of [
+  ["frontend payments", frontendPayments, canonicalPayments], ["API payments", apiPayments, canonicalPayments], ["RPC payments", rpcPayments, canonicalPayments],
+  ["frontend shipping", frontendShipping, canonicalShipping], ["API shipping", apiShipping, canonicalShipping], ["RPC shipping", rpcShipping, canonicalShipping]
+]) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} contract drift: ${JSON.stringify(actual)}`);
+}
+if (!checkoutMigration.includes("'pending',p_payment_method")) throw new Error("All payment methods must create pending orders");
 console.log("GETYOURDEVICE static verification passed.");

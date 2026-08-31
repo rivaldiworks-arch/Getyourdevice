@@ -78,6 +78,6 @@ Untuk sekadar memeriksa storefront fallback: `python3 -m http.server 4173` lalu 
 
 ## Checkout hardening (Phase 4)
 
-Checkout memvalidasi setiap field di browser dan API, menormalisasi nomor Indonesia secara konservatif, mengunci tombol selama request, dan baru menghapus keranjang sesudah respons `201`. Ringkasan browser hanya bersifat tampilan; RPC tetap mengambil harga produk aktif, mengunci row stok, menghitung total, dan mengurangi stok dalam transaksi yang sama. Metode pembayaran Phase 4 hanya Transfer Bank manual dan COD. Tarif pengiriman yang tampil adalah nilai tetap sementara dari RPC, bukan hasil API kurir.
+Checkout memvalidasi setiap field di browser dan API, menormalisasi nomor Indonesia secara konservatif, mengunci tombol selama request, dan baru menghapus keranjang sesudah respons `201`. Ringkasan browser hanya bersifat tampilan; RPC tetap mengambil harga produk aktif, mengunci row stok, menghitung total, dan mengurangi stok dalam transaksi yang sama. Metode pembayaran canonical Phase 4 adalah Transfer Bank, COD, dan QRIS; QRIS hanya menangkap pilihan order dan tidak menandai pembayaran berhasil. Tarif pengiriman yang tampil adalah nilai tetap sementara dari RPC, bukan hasil API kurir.
 
 Customer guest tetap dibuat satu record per order. Deduplication sengaja tidak diterapkan karena tidak ada identitas customer terautentikasi dan penggabungan berdasarkan email/telepon berisiko mencampur pelanggan berbeda.
