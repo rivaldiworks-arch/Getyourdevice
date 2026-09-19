@@ -14,7 +14,18 @@ assert.deepEqual(PAYMENT_STATUSES,["unpaid","pending","paid","failed","expired",
 assert.match(orderMigration,/orders_status_check[\s\S]*'pending','confirmed','processing','shipped','completed','cancelled'/);
 assert.doesNotMatch(orderMigration,/orders_status_check[^;]*'paid'/);
 assert.match(migration,/new\.amount<>v_order_total/);
+assert.match(migration,/payment_access_token_hash/);
+assert.match(migration,/digest\(p_payment_token,'sha256'\)/);
+assert.match(migration,/payment_access_expires_at<=now\(\)/);
+assert.match(migration,/payment_status in \('paid','refunded'\)/);
+assert.match(migration,/unique index if not exists payments_provider_reference_uidx/);
+assert.match(migration,/unique index if not exists payments_external_transaction_id_uidx/);
 assert.doesNotMatch(createApi,/body\.(amount|status|provider_reference|external_transaction_id)/);
+assert.match(createApi,/paymentToken/);
+assert.match(createApi,/p_payment_token:paymentToken/);
+assert.match(orderApi,/randomBytes\(32\)\.toString\("hex"\)/);
+assert.match(orderApi,/p_payment_token:paymentToken/);
+assert.match(orderApi,/paymentToken/);
 assert.equal(canTransition("pending","paid"),true);
 assert.equal(canTransition("paid","pending"),false);
 assert.equal(canTransition("paid","paid"),true);
