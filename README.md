@@ -1,11 +1,11 @@
 # GETYOURDEVICE
 
-Storefront HTML/CSS/JavaScript dengan katalog, checkout Supabase, dan fondasi domain pembayaran yang provider-neutral. Belum ada payment gateway yang terhubung.
+Storefront HTML/CSS/JavaScript dengan katalog, checkout Supabase, payment domain provider-neutral, Midtrans Sandbox QRIS, dan fondasi shipping provider-neutral.
 
 ## Arsitektur
 
 - Storefront tetap membaca produk aktif melalui `GET /api/products` dan memakai fallback katalog ketika API tidak tersedia.
-- Checkout tetap mengirim ID produk dan kuantitas ke `POST /api/orders`, yang memanggil RPC `create_storefront_order_v2`. Harga dan stok dihitung di database.
+- Checkout mengirim ID produk dan kuantitas ke `POST /api/orders`. Phase 6 memakai server-created shipping quote lalu memanggil RPC `create_storefront_order_v3`; harga produk, stok, ongkir snapshot, dan grand total tetap ditetapkan server/database.
 - `/admin.html` memakai Supabase email/password Auth. Browser mendapat **publishable/anon key** dari `/api/config`, lalu mengirim access token pengguna ke REST API.
 - Otorisasi tidak bergantung pada UI: RLS memeriksa `public.admin_profiles` melalui `public.is_admin()`. Pengguna terautentikasi tanpa role `admin` tidak dapat membaca produk nonaktif atau menulis data.
 - `SUPABASE_SERVICE_ROLE_KEY` tidak boleh pernah masuk browser, source code, atau log. Phase 5C menggunakannya **hanya sebagai server-side Vercel secret** untuk write payment yang sudah diverifikasi backend. Admin UI tetap menggunakan anon key + JWT pengguna + RLS.
@@ -19,7 +19,10 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 3. `supabase/migrations/003_product_storage.sql` — bucket publik `product-images`, batas 5 MB/tipe MIME gambar, dan policy public-read/admin-write. **Migration ini harus dijalankan manual** di SQL Editor sebelum fitur unggah dipakai.
 4. `supabase/migrations/004_order_management.sql` — normalisasi kolom order/item secara additive, snapshot pelanggan dan produk, nomor `GYD-YYYYMMDD-XXXX` dari database, status/trigger/index, admin RLS, serta pembaruan kompatibel RPC checkout.
 5. `supabase/migrations/005_checkout_hardening.sql` — melepaskan hanya constraint `NOT NULL` legacy pada `orders.whatsapp`, `order_items.unit_price`, dan `order_items.total_price` bila kolomnya ada; menambah `order_notes`; serta mengganti RPC checkout dengan validasi, harga/stok transaksional, dan sinkronisasi `grand_total` legacy. **Jalankan migration ini manual sebelum deploy kode Phase 4.**
-6. `supabase/migrations/006_payment_infrastructure.sql` — menambah snapshot `orders.payment_status`/`payment_reference`, capability-token hash/expiry untuk guest payment access, tabel payment provider-neutral, indeks unik referensi provider, transition guard, sinkronisasi snapshot, RPC pembuatan intent manual yang mengambil nominal dari order, dan RLS admin-read-only. **Jalankan migration ini manual di Supabase SQL Editor sebelum merge/deploy kode Phase 5**, karena `POST /api/orders` Phase 5 memanggil overload RPC baru dengan payment token.
+6. `supabase/migrations/006_payment_infrastructure.sql` — menambah snapshot `orders.payment_status`/`payment_reference`, capability-token hash/expiry untuk guest payment access, tabel payment provider-neutral, indeks unik referensi provider, transition guard, sinkronisasi snapshot, RPC pembuatan intent manual yang mengambil nominal dari order, dan RLS admin-read-only.
+7. `supabase/migrations/007_phase5_rpc_schema_compat.sql` — compatibility hotfix RPC capability-token untuk database yang sempat menjalankan draft awal Phase 5.
+8. `supabase/migrations/008_phase5_pgcrypto_search_path.sql` — memastikan RPC security-definer dapat memakai `pgcrypto` dari schema `extensions`.
+9. `supabase/migrations/009_shipping_infrastructure.sql` — membuat `shipping_quotes`, snapshot provider/service/ETA pada order, field tracking, dan RPC `create_storefront_order_v3` yang hanya dapat dipanggil `service_role`. **Jalankan 009 sebelum merge/deploy Phase 6.**
 
 ## Payment infrastructure (Phase 5)
 
@@ -82,6 +85,16 @@ Webhook memverifikasi `signature_key`, lalu melakukan GET Status ke Midtrans seb
 
 Phase 5C baru mengaktifkan gateway Midtrans untuk QRIS. Transfer Bank tetap berada di rail manual/provider-neutral sampai Virtual Account Midtrans ditambahkan secara eksplisit.
 
+## Shipping infrastructure (Phase 6)
+
+Checkout tidak lagi mempercayai harga ongkir dari browser. Setelah alamat tervalidasi, storefront memanggil `POST /api/shipping/quotes`. Backend membuat quote berumur 30 menit di `public.shipping_quotes`; quote dikunci ke kota, kode pos, dan fingerprint isi keranjang.
+
+Untuk Phase 6A provider masih `internal` dengan empat service class yang sama seperti prototipe lama: Reguler, Express, Same Day / Instant, dan Ambil di Toko. Bedanya, nominal tidak lagi hard-coded sebagai sumber kebenaran di browser. Struktur quote sudah provider-neutral sehingga adapter kurir nyata dapat mengganti sumber tarif tanpa mengubah contract checkout.
+
+Saat order dibuat, `POST /api/orders` memverifikasi quote terhadap alamat dan cart, lalu menggunakan service-role server-side untuk memanggil `create_storefront_order_v3`. RPC menyalin snapshot `shipping_provider`, `shipping_service_code`, `shipping_service_name`, ETA, quote ID, dan shipping cost ke order. Quote yang sudah dipakai tidak dapat digunakan lagi. Admin detail order menampilkan snapshot layanan dan nomor resi bila tersedia.
+
+Field tracking yang disiapkan: `tracking_number`, `tracking_url`, `shipped_at`, dan `delivered_at`. Phase 6A belum membeli label, booking pickup, atau mengambil live rate dari kurir eksternal; itu masuk adapter courier berikutnya.
+
 ## Product schema final
 
 `public.products` menggunakan: `id`, `name`, `brand`, `category`, `description`, `specifications jsonb`, `price`, `original_price`, `stock`, `image_url`, `rating`, `is_active`, `created_at`, dan `updated_at`. Admin dapat mencari/filter, menambah, mengedit, mengubah harga/stok/status, dan menghapus dengan konfirmasi.
@@ -113,6 +126,6 @@ Untuk sekadar memeriksa storefront fallback: `python3 -m http.server 4173` lalu 
 
 ## Checkout hardening (Phase 4)
 
-Checkout memvalidasi setiap field di browser dan API, menormalisasi nomor Indonesia secara konservatif, mengunci tombol selama request, dan baru menghapus keranjang sesudah respons `201`. Ringkasan browser hanya bersifat tampilan; RPC tetap mengambil harga produk aktif, mengunci row stok, menghitung total, dan mengurangi stok dalam transaksi yang sama. Metode pembayaran canonical Phase 4 adalah Transfer Bank, COD, dan QRIS; QRIS hanya menangkap pilihan order dan tidak menandai pembayaran berhasil. Tarif pengiriman yang tampil adalah nilai tetap sementara dari RPC, bukan hasil API kurir.
+Checkout memvalidasi setiap field di browser dan API, menormalisasi nomor Indonesia secara konservatif, mengunci tombol selama request, dan baru menghapus keranjang sesudah respons `201`. Ringkasan browser hanya bersifat tampilan; RPC tetap mengambil harga produk aktif, mengunci row stok, menghitung total, dan mengurangi stok dalam transaksi yang sama. Metode pembayaran canonical Phase 4 adalah Transfer Bank, COD, dan QRIS; QRIS hanya menangkap pilihan order dan tidak menandai pembayaran berhasil. Tarif pengiriman Phase 6A berasal dari shipping quote server-side dengan TTL 30 menit. Provider masih internal/static sampai adapter kurir nyata diaktifkan, tetapi browser tidak lagi menjadi sumber kebenaran ongkir.
 
 Customer guest tetap dibuat satu record per order. Deduplication sengaja tidak diterapkan karena tidak ada identitas customer terautentikasi dan penggabungan berdasarkan email/telepon berisiko mencampur pelanggan berbeda.
