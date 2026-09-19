@@ -3,7 +3,7 @@ const { createQrisCharge } = require("./_midtrans");
 
 module.exports=async function handler(req,res) {
   if(process.env.VERCEL_ENV!=="preview") return res.status(404).json({error:"Not found"});
-  if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
+  if(req.method!=="GET") return res.status(405).setHeader("Allow","GET").json({error:"Method not allowed"});
   try{
     const orderId=`GYD-DIAG-${Date.now()}`;
     const data=await createQrisCharge({orderId,amount:1000});
