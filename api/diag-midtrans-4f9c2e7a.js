@@ -1,5 +1,5 @@
 "use strict";
-const { createQrisCharge } = require("./payments/_midtrans");
+const { createQrisCharge, midtransConfig } = require("./payments/_midtrans");
 
 module.exports=async function handler(req,res) {
   if(process.env.VERCEL_ENV!=="production" || String(process.env.MIDTRANS_ENV||"").toLowerCase()!=="sandbox") {
@@ -7,7 +7,18 @@ module.exports=async function handler(req,res) {
   }
   if(req.method!=="GET") return res.status(405).setHeader("Allow","GET").json({error:"Method not allowed"});
   try{
-    const data=await createQrisCharge({orderId:`GYD-DIAG-${Date.now()}`,amount:1000});
+    let data;
+    if(String(req.query?.mode||"")==="gopay"){
+      const {serverKey,baseUrl}=midtransConfig();
+      const response=await fetch(`${baseUrl}/v2/charge`,{
+        method:"POST",
+        headers:{Accept:"application/json",Authorization:`Basic ${Buffer.from(`${serverKey}:`).toString("base64")}`,"Content-Type":"application/json"},
+        body:JSON.stringify({payment_type:"gopay",transaction_details:{order_id:`GYD-DIAG-GOPAY-${Date.now()}`,gross_amount:1000},gopay:{enable_callback:false}})
+      });
+      data=await response.json().catch(()=>({}));
+    }else{
+      data=await createQrisCharge({orderId:`GYD-DIAG-${Date.now()}`,amount:1000});
+    }
     const actions=Array.isArray(data?.actions)?data.actions:[];
     return res.status(200).json({
       keys:Object.keys(data||{}).sort(),
