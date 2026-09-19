@@ -73,7 +73,7 @@ module.exports=async function handler(req,res) {
 
     const order=await orderRow(payment.order_id);
     const charge=await createQrisCharge({orderId:order.order_number,amount:Number(payment.amount)});
-    const knownStatuses=new Set(["pending","settlement","capture","expire","deny","cancel","failure","refund"]);
+    const knownStatuses=new Set(["pending","settlement","capture","expire","deny","cancel","failure","refund","partial_refund","01","03","00","04","05","06","08","09"]);
     let transaction=charge;
     const immediateStatus=String(charge?.transaction_status||"").toLowerCase();
     if(!knownStatuses.has(immediateStatus)){
