@@ -8,7 +8,7 @@ function config() {
   const couriers=String(process.env.BITESHIP_COURIERS||DEFAULT_COURIERS).trim();
   if(!apiKey) throw new Error("BITESHIP_API_KEY is not configured");
   if(!/^\d{5}$/.test(originPostalCode)) throw new Error("SHIPPING_ORIGIN_POSTAL_CODE is not configured");
-  return {apiKey,originPostalCode,couriers};
+  return {apiKey,originPostalCode,couriers,isTest:apiKey.startsWith("biteship_test.")};
 }
 
 async function biteshipFetch(path,options={}) {
@@ -76,4 +76,37 @@ async function retrieveRates({destinationPostalCode,items}) {
   return pricing.map(mapRate).filter(rate=>Number.isFinite(rate.amount)&&rate.amount>=0&&rate.serviceCode!==":");
 }
 
-module.exports={config,retrieveRates};
+function bookingConfig() {
+  const base=config();
+  const originContactName=String(process.env.SHIPPING_ORIGIN_CONTACT_NAME||"").trim();
+  const originContactPhone=String(process.env.SHIPPING_ORIGIN_CONTACT_PHONE||"").trim();
+  const originAddress=String(process.env.SHIPPING_ORIGIN_ADDRESS||"").trim();
+  const originContactEmail=String(process.env.SHIPPING_ORIGIN_CONTACT_EMAIL||"").trim();
+  const originNote=String(process.env.SHIPPING_ORIGIN_NOTE||"").trim();
+  const organization=String(process.env.SHIPPING_ORIGIN_ORGANIZATION||"GETYOURDEVICE").trim();
+  if(!originContactName) throw new Error("SHIPPING_ORIGIN_CONTACT_NAME is not configured");
+  if(!/^\+?\d{9,15}$/.test(originContactPhone.replace(/[\s().-]/g,""))) throw new Error("SHIPPING_ORIGIN_CONTACT_PHONE is not configured");
+  if(originAddress.length<10) throw new Error("SHIPPING_ORIGIN_ADDRESS is not configured");
+  return {...base,originContactName,originContactPhone,originAddress,originContactEmail,originNote,organization};
+}
+
+async function createOrder(payload) {
+  try{
+    return await biteshipFetch("/v1/orders",{method:"POST",body:JSON.stringify(payload)});
+  }catch(error){
+    if(Number(error.code)===40002060 && error.biteship?.details?.order_id){
+      return retrieveOrder(error.biteship.details.order_id);
+    }
+    throw error;
+  }
+}
+
+async function retrieveOrder(id) {
+  return biteshipFetch(`/v1/orders/${encodeURIComponent(id)}`,{method:"GET"});
+}
+
+async function retrieveTracking(id) {
+  return biteshipFetch(`/v1/trackings/${encodeURIComponent(id)}`,{method:"GET"});
+}
+
+module.exports={config,bookingConfig,retrieveRates,createOrder,retrieveOrder,retrieveTracking};
