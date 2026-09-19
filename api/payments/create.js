@@ -1,7 +1,7 @@
 "use strict";
 const { supabase, supabaseAdmin } = require("../_supabase");
 const { customerSafePayment, providerFor } = require("./_provider");
-const { createQrisCharge, paymentFieldsFromTransaction } = require("./_midtrans");
+const { createQrisCharge, getTransactionStatus, paymentFieldsFromTransaction } = require("./_midtrans");
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORDER_NUMBER=/^GYD-\d{8}-\d{4}$/;
@@ -73,8 +73,15 @@ module.exports=async function handler(req,res) {
 
     const order=await orderRow(payment.order_id);
     const charge=await createQrisCharge({orderId:order.order_number,amount:Number(payment.amount)});
+    const knownStatuses=new Set(["pending","settlement","capture","expire","deny","cancel","failure","refund"]);
+    let transaction=charge;
+    const immediateStatus=String(charge?.transaction_status||"").toLowerCase();
+    if(!knownStatuses.has(immediateStatus)){
+      const authoritative=await getTransactionStatus(order.order_number);
+      transaction={...charge,...authoritative,actions:charge?.actions||authoritative?.actions||[]};
+    }
     const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
-    const fields=paymentFieldsFromTransaction(charge,{expiresAt});
+    const fields=paymentFieldsFromTransaction(transaction,{expiresAt});
     payment=await updatePayment(payment.id,fields);
 
     return res.status(data.reused?200:201).json({
