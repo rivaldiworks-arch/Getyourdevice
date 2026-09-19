@@ -41,8 +41,13 @@ function mapOrderStatus(shippingStatus,current){
 module.exports=async function handler(req,res){
   if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
   try{
-    if(!webhookAuth(req)) return res.status(401).json({error:"Unauthorized"});
     const payload=typeof req.body==="string"?JSON.parse(req.body):req.body||{};
+    // Biteship validates a new webhook with an empty request body before activation.
+    // Return a harmless 200 only for that installation probe; real events still require the configured secret header.
+    if(!payload || (typeof payload==="object" && Object.keys(payload).length===0)) {
+      return res.status(200).json({ok:true});
+    }
+    if(!webhookAuth(req)) return res.status(401).json({error:"Unauthorized"});
     const event=String(payload.event||"");
     const shippingOrderId=String(payload.order_id||"");
     if(!shippingOrderId||!["order.status","order.waybill_id","order.price"].includes(event)) {
