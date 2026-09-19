@@ -1,5 +1,5 @@
 "use strict";
-const { randomBytes } = require("node:crypto");
+const { createHash, randomBytes } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
 
 const PAYMENT_METHODS = new Set(["Transfer Bank", "COD", "QRIS"]);
@@ -26,6 +26,20 @@ function validCustomer(customer) {
   return customer.full_name.length>=3 && PHONE.test(customer.whatsapp) && EMAIL.test(customer.email) &&
     customer.address.length>=10 && customer.city.length>=2 && /^\d{5}$/.test(customer.postal_code);
 }
+function cartFingerprint(items) {
+  const normalized=items.map(item=>({productId:String(item.productId),quantity:Number(item.quantity)})).sort((a,b)=>a.productId.localeCompare(b.productId));
+  return createHash("sha256").update(normalized.map(item=>`${item.productId}:${item.quantity}`).join("|")).digest("hex");
+}
+async function validateShippingQuote(quoteId,customer,items) {
+  const response=await supabaseAdmin(`shipping_quotes?select=id,destination_city,destination_postal_code,cart_fingerprint,expires_at,used_at&id=eq.${encodeURIComponent(quoteId)}&limit=1`);
+  const rows=await response.json().catch(()=>[]);
+  if(!response.ok) throw new Error(rows?.message||rows?.error||"SHIPPING_QUOTE_LOOKUP_FAILED");
+  const quote=rows?.[0];
+  if(!quote||quote.used_at||new Date(quote.expires_at).getTime()<=Date.now()) throw new Error("SHIPPING_QUOTE_EXPIRED");
+  if(String(quote.destination_city||"").trim().toLowerCase()!==customer.city.toLowerCase()||String(quote.destination_postal_code||"").trim()!==customer.postal_code) throw new Error("SHIPPING_QUOTE_MISMATCH");
+  if(quote.cart_fingerprint!==cartFingerprint(items)) throw new Error("SHIPPING_QUOTE_CART_MISMATCH");
+  return quote;
+}
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).setHeader("Allow", "POST").json({ error:"Method not allowed" });
@@ -36,6 +50,13 @@ module.exports = async function handler(req, res) {
     if(!validCustomer(customer)) return res.status(400).json({error:"Data pelanggan belum valid. Periksa nama, WhatsApp, email, alamat, kota, dan kode pos."});
     if(!UUID.test(String(body.shippingQuoteId||"")) || !PAYMENT_METHODS.has(body.payment)) return res.status(400).json({error:"Opsi pengiriman atau pembayaran tidak valid. Muat ulang checkout lalu coba lagi."});
     if(!body.items.every(item=>UUID.test(item.productId||"") && Number.isInteger(item.quantity) && item.quantity>0 && item.quantity<=99)) return res.status(400).json({error:"Item pesanan tidak valid."});
+    try{await validateShippingQuote(body.shippingQuoteId,customer,body.items);}
+    catch(error){
+      if(error.message==="SHIPPING_QUOTE_EXPIRED") return res.status(409).json({error:"Opsi ongkir sudah kedaluwarsa. Kembali ke langkah pengiriman untuk memuat tarif terbaru."});
+      if(["SHIPPING_QUOTE_MISMATCH","SHIPPING_QUOTE_CART_MISMATCH"].includes(error.message)) return res.status(409).json({error:"Opsi ongkir tidak lagi cocok dengan alamat atau isi keranjang. Muat ulang tarif pengiriman."});
+      console.error("Shipping quote validation failed",{message:error.message});
+      return res.status(500).json({error:"Opsi pengiriman belum dapat diverifikasi."});
+    }
     const paymentToken=randomBytes(32).toString("hex");
     const response=await supabaseAdmin("rpc/create_storefront_order_v3",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_quote_id:body.shippingQuoteId,p_payment_method:body.payment,p_payment_token:paymentToken})});
     const data=await response.json();
