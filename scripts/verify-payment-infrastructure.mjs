@@ -4,7 +4,7 @@ import {readFile} from "node:fs/promises";
 
 const require=createRequire(import.meta.url);
 const {PAYMENT_STATUSES,canTransition,customerSafePayment}=require("../api/payments/_provider.js");
-const {normalizeMidtransStatus}=require("../api/payments/_midtrans.js");
+const {normalizeMidtransStatus,normalizeTransactionStatus,paymentFieldsFromTransaction}=require("../api/payments/_midtrans.js");
 const migration=await readFile(new URL("../supabase/migrations/006_payment_infrastructure.sql",import.meta.url),"utf8");
 const orderMigration=await readFile(new URL("../supabase/migrations/004_order_management.sql",import.meta.url),"utf8");
 const orderApi=await readFile(new URL("../api/orders.js",import.meta.url),"utf8");
@@ -39,6 +39,9 @@ assert.equal(normalizeMidtransStatus("03"),"pending");
 assert.equal(normalizeMidtransStatus("00"),"paid");
 assert.equal(normalizeMidtransStatus("08"),"expired");
 assert.equal(normalizeMidtransStatus("09"),"failed");
+assert.equal(normalizeTransactionStatus({latestTransactionStatus:"03"}),"pending");
+assert.equal(normalizeTransactionStatus({qrUrl:"https://example.test/q.png"},{defaultPending:true}),"pending");
+assert.equal(paymentFieldsFromTransaction({latestTransactionStatus:"03",partnerReferenceNo:"GYD-TEST",referenceNo:"mid-ref",qrUrl:"https://example.test/q.png",qrContent:"000201"},{defaultPending:true}).payment_url,"https://example.test/q.png");
 assert.match(migration,/payment_status=new\.status/);
 assert.match(migration,/payment_method='COD'[\s\S]*return jsonb_build_object\('payment_method','COD','status','unpaid'/);
 assert.match(orderApi,/create_storefront_order_v2/);
