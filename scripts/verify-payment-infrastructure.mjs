@@ -9,6 +9,7 @@ const orderMigration=await readFile(new URL("../supabase/migrations/004_order_ma
 const orderApi=await readFile(new URL("../api/orders.js",import.meta.url),"utf8");
 const createApi=await readFile(new URL("../api/payments/create.js",import.meta.url),"utf8");
 const admin=await readFile(new URL("../admin.js",import.meta.url),"utf8");
+const storefront=await readFile(new URL("../app.js",import.meta.url),"utf8");
 
 assert.deepEqual(PAYMENT_STATUSES,["unpaid","pending","paid","failed","expired","refunded"]);
 assert.match(orderMigration,/orders_status_check[\s\S]*'pending','confirmed','processing','shipped','completed','cancelled'/);
@@ -35,5 +36,11 @@ assert.match(orderApi,/create_storefront_order_v2/);
 assert.match(orderApi,/"Transfer Bank", "COD", "QRIS"/);
 assert.match(admin,/paymentForOrder\(order\)/);
 assert.match(admin,/Status pembayaran/);
+assert.match(storefront,/async function createPaymentIntent/);
+assert.match(storefront,/fetch\("\/api\/payments\/create"/);
+assert.match(storefront,/payment!=="COD"/);
+assert.match(storefront,/result\.paymentToken/);
+assert.match(storefront,/paymentIntentReady/);
+assert.match(storefront,/Pesanan berhasil dibuat, tetapi instruksi pembayaran belum dapat disiapkan/);
 assert.deepEqual(customerSafePayment({status:"pending",payment_method:"QRIS",provider_payload:{secret:true}}),{paymentStatus:"pending",paymentMethod:"QRIS"});
 console.log("Payment infrastructure verification passed.");
