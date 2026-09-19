@@ -19,7 +19,8 @@ async function biteshipFetch(path,options={}) {
   });
   const data=await response.json().catch(()=>({}));
   if(!response.ok||data?.success===false){
-    const error=new Error(data?.message||`Biteship request failed (${response.status})`);
+    const providerMessage=typeof data?.error==="string"?data.error:data?.error?.message;
+    const error=new Error(data?.message||providerMessage||`Biteship request failed (${response.status})`);
     error.status=response.status;
     error.code=data?.code||null;
     error.biteship=data;
