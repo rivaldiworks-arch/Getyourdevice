@@ -3,6 +3,7 @@
 const { createHash, timingSafeEqual } = require("node:crypto");
 
 const MIDTRANS_STATUS_MAP = Object.freeze({
+  // Legacy Core API textual statuses.
   pending:"pending",
   settlement:"paid",
   capture:"paid",
@@ -10,7 +11,19 @@ const MIDTRANS_STATUS_MAP = Object.freeze({
   deny:"failed",
   cancel:"failed",
   failure:"failed",
-  refund:"refunded"
+  refund:"refunded",
+  partial_refund:"refunded",
+  // Midtrans BI-SNAP status values. Some newly provisioned merchant accounts can
+  // return numeric transaction statuses even while the dashboard still labels
+  // them with the legacy names.
+  "01":"pending",
+  "03":"pending",
+  "00":"paid",
+  "04":"refunded",
+  "05":"failed",
+  "06":"failed",
+  "08":"expired",
+  "09":"failed"
 });
 
 function midtransConfig() {
