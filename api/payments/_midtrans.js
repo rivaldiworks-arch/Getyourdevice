@@ -63,10 +63,28 @@ function findQrAction(actions=[]) {
     || null;
 }
 
+function rawTransactionStatus(transaction={}) {
+  return transaction.transaction_status
+    ?? transaction.transactionStatus
+    ?? transaction.latestTransactionStatus
+    ?? transaction.latest_transaction_status
+    ?? transaction.additionalInfo?.transactionStatus
+    ?? transaction.additionalInfo?.latestTransactionStatus
+    ?? null;
+}
+
 function normalizeMidtransStatus(value) {
   const normalized=MIDTRANS_STATUS_MAP[String(value||"").toLowerCase()];
   if(!normalized) throw new Error("Unsupported Midtrans transaction status");
   return normalized;
+}
+
+function normalizeTransactionStatus(transaction,{defaultPending=false}={}) {
+  const value=rawTransactionStatus(transaction);
+  if(value!==null && value!==undefined && value!=="") return normalizeMidtransStatus(value);
+  const hasQr=Boolean(findQrAction(transaction.actions)?.url || transaction.qrUrl || transaction.qr_url || transaction.qrImage || transaction.qrContent || transaction.qr_string);
+  if(defaultPending && hasQr) return "pending";
+  throw new Error("Unsupported Midtrans transaction status");
 }
 
 async function getTransactionStatus(orderId) {
@@ -112,16 +130,19 @@ function verifyNotificationSignature(payload) {
   return a.length===b.length && timingSafeEqual(a,b);
 }
 
-function paymentFieldsFromTransaction(transaction,{expiresAt=null}={}) {
+function paymentFieldsFromTransaction(transaction,{expiresAt=null,defaultPending=false}={}) {
   const qrAction=findQrAction(transaction.actions);
+  const directQrUrl=transaction.qrUrl||transaction.qr_url||null;
+  const qrImage=transaction.qrImage?String(transaction.qrImage):null;
+  const paymentUrl=qrAction?.url||directQrUrl||(qrImage?`data:image/png;base64,${qrImage}`:null);
   return {
     provider:"midtrans",
-    status:normalizeMidtransStatus(transaction.transaction_status),
-    provider_reference:String(transaction.order_id||""),
-    external_transaction_id:String(transaction.transaction_id||"")||null,
-    payment_url:qrAction?.url||null,
-    qr_string:transaction.qr_string||null,
-    expires_at:expiresAt,
+    status:normalizeTransactionStatus(transaction,{defaultPending}),
+    provider_reference:String(transaction.order_id||transaction.partnerReferenceNo||transaction.partner_reference_no||""),
+    external_transaction_id:String(transaction.transaction_id||transaction.referenceNo||transaction.reference_no||"")||null,
+    payment_url:paymentUrl,
+    qr_string:transaction.qr_string||transaction.qrContent||transaction.qr_content||null,
+    expires_at:transaction.additionalInfo?.validUpTo||transaction.validityPeriod||expiresAt,
     provider_payload:transaction
   };
 }
@@ -131,6 +152,8 @@ module.exports={
   getTransactionStatus,
   midtransConfig,
   normalizeMidtransStatus,
+  normalizeTransactionStatus,
   paymentFieldsFromTransaction,
+  rawTransactionStatus,
   verifyNotificationSignature
 };
