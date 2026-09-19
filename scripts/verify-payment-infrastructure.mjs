@@ -10,6 +10,9 @@ const orderApi=await readFile(new URL("../api/orders.js",import.meta.url),"utf8"
 const createApi=await readFile(new URL("../api/payments/create.js",import.meta.url),"utf8");
 const admin=await readFile(new URL("../admin.js",import.meta.url),"utf8");
 const storefront=await readFile(new URL("../app.js",import.meta.url),"utf8");
+const midtrans=await readFile(new URL("../api/payments/_midtrans.js",import.meta.url),"utf8");
+const webhook=await readFile(new URL("../api/payments/webhook.js",import.meta.url),"utf8");
+const supabaseHelper=await readFile(new URL("../api/_supabase.js",import.meta.url),"utf8");
 
 assert.deepEqual(PAYMENT_STATUSES,["unpaid","pending","paid","failed","expired","refunded"]);
 assert.match(orderMigration,/orders_status_check[\s\S]*'pending','confirmed','processing','shipped','completed','cancelled'/);
@@ -42,5 +45,18 @@ assert.match(storefront,/payment!=="COD"/);
 assert.match(storefront,/result\.paymentToken/);
 assert.match(storefront,/paymentIntentReady/);
 assert.match(storefront,/Pesanan berhasil dibuat, tetapi instruksi pembayaran belum dapat disiapkan/);
+assert.match(storefront,/paymentUrl/);
+assert.match(storefront,/Scan QRIS/);
+assert.match(midtrans,/api\.sandbox\.midtrans\.com/);
+assert.match(midtrans,/Buffer\.from\(\`\$\{serverKey\}:\`\)\.toString\("base64"\)/);
+assert.match(midtrans,/SHA512|sha512/i);
+assert.match(midtrans,/order_id.*status_code.*gross_amount/s);
+assert.match(midtrans,/generate-qr-code/);
+assert.match(webhook,/verifyNotificationSignature/);
+assert.match(webhook,/getTransactionStatus/);
+assert.match(webhook,/payment amount mismatch/i);
+assert.match(supabaseHelper,/SUPABASE_SERVICE_ROLE_KEY/);
+assert.doesNotMatch(storefront,/MIDTRANS_SERVER_KEY|SUPABASE_SERVICE_ROLE_KEY/);
+assert.doesNotMatch(midtrans,/Mid-server-|SB-Mid-server-/);
 assert.deepEqual(customerSafePayment({status:"pending",payment_method:"QRIS",provider_payload:{secret:true}}),{paymentStatus:"pending",paymentMethod:"QRIS"});
 console.log("Payment infrastructure verification passed.");

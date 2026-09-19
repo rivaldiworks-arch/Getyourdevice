@@ -8,7 +8,7 @@ Storefront HTML/CSS/JavaScript dengan katalog, checkout Supabase, dan fondasi do
 - Checkout tetap mengirim ID produk dan kuantitas ke `POST /api/orders`, yang memanggil RPC `create_storefront_order_v2`. Harga dan stok dihitung di database.
 - `/admin.html` memakai Supabase email/password Auth. Browser mendapat **publishable/anon key** dari `/api/config`, lalu mengirim access token pengguna ke REST API.
 - Otorisasi tidak bergantung pada UI: RLS memeriksa `public.admin_profiles` melalui `public.is_admin()`. Pengguna terautentikasi tanpa role `admin` tidak dapat membaca produk nonaktif atau menulis data.
-- Jangan pernah menaruh `SUPABASE_SERVICE_ROLE_KEY` di Vercel atau source browser. Admin menggunakan anon key + JWT pengguna + RLS.
+- `SUPABASE_SERVICE_ROLE_KEY` tidak boleh pernah masuk browser, source code, atau log. Phase 5C menggunakannya **hanya sebagai server-side Vercel secret** untuk write payment yang sudah diverifikasi backend. Admin UI tetap menggunakan anon key + JWT pengguna + RLS.
 
 ## SQL yang wajib dijalankan manual
 
@@ -56,7 +56,31 @@ SUPABASE_URL=https://PROJECT.supabase.co
 SUPABASE_ANON_KEY=publishable-or-anon-key
 ```
 
-Anon/publishable key aman berada di browser bila RLS benar; service-role key **tidak boleh** digunakan. Untuk pengembangan penuh gunakan `vercel dev`. Server statis biasa dapat menampilkan storefront fallback, tetapi endpoint auth/API tidak akan tersedia.
+Anon/publishable key aman berada di browser bila RLS benar. `SUPABASE_SERVICE_ROLE_KEY` hanya boleh disimpan sebagai server-side secret untuk endpoint payment dan tidak boleh dikirim ke frontend. Untuk pengembangan penuh gunakan `vercel dev`. Server statis biasa dapat menampilkan storefront fallback, tetapi endpoint auth/API tidak akan tersedia.
+
+## Midtrans Sandbox QRIS (Phase 5C)
+
+QRIS nyata diintegrasikan melalui Midtrans Core API dari backend Vercel. Server Key tidak pernah dikirim ke browser. Charge QRIS menggunakan amount dari row payment/order di database, bukan nominal dari client. Midtrans menggunakan Basic Auth dengan Server Key dan endpoint Sandbox `https://api.sandbox.midtrans.com/v2/charge`.
+
+Environment server-side yang diperlukan di Vercel untuk Preview dan Production selama sandbox testing:
+
+```text
+MIDTRANS_SERVER_KEY=<sandbox server key>
+MIDTRANS_ENV=sandbox
+SUPABASE_SERVICE_ROLE_KEY=<server-only Supabase service-role key>
+```
+
+Jangan commit atau tampilkan nilai ketiga secret tersebut di browser. Saat Production Midtrans aktif, ganti `MIDTRANS_SERVER_KEY` dengan Production Server Key dan `MIDTRANS_ENV=production`; source code tetap sama.
+
+Set Payment Notification URL di dashboard Midtrans Sandbox ke:
+
+```text
+https://getyourdevice.vercel.app/api/payments/webhook
+```
+
+Webhook memverifikasi `signature_key`, lalu melakukan GET Status ke Midtrans sebagai challenge sebelum menyinkronkan payment status ke Supabase. QRIS `pending` dipetakan ke payment `pending`; `settlement/capture` ke `paid`; `expire` ke `expired`; dan `deny/cancel/failure` ke `failed`.
+
+Phase 5C baru mengaktifkan gateway Midtrans untuk QRIS. Transfer Bank tetap berada di rail manual/provider-neutral sampai Virtual Account Midtrans ditambahkan secara eksplisit.
 
 ## Product schema final
 
