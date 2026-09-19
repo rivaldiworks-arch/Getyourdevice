@@ -25,7 +25,7 @@ async function refreshSession(refreshToken){return request("/auth/v1/token?grant
 function storeSession(value){session=value;if(value)localStorage.setItem("gyd_admin_session",JSON.stringify(value));else localStorage.removeItem("gyd_admin_session");}
 async function verifyAdmin(candidate){session=candidate;const profiles=await request(`/rest/v1/admin_profiles?select=id,full_name,role&id=eq.${encodeURIComponent(candidate.user.id)}`);if(profiles?.[0]?.role!=="admin")throw new Error("Akun ini tidak memiliki akses admin.");return profiles[0];}
 async function enterDashboard(profile){$("loginView").classList.add("hidden");$("dashboardView").classList.remove("hidden");$("adminIdentity").textContent=`${profile.full_name||session.user.email} · Admin`;await loadProducts();}
-async function loadProducts(){$("productMessage").textContent="Memuat produk…";try{products=await request("/rest/v1/products?select=id,name,brand,category,description,specifications,price,original_price,stock,image_url,rating,is_active,created_at,updated_at&order=updated_at.desc");renderProducts();$("productMessage").textContent=`${products.length} produk ditemukan.`;}catch(error){$("productMessage").textContent=error.message;}}
+async function loadProducts(){$("productMessage").textContent="Memuat produk…";try{products=await request("/rest/v1/products?select=id,name,brand,category,description,specifications,price,original_price,stock,image_url,rating,is_active,weight_grams,length_cm,width_cm,height_cm,created_at,updated_at&order=updated_at.desc");renderProducts();$("productMessage").textContent=`${products.length} produk ditemukan.`;}catch(error){$("productMessage").textContent=error.message;}}
 function filteredProducts(){const query=$("productSearch").value.trim().toLowerCase(),status=$("statusFilter").value;return products.filter(p=>(status==="all"||(status==="active")===p.is_active)&&(!query||[p.name,p.brand,p.category].some(v=>String(v||"").toLowerCase().includes(query))));}
 function renderProducts(){const rows=filteredProducts();$("productTable").innerHTML=rows.length?`<table><thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${rows.map(p=>`<tr><td><div class="product-cell"><img src="${escapeHTML(p.image_url||"https://placehold.co/80x80?text=GYD")}" alt=""><span><strong>${escapeHTML(p.name)}</strong><small>${escapeHTML(p.brand||"")}</small></span></div></td><td>${escapeHTML(p.category||"-")}</td><td>${money(p.price)}</td><td><input class="quick-number" type="number" min="0" value="${Number(p.stock)||0}" data-stock="${p.id}" aria-label="Stok ${escapeHTML(p.name)}"></td><td><button class="status-pill ${p.is_active?"active":""}" data-toggle="${p.id}">${p.is_active?"Aktif":"Nonaktif"}</button></td><td><div class="row-actions"><button data-edit="${p.id}">Edit</button><button class="delete" data-delete="${p.id}">Hapus</button></div></td></tr>`).join("")}</tbody></table>`:'<div class="empty-admin">Tidak ada produk yang sesuai.</div>';}
 function showFormError(message){$("formError").textContent=message;$("formError").classList.remove("hidden");}
@@ -38,7 +38,7 @@ function setImagePreview(source=""){
 }
 function openForm(product){
   $("productForm").reset();$("productId").value=product?.id||"";$("formTitle").textContent=product?"Edit produk":"Tambah produk";
-  for(const [id,key] of [["name","name"],["brand","brand"],["category","category"],["price","price"],["originalPrice","original_price"],["stock","stock"],["rating","rating"],["imageUrl","image_url"],["description","description"]])$(id).value=product?.[key]??"";
+  for(const [id,key] of [["name","name"],["brand","brand"],["category","category"],["price","price"],["originalPrice","original_price"],["stock","stock"],["rating","rating"],["weightGrams","weight_grams"],["lengthCm","length_cm"],["widthCm","width_cm"],["heightCm","height_cm"],["imageUrl","image_url"],["description","description"]])$(id).value=product?.[key]??"";
   $("specifications").value=JSON.stringify(product?.specifications||{},null,2);$("isActive").checked=product?.is_active!==false;$("formError").classList.add("hidden");setImagePreview(product?.image_url||"");$("productDialog").showModal();
 }
 function validateImage(file){
@@ -59,10 +59,20 @@ async function removeStoredImage(url){const path=storageObjectPath(url);if(path)
 function productPayload(){
   let specifications;try{specifications=JSON.parse($("specifications").value||"{}");}catch{throw new Error("Spesifikasi harus berupa JSON yang valid.");}
   const stock=Number($("stock").value),rating=$("rating").value?Number($("rating").value):0,price=Number($("price").value),originalPrice=$("originalPrice").value?Number($("originalPrice").value):null;
+  const physical={
+    weight_grams:$("weightGrams").value?Number($("weightGrams").value):null,
+    length_cm:$("lengthCm").value?Number($("lengthCm").value):null,
+    width_cm:$("widthCm").value?Number($("widthCm").value):null,
+    height_cm:$("heightCm").value?Number($("heightCm").value):null
+  };
   if(!Number.isInteger(stock)||stock<0)throw new Error("Stok harus berupa bilangan bulat nol atau lebih.");
   if(!Number.isFinite(price)||price<0||originalPrice!==null&&(!Number.isFinite(originalPrice)||originalPrice<0))throw new Error("Harga tidak boleh negatif.");
   if(!Number.isFinite(rating)||rating<0||rating>5)throw new Error("Rating harus berada di antara 0 dan 5.");
-  return {name:$("name").value.trim(),brand:$("brand").value.trim(),category:$("category").value.trim(),description:$("description").value.trim(),specifications,price,original_price:originalPrice,stock,image_url:$("imageUrl").value.trim()||null,rating,is_active:$("isActive").checked};
+  const provided=Object.values(physical).filter(value=>value!==null);
+  if(provided.length&&provided.length!==4)throw new Error("Untuk tarif kurir live, isi berat, panjang, lebar, dan tinggi sekaligus.");
+  if(provided.some(value=>!Number.isFinite(value)||value<=0))throw new Error("Berat dan dimensi paket harus lebih dari nol.");
+  if(physical.weight_grams!==null&&!Number.isInteger(physical.weight_grams))throw new Error("Berat paket harus dalam gram bulat.");
+  return {name:$("name").value.trim(),brand:$("brand").value.trim(),category:$("category").value.trim(),description:$("description").value.trim(),specifications,price,original_price:originalPrice,stock,image_url:$("imageUrl").value.trim()||null,rating,...physical,is_active:$("isActive").checked};
 }
 async function saveProduct(event){
   event.preventDefault();$("formError").classList.add("hidden");const button=$("saveProductButton");button.disabled=true;button.textContent="Menyimpan…";

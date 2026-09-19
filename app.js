@@ -41,6 +41,8 @@ let checkoutStep = 1;
 let checkoutSubmitting = false;
 let shippingQuotes = [];
 let shippingQuotesLoading = false;
+let shippingRatesLive = false;
+let shippingRateNotice = "";
 let toastTimer;
 
 const $ = (id) => document.getElementById(id);
@@ -179,7 +181,8 @@ function renderShippingOptions() {
     $("shippingOptions").innerHTML='<div class="loading-shipping">Lengkapi alamat untuk memuat opsi pengiriman.</div>';
     return;
   }
-  $("shippingOptions").innerHTML=shippingQuotes.map((option,index)=>`<label class="choice"><input type="radio" name="shipping" value="${escapeHTML(option.quoteId)}" ${index===0?"checked":""}><span><strong>${escapeHTML(option.name)} — ${option.price?money(option.price):"Gratis"}</strong><small>${escapeHTML(shippingEta(option))}. Tarif dikunci selama 30 menit.</small></span></label>`).join("");
+  const notice=shippingRatesLive?'<div class="shipping-rate-source">Tarif kurir live via Biteship.</div>':shippingRateNotice?`<div class="shipping-rate-source fallback">${escapeHTML(shippingRateNotice)}</div>`:"";
+  $("shippingOptions").innerHTML=notice+shippingQuotes.map((option,index)=>`<label class="choice"><input type="radio" name="shipping" value="${escapeHTML(option.quoteId)}" ${index===0?"checked":""}><span><strong>${escapeHTML(option.name)} — ${option.price?money(option.price):"Gratis"}</strong><small>${escapeHTML(shippingEta(option))}. Tarif dikunci selama 30 menit.</small></span></label>`).join("");
 }
 async function loadShippingQuotes() {
   shippingQuotesLoading=true;renderShippingOptions();
@@ -189,12 +192,14 @@ async function loadShippingQuotes() {
     if(!response.ok)throw new Error(result.error||"Opsi pengiriman belum dapat dimuat.");
     if(!Array.isArray(result.quotes)||!result.quotes.length)throw new Error("Opsi pengiriman belum tersedia.");
     shippingQuotes=result.quotes;
+    shippingRatesLive=Boolean(result.liveRates);
+    shippingRateNotice=result.missingShippingSpecs?.length?`Tarif fallback dipakai karena data berat/dimensi belum lengkap untuk: ${result.missingShippingSpecs.join(", ")}.`:(result.rateWarning||"");
   }finally{
     shippingQuotesLoading=false;renderShippingOptions();updateCheckoutTotal();
   }
 }
 function renderCheckout() {
-  shippingQuotes=[];shippingQuotesLoading=false;renderShippingOptions();
+  shippingQuotes=[];shippingQuotesLoading=false;shippingRatesLive=false;shippingRateNotice="";renderShippingOptions();
   $("checkoutSummary").innerHTML = cart.map(item => { const product = products.find(entry => entry.id === item.id); if (!product) return ""; return `<div class="summary-item"><span>${escapeHTML(product.name)}<small>${item.qty} × ${money(product.price)}</small></span><strong>${money(product.price * item.qty)}</strong></div>`; }).join("");
   checkoutStep=1; checkoutSubmitting=false; clearFieldErrors(); renderCheckoutStep(); updateCheckoutTotal();
 }

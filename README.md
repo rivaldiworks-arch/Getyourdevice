@@ -23,6 +23,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 7. `supabase/migrations/007_phase5_rpc_schema_compat.sql` — compatibility hotfix RPC capability-token untuk database yang sempat menjalankan draft awal Phase 5.
 8. `supabase/migrations/008_phase5_pgcrypto_search_path.sql` — memastikan RPC security-definer dapat memakai `pgcrypto` dari schema `extensions`.
 9. `supabase/migrations/009_shipping_infrastructure.sql` — membuat `shipping_quotes`, snapshot provider/service/ETA pada order, field tracking, dan RPC `create_storefront_order_v3` yang hanya dapat dipanggil `service_role`. **Jalankan 009 sebelum merge/deploy Phase 6.**
+10. `supabase/migrations/010_product_shipping_dimensions.sql` — menambah `weight_grams`, `length_cm`, `width_cm`, dan `height_cm` ke produk. Semua nullable agar listing lama tetap berfungsi dan dapat dilengkapi saat edit produk.
 
 ## Payment infrastructure (Phase 5)
 
@@ -94,6 +95,25 @@ Untuk Phase 6A provider masih `internal` dengan empat service class yang sama se
 Saat order dibuat, `POST /api/orders` memverifikasi quote terhadap alamat dan cart, lalu menggunakan service-role server-side untuk memanggil `create_storefront_order_v3`. RPC menyalin snapshot `shipping_provider`, `shipping_service_code`, `shipping_service_name`, ETA, quote ID, dan shipping cost ke order. Quote yang sudah dipakai tidak dapat digunakan lagi. Admin detail order menampilkan snapshot layanan dan nomor resi bila tersedia.
 
 Field tracking yang disiapkan: `tracking_number`, `tracking_url`, `shipped_at`, dan `delivered_at`. Phase 6A belum membeli label, booking pickup, atau mengambil live rate dari kurir eksternal; itu masuk adapter courier berikutnya.
+
+## Biteship live courier rates (Phase 6B)
+
+Admin form produk memiliki field berat paket (gram), panjang, lebar, dan tinggi (cm). Field ini boleh kosong untuk listing lama; bila satu field diisi, keempatnya harus lengkap dan bernilai positif.
+
+Jika semua item dalam cart sudah memiliki data fisik dan environment Biteship tersedia, `POST /api/shipping/quotes` mengambil tarif live melalui `POST https://api.biteship.com/v1/rates/couriers`. Origin dan destination Phase 6B menggunakan postal code; ini cukup untuk standard courier rates tetapi bukan instant courier yang memerlukan koordinat. Default courier query: `jne,jnt,sicepat,anteraja,ninja,pos,tiki`.
+
+Environment server-side:
+
+```text
+BITESHIP_API_KEY=<biteship_test... untuk testing>
+SHIPPING_ORIGIN_POSTAL_CODE=10140
+# Optional:
+BITESHIP_COURIERS=jne,jnt,sicepat,anteraja,ninja,pos,tiki
+```
+
+API key tidak boleh masuk browser atau repository. Alamat pickup lengkap tidak disimpan di source code; simpan di dashboard/provider atau server-side configuration saat Phase 6C booking shipment dibuat.
+
+Untuk menjaga checkout tetap berjalan selama katalog lama belum dilengkapi dimensi, Phase 6B memakai tarif internal fallback bila data fisik item belum lengkap atau live rate sementara gagal. UI menandai apakah tarif berasal dari Biteship live atau fallback. Begitu seluruh item cart memiliki weight/dimensions, Biteship otomatis menjadi sumber tarif.
 
 ## Product schema final
 
