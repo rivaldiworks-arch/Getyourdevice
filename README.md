@@ -24,6 +24,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 8. `supabase/migrations/008_phase5_pgcrypto_search_path.sql` — memastikan RPC security-definer dapat memakai `pgcrypto` dari schema `extensions`.
 9. `supabase/migrations/009_shipping_infrastructure.sql` — membuat `shipping_quotes`, snapshot provider/service/ETA pada order, field tracking, dan RPC `create_storefront_order_v3` yang hanya dapat dipanggil `service_role`. **Jalankan 009 sebelum merge/deploy Phase 6.**
 10. `supabase/migrations/010_product_shipping_dimensions.sql` — menambah `weight_grams`, `length_cm`, `width_cm`, dan `height_cm` ke produk. Semua nullable agar listing lama tetap berfungsi dan dapat dilengkapi saat edit produk.
+11. `supabase/migrations/011_shipment_booking_tracking.sql` — menambah snapshot berat/dimensi pada `order_items`, Biteship shipment/tracking IDs, shipment status/environment, biaya aktual, timestamp booking/event, dan memperbarui RPC checkout v3 agar parcel data dibekukan saat order dibuat.
 
 ## Payment infrastructure (Phase 5)
 
@@ -114,6 +115,39 @@ BITESHIP_COURIERS=jne,jnt,sicepat,anteraja,ninja,pos,tiki
 API key tidak boleh masuk browser atau repository. Alamat pickup lengkap tidak disimpan di source code; simpan di dashboard/provider atau server-side configuration saat Phase 6C booking shipment dibuat.
 
 Untuk menjaga checkout tetap berjalan selama katalog lama belum dilengkapi dimensi, Phase 6B memakai tarif internal fallback bila data fisik item belum lengkap atau live rate sementara gagal. UI menandai apakah tarif berasal dari Biteship live atau fallback. Begitu seluruh item cart memiliki weight/dimensions, Biteship otomatis menjadi sumber tarif.
+
+## Shipment booking + tracking (Phase 6C)
+
+Admin order detail dapat membuat shipment Biteship lewat `POST /api/shipping/book`. Endpoint ini memverifikasi JWT admin server-side, mengambil snapshot order/item dari Supabase, lalu membuat Biteship order menggunakan `reference_id = order_number` agar retry tetap idempotent. Jika API mengembalikan error duplicate reference, backend mengambil Biteship order yang sudah ada alih-alih membuat shipment kedua.
+
+Di sandbox (`biteship_test.`) admin boleh membuat shipment test walaupun payment belum `paid`, karena test order Biteship tidak melibatkan kurir nyata. Saat nanti memakai live key, booking diblokir sampai `orders.payment_status = paid`.
+
+Environment tambahan yang wajib untuk booking:
+
+```text
+SHIPPING_ORIGIN_CONTACT_NAME=<nama PIC pickup>
+SHIPPING_ORIGIN_CONTACT_PHONE=<nomor PIC pickup>
+SHIPPING_ORIGIN_ADDRESS=<alamat pickup lengkap>
+# optional:
+SHIPPING_ORIGIN_CONTACT_EMAIL=<email pickup>
+SHIPPING_ORIGIN_NOTE=<catatan pickup>
+SHIPPING_ORIGIN_ORGANIZATION=GETYOURDEVICE
+```
+
+Tracking utama memakai Biteship tracking ID melalui `POST /api/shipping/track` dari admin. Biteship webhook tersedia di:
+
+```text
+https://getyourdevice.vercel.app/api/shipping/webhook
+```
+
+Webhook menerima event `order.status`, `order.waybill_id`, dan `order.price`. Untuk autentikasi, konfigurasi pasangan custom header yang sama di Vercel dan dashboard Biteship:
+
+```text
+BITESHIP_WEBHOOK_HEADER_NAME=x-getyourdevice-webhook-secret
+BITESHIP_WEBHOOK_HEADER_SECRET=<secret acak yang panjang>
+```
+
+Di Biteship Webhook, isi **Headers Signature Key** dengan nilai dari `BITESHIP_WEBHOOK_HEADER_NAME` dan **Headers Signature Secret** dengan nilai secret yang sama. Endpoint membandingkan header secara timing-safe dan mengabaikan event yang tidak dikenal. Webhook memperbarui shipment status, AWB/resi, tracking URL, actual shipping cost, serta timestamp shipped/delivered tanpa mengubah grand total customer ketika Biteship melaporkan perubahan biaya aktual.
 
 ## Product schema final
 
