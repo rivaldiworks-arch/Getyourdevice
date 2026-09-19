@@ -57,6 +57,8 @@ assert.match(storefront,/Pesanan berhasil dibuat, tetapi instruksi pembayaran be
 assert.match(storefront,/paymentUrl/);
 assert.match(storefront,/Scan QRIS/);
 assert.match(midtrans,/api\.sandbox\.midtrans\.com/);
+assert.match(midtrans,/midtransBusinessError/);
+assert.match(createApi,/QRIS Midtrans belum aktif untuk merchant ini/);
 assert.match(midtrans,/Buffer\.from\(\`\$\{serverKey\}:\`\)\.toString\("base64"\)/);
 assert.match(midtrans,/SHA512|sha512/i);
 assert.match(midtrans,/order_id.*status_code.*gross_amount/s);
