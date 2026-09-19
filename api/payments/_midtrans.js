@@ -57,6 +57,19 @@ async function midtransFetch(path, options={}) {
   return {response,data};
 }
 
+function midtransBusinessError(response,data={}) {
+  if(!response.ok) return true;
+  if(data.status_code){
+    const code=Number(data.status_code);
+    if(Number.isFinite(code) && (code<200 || code>=300)) return true;
+  }
+  if(data.responseCode){
+    const prefix=Number(String(data.responseCode).slice(0,3));
+    if(Number.isFinite(prefix) && ![200,201,202].includes(prefix)) return true;
+  }
+  return false;
+}
+
 function findQrAction(actions=[]) {
   return actions.find(action=>action?.name==="generate-qr-code-v2")
     || actions.find(action=>action?.name==="generate-qr-code")
@@ -89,8 +102,8 @@ function normalizeTransactionStatus(transaction,{defaultPending=false}={}) {
 
 async function getTransactionStatus(orderId) {
   const {response,data}=await midtransFetch(`/v2/${encodeURIComponent(orderId)}/status`,{method:"GET"});
-  if(!response.ok) {
-    const error=new Error(data.status_message||"Midtrans status request failed");
+  if(midtransBusinessError(response,data)) {
+    const error=new Error(data.status_message||data.responseMessage||"Midtrans status request failed");
     error.status=response.status;
     error.midtrans=data;
     throw error;
@@ -106,11 +119,11 @@ async function createQrisCharge({orderId,amount}) {
     custom_expiry:{expiry_duration:30,unit:"minute"}
   };
   const {response,data}=await midtransFetch("/v2/charge",{method:"POST",body:JSON.stringify(body)});
-  if(!response.ok) {
+  if(midtransBusinessError(response,data)) {
     // A retry after Midtrans accepted the charge but before our DB update can return
     // "order id already used". Recover by reading the authoritative transaction status.
-    if(response.status===406) return getTransactionStatus(orderId);
-    const error=new Error(data.status_message||"Midtrans QRIS charge failed");
+    if(response.status===406 || String(data.status_code)==="406") return getTransactionStatus(orderId);
+    const error=new Error(data.status_message||data.responseMessage||"Midtrans QRIS charge failed");
     error.status=response.status;
     error.midtrans=data;
     throw error;
