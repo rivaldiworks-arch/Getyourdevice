@@ -105,6 +105,9 @@ module.exports=async function handler(req,res) {
     if(error.message==="MIDTRANS_SERVER_KEY is not configured" || error.message==="SUPABASE_SERVICE_ROLE_KEY is not configured") {
       return res.status(503).json({error:"Gateway pembayaran belum dikonfigurasi."});
     }
+    if(String(error.midtrans?.status_code||"")==="402" || /payment channel is not activated/i.test(error.message||"")) {
+      return res.status(503).json({error:"QRIS Midtrans belum aktif untuk merchant ini."});
+    }
     return res.status(500).json({error:"Pembayaran belum dapat disiapkan."});
   }
 };
