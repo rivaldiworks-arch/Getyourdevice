@@ -1,6 +1,6 @@
 # GETYOURDEVICE
 
-Storefront HTML/CSS/JavaScript dengan katalog dan checkout Supabase. Phase 4 mengeraskan checkout pelanggan tanpa merombak storefront maupun menambahkan payment gateway atau integrasi kurir.
+Storefront HTML/CSS/JavaScript dengan katalog, checkout Supabase, dan fondasi domain pembayaran yang provider-neutral. Belum ada payment gateway yang terhubung.
 
 ## Arsitektur
 
@@ -19,6 +19,17 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 3. `supabase/migrations/003_product_storage.sql` — bucket publik `product-images`, batas 5 MB/tipe MIME gambar, dan policy public-read/admin-write. **Migration ini harus dijalankan manual** di SQL Editor sebelum fitur unggah dipakai.
 4. `supabase/migrations/004_order_management.sql` — normalisasi kolom order/item secara additive, snapshot pelanggan dan produk, nomor `GYD-YYYYMMDD-XXXX` dari database, status/trigger/index, admin RLS, serta pembaruan kompatibel RPC checkout.
 5. `supabase/migrations/005_checkout_hardening.sql` — melepaskan hanya constraint `NOT NULL` legacy pada `orders.whatsapp`, `order_items.unit_price`, dan `order_items.total_price` bila kolomnya ada; menambah `order_notes`; serta mengganti RPC checkout dengan validasi, harga/stok transaksional, dan sinkronisasi `grand_total` legacy. **Jalankan migration ini manual sebelum deploy kode Phase 4.**
+6. `supabase/migrations/006_payment_infrastructure.sql` — menambah snapshot `orders.payment_status`/`payment_reference`, capability-token hash/expiry untuk guest payment access, tabel payment provider-neutral, indeks unik referensi provider, transition guard, sinkronisasi snapshot, RPC pembuatan intent manual yang mengambil nominal dari order, dan RLS admin-read-only. **Jalankan migration ini manual di Supabase SQL Editor sebelum merge/deploy kode Phase 5**, karena `POST /api/orders` Phase 5 memanggil overload RPC baru dengan payment token.
+
+## Payment infrastructure (Phase 5)
+
+Status pembayaran canonical adalah `unpaid`, `pending`, `paid`, `failed`, `expired`, dan `refunded`; status ini terpisah dari status fulfillment order. `POST /api/orders` sekarang menerbitkan capability token acak 256-bit untuk order non-COD; hanya hash SHA-256 dan masa berlaku 24 jam yang disimpan di database. `POST /api/payments/create` menerima tepat salah satu `orderNumber` atau `orderId` plus `paymentToken`, sehingga nomor order yang dapat ditebak tidak cukup untuk membaca atau membuat payment intent milik pelanggan lain. RPC database mengunci dan membaca order, mengambil `orders.total` sebagai nominal otoritatif, menggunakan ulang intent aktif, menolak order yang sudah `paid`/`refunded`, serta tidak membuat transaksi untuk COD. Transfer Bank dan QRIS menghasilkan record provider `manual` berstatus `unpaid`, tanpa detail bank atau QR palsu.
+
+`POST /api/payments/webhook` adalah boundary tertutup: pada Phase 5 semua provider ditolak dan tidak ada status yang dapat diubah melalui callback publik. Adapter gateway berikutnya wajib memverifikasi signature terhadap raw body sebelum memanggil RPC update yang sempit dan idempotent. Response storefront tidak menyertakan `provider_payload`.
+
+RLS `payments` tidak memberi akses langsung kepada anon atau pengguna authenticated biasa. Authenticated admin yang lolos `public.is_admin()` hanya mendapat akses baca; write langsung tidak diberikan. API memakai `SUPABASE_URL` dan `SUPABASE_ANON_KEY` yang sudah digunakan proyek—tidak ada environment variable atau service-role key baru. Setelah migration diterapkan, detail Pesanan admin menampilkan status/metode/provider/referensi/ID transaksi/waktu pembayaran/kedaluwarsa.
+
+Integrasi gateway nyata masih perlu menambahkan adapter `createPayment`, `getPayment`, `normalizeStatus`, dan `verifyWebhook`, secret server-side provider, verifikasi signature raw-body, serta RPC update webhook yang atomik. Redirect browser tidak boleh dijadikan bukti pembayaran.
 
 `002_admin_foundation.sql` tidak menghapus atau menimpa produk seed. Kolom yang belum ada ditambahkan, sementara baris lama dipertahankan. Jalankan `supabase/seed/products.sql` **hanya jika** katalog demo belum ada; seed bersifat idempotent tetapi akan memperbarui produk demo dengan UUID yang sama.
 
