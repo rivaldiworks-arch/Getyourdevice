@@ -57,9 +57,14 @@ async function rateServices(items,destinationPostalCode) {
   const missing=products.filter(product=>!productShippingReady(product)).map(product=>product.name);
   if(missing.length) return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing};
   if(!process.env.BITESHIP_API_KEY||!process.env.SHIPPING_ORIGIN_POSTAL_CODE) return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing:[]};
-  const liveRates=await retrieveRates({destinationPostalCode,items:biteshipItems(items,products)});
-  if(!liveRates.length) return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing:[]};
-  return {services:[...liveRates,PICKUP],live:true,missing:[]};
+  try{
+    const liveRates=await retrieveRates({destinationPostalCode,items:biteshipItems(items,products)});
+    if(!liveRates.length) return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing:[],warning:"Kurir live belum mengembalikan layanan untuk tujuan ini."};
+    return {services:[...liveRates,PICKUP],live:true,missing:[],warning:null};
+  }catch(error){
+    console.warn("Biteship live rates unavailable",{status:error.status||null,code:error.code||null,message:error.message});
+    return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing:[],warning:"Tarif kurir live sedang tidak tersedia; menampilkan tarif fallback."};
+  }
 }
 
 async function insertQuotes(rows) {
@@ -103,6 +108,7 @@ module.exports=async function handler(req,res) {
     return res.status(200).json({
       liveRates:rateResult.live,
       missingShippingSpecs:rateResult.missing,
+      rateWarning:rateResult.warning||null,
       quotes:quotes.map(row=>({
         quoteId:row.id,
         provider:row.provider,
