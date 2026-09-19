@@ -63,7 +63,8 @@ async function rateServices(items,destinationPostalCode) {
     return {services:[...liveRates,PICKUP],live:true,missing:[],warning:null};
   }catch(error){
     console.warn("Biteship live rates unavailable",{status:error.status||null,code:error.code||null,message:error.message});
-    return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing:[],warning:"Tarif kurir live sedang tidak tersedia; menampilkan tarif fallback."};
+    const warning=/sufficient balance|top up/i.test(error.message||"")?"Saldo Biteship belum cukup untuk cek ongkir live; menampilkan tarif fallback.":"Tarif kurir live sedang tidak tersedia; menampilkan tarif fallback.";
+    return {services:[...FALLBACK_SERVICES,PICKUP],live:false,missing:[],warning};
   }
 }
 
