@@ -5,6 +5,8 @@ create extension if not exists pgcrypto;
 
 alter table public.orders add column if not exists payment_status text not null default 'unpaid';
 alter table public.orders add column if not exists payment_reference text;
+alter table public.orders add column if not exists payment_access_token_hash text;
+alter table public.orders add column if not exists payment_access_expires_at timestamptz;
 
 -- Existing orders are deliberately unpaid regardless of their fulfilment status or payment method.
 update public.orders set payment_status='unpaid' where payment_status is null;
@@ -39,8 +41,8 @@ create table if not exists public.payments (
 );
 
 create index if not exists payments_order_id_idx on public.payments(order_id);
-create index if not exists payments_provider_reference_idx on public.payments(provider_reference) where provider_reference is not null;
-create index if not exists payments_external_transaction_id_idx on public.payments(external_transaction_id) where external_transaction_id is not null;
+create unique index if not exists payments_provider_reference_uidx on public.payments(provider,provider_reference) where provider_reference is not null;
+create unique index if not exists payments_external_transaction_id_uidx on public.payments(provider,external_transaction_id) where external_transaction_id is not null;
 create index if not exists payments_status_idx on public.payments(status);
 create index if not exists payments_created_at_idx on public.payments(created_at desc);
 create unique index if not exists payments_one_active_per_order_idx on public.payments(order_id) where status in ('unpaid','pending');
@@ -86,19 +88,61 @@ drop trigger if exists payments_sync_order on public.payments;
 create trigger payments_sync_order after insert or update of status,provider_reference,external_transaction_id on public.payments
 for each row execute function public.sync_order_payment_snapshot();
 
--- The server creates only provider-neutral manual intents. The amount is always copied
--- from the locked order row. COD returns a snapshot and never creates a fake transaction.
-create or replace function public.create_manual_payment_intent(p_order_id uuid default null,p_order_number text default null)
-returns jsonb language plpgsql security definer set search_path=public,pg_temp
+-- Secure guest capability: POST /api/orders generates a high-entropy token, while only
+-- its SHA-256 digest is stored. The original four-argument checkout RPC remains intact
+-- for compatibility; this overload wraps it and attaches the payment capability.
+create or replace function public.create_storefront_order_v2(
+  p_customer jsonb, p_items jsonb, p_shipping_id text, p_payment_method text, p_payment_token text
+) returns jsonb language plpgsql security definer set search_path=public,pg_temp
 as $$
-declare v_order public.orders%rowtype; v_payment public.payments%rowtype; v_reused boolean:=false;
+declare v_result jsonb; v_order_number text;
+begin
+  if p_payment_token is null or length(p_payment_token)<32 then
+    raise exception using message='INVALID_PAYMENT_TOKEN',errcode='P0001';
+  end if;
+  v_result:=public.create_storefront_order_v2(p_customer,p_items,p_shipping_id,p_payment_method);
+  v_order_number:=v_result->>'order_number';
+  update public.orders set
+    payment_access_token_hash=encode(digest(p_payment_token,'sha256'),'hex'),
+    payment_access_expires_at=now()+interval '24 hours'
+  where order_number=v_order_number;
+  if not found then raise exception using message='ORDER_NOT_FOUND',errcode='P0001'; end if;
+  return v_result;
+end $$;
+revoke all on function public.create_storefront_order_v2(jsonb,jsonb,text,text,text) from public;
+grant execute on function public.create_storefront_order_v2(jsonb,jsonb,text,text,text) to anon,authenticated;
+
+-- The server creates provider-neutral manual intents. Amount is copied from the locked
+-- order row. A high-entropy capability token is required so guessable order numbers
+-- cannot be used to enumerate orders or access another customer's payment intent.
+create or replace function public.create_manual_payment_intent(
+  p_order_id uuid default null,
+  p_order_number text default null,
+  p_payment_token text default null
+) returns jsonb language plpgsql security definer set search_path=public,pg_temp
+as $$
+declare v_order public.orders%rowtype; v_payment public.payments%rowtype; v_reused boolean:=false; v_token_hash text;
 begin
   if (p_order_id is null)=(p_order_number is null) then raise exception using message='INVALID_ORDER_IDENTIFIER',errcode='P0001'; end if;
   select * into v_order from public.orders
     where (p_order_id is not null and id=p_order_id) or (p_order_number is not null and order_number=p_order_number)
     for update;
   if not found then raise exception using message='ORDER_NOT_FOUND',errcode='P0001'; end if;
-  if v_order.status in ('cancelled','completed') then raise exception using message='ORDER_NOT_PAYABLE',errcode='P0001'; end if;
+
+  if p_payment_token is null or length(p_payment_token)<32
+    or v_order.payment_access_token_hash is null
+    or v_order.payment_access_expires_at is null
+    or v_order.payment_access_expires_at<=now() then
+    raise exception using message='PAYMENT_ACCESS_DENIED',errcode='P0001';
+  end if;
+  v_token_hash:=encode(digest(p_payment_token,'sha256'),'hex');
+  if v_token_hash<>v_order.payment_access_token_hash then
+    raise exception using message='PAYMENT_ACCESS_DENIED',errcode='P0001';
+  end if;
+
+  if v_order.status in ('cancelled','completed') or v_order.payment_status in ('paid','refunded') then
+    raise exception using message='ORDER_NOT_PAYABLE',errcode='P0001';
+  end if;
   if v_order.payment_method not in ('Transfer Bank','COD','QRIS') then raise exception using message='INVALID_PAYMENT_METHOD',errcode='P0001'; end if;
   if v_order.payment_method='COD' then
     return jsonb_build_object('payment_method','COD','status','unpaid','provider','manual','reused',true);
@@ -113,8 +157,8 @@ begin
     'status',v_payment.status,'provider_reference',v_payment.provider_reference,'payment_url',v_payment.payment_url,
     'qr_string',v_payment.qr_string,'expires_at',v_payment.expires_at,'reused',v_reused);
 end $$;
-revoke all on function public.create_manual_payment_intent(uuid,text) from public;
-grant execute on function public.create_manual_payment_intent(uuid,text) to anon,authenticated;
+revoke all on function public.create_manual_payment_intent(uuid,text,text) from public;
+grant execute on function public.create_manual_payment_intent(uuid,text,text) to anon,authenticated;
 
 alter table public.payments enable row level security;
 drop policy if exists admin_read_payments on public.payments;
