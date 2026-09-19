@@ -10,12 +10,6 @@ const CATEGORY_IMAGES = {
   Audio: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=500&q=85",
   Accessories: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=500&q=85"
 };
-const SHIPPING = [
-  { id: "regular", name: "Reguler", detail: "Estimasi 3–5 hari kerja", price: 25000 },
-  { id: "express", name: "Express", detail: "Estimasi 1–2 hari kerja", price: 50000 },
-  { id: "sameday", name: "Same Day / Instant", detail: "Tiba hari ini untuk area yang didukung", price: 85000 },
-  { id: "pickup", name: "Ambil di Toko", detail: "Siap diambil dalam 2 jam", price: 0 }
-];
 const ORDER_STATUSES = ["Pending", "Paid", "Processing", "Shipped", "Completed", "Cancelled"];
 const CHECKOUT_STEPS = ["Pelanggan", "Alamat", "Pengiriman", "Pembayaran", "Tinjau"];
 const starterProducts = [
@@ -45,6 +39,8 @@ let detailProductId = null;
 let detailQuantity = 1;
 let checkoutStep = 1;
 let checkoutSubmitting = false;
+let shippingQuotes = [];
+let shippingQuotesLoading = false;
 let toastTimer;
 
 const $ = (id) => document.getElementById(id);
@@ -168,14 +164,46 @@ function openProductDetail(id) { if (!products.some(product => product.id === id
 function changeDetailQuantity(delta) { const product=products.find(item=>item.id===detailProductId); if(!product)return; detailQuantity=Math.max(1,Math.min(product.stock,detailQuantity+delta)); renderProductDetail(); }
 function addDetailToCart(buyNow=false) { const product=products.find(item=>item.id===detailProductId); if(!product||!addToCart(product.id,false,detailQuantity))return; setModal("productModal",false); if(buyNow) startCheckout(); else openCart(); }
 
+function shippingEta(option) {
+  if(option.etaMinDays===0&&option.etaMaxDays===0)return "Siap diambil";
+  if(option.etaMinDays===0&&option.etaMaxDays===1)return "Hari ini / maksimal 1 hari";
+  if(option.etaMinDays===option.etaMaxDays)return `Estimasi ${option.etaMinDays} hari kerja`;
+  return `Estimasi ${option.etaMinDays}–${option.etaMaxDays} hari kerja`;
+}
+function renderShippingOptions() {
+  if(shippingQuotesLoading){
+    $("shippingOptions").innerHTML='<div class="loading-shipping">Menghitung opsi pengiriman…</div>';
+    return;
+  }
+  if(!shippingQuotes.length){
+    $("shippingOptions").innerHTML='<div class="loading-shipping">Lengkapi alamat untuk memuat opsi pengiriman.</div>';
+    return;
+  }
+  $("shippingOptions").innerHTML=shippingQuotes.map((option,index)=>`<label class="choice"><input type="radio" name="shipping" value="${escapeHTML(option.quoteId)}" ${index===0?"checked":""}><span><strong>${escapeHTML(option.name)} — ${option.price?money(option.price):"Gratis"}</strong><small>${escapeHTML(shippingEta(option))}. Tarif dikunci selama 30 menit.</small></span></label>`).join("");
+}
+async function loadShippingQuotes() {
+  shippingQuotesLoading=true;renderShippingOptions();
+  try{
+    const response=await fetch("/api/shipping/quotes",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({city:$("custCity").value.trim(),postalCode:$("custPostal").value.trim(),items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.error||"Opsi pengiriman belum dapat dimuat.");
+    if(!Array.isArray(result.quotes)||!result.quotes.length)throw new Error("Opsi pengiriman belum tersedia.");
+    shippingQuotes=result.quotes;
+  }finally{
+    shippingQuotesLoading=false;renderShippingOptions();updateCheckoutTotal();
+  }
+}
 function renderCheckout() {
-  $("shippingOptions").innerHTML = SHIPPING.map((option, index) => `<label class="choice"><input type="radio" name="shipping" value="${option.id}" ${index === 0 ? "checked" : ""}><span><strong>${option.name} — ${option.price ? money(option.price) : "Gratis"}</strong><small>${option.detail}. Biaya tetap sementara, bukan tarif kurir langsung.</small></span></label>`).join("");
+  shippingQuotes=[];shippingQuotesLoading=false;renderShippingOptions();
   $("checkoutSummary").innerHTML = cart.map(item => { const product = products.find(entry => entry.id === item.id); if (!product) return ""; return `<div class="summary-item"><span>${escapeHTML(product.name)}<small>${item.qty} × ${money(product.price)}</small></span><strong>${money(product.price * item.qty)}</strong></div>`; }).join("");
   checkoutStep=1; checkoutSubmitting=false; clearFieldErrors(); renderCheckoutStep(); updateCheckoutTotal();
 }
-function selectedShipping() { return SHIPPING.find(option => option.id === document.querySelector("input[name='shipping']:checked")?.value) || SHIPPING[0]; }
-function checkoutTotals() { const subtotal=cart.reduce((sum,item)=>{const product=products.find(entry=>entry.id===item.id);return sum+(product?(product.originalPrice||product.price)*item.qty:0);},0); const payable=cartSubtotal(); const discount=Math.max(0,subtotal-payable); const shipping=selectedShipping(); return {subtotal,discount,payable,shipping,total:payable+shipping.price}; }
-function updateCheckoutTotal() { const totals=checkoutTotals(); $("summarySubtotal").textContent=money(totals.subtotal); $("summaryDiscount").textContent=totals.discount?`−${money(totals.discount)}`:"Rp0"; $("summaryShipping").textContent=totals.shipping.price?money(totals.shipping.price):"Gratis"; $("summaryTotal").textContent=money(totals.total); if(checkoutStep===5)renderFinalReview(); }
+function selectedShipping() {
+  const quoteId=document.querySelector("input[name='shipping']:checked")?.value;
+  return shippingQuotes.find(option=>option.quoteId===quoteId)||shippingQuotes[0]||null;
+}
+function checkoutTotals() { const subtotal=cart.reduce((sum,item)=>{const product=products.find(entry=>entry.id===item.id);return sum+(product?(product.originalPrice||product.price)*item.qty:0);},0); const payable=cartSubtotal(); const discount=Math.max(0,subtotal-payable); const shipping=selectedShipping(); const shippingPrice=shipping?.price||0; return {subtotal,discount,payable,shipping,total:payable+shippingPrice}; }
+function updateCheckoutTotal() { const totals=checkoutTotals(); $("summarySubtotal").textContent=money(totals.subtotal); $("summaryDiscount").textContent=totals.discount?`−${money(totals.discount)}`:"Rp0"; $("summaryShipping").textContent=totals.shipping?(totals.shipping.price?money(totals.shipping.price):"Gratis"):"—"; $("summaryTotal").textContent=money(totals.total); if(checkoutStep===5)renderFinalReview(); }
 function renderCheckoutStep() { document.querySelectorAll("[data-checkout-step]").forEach(section=>section.classList.toggle("hidden",Number(section.dataset.checkoutStep)!==checkoutStep)); $("checkoutProgress").innerHTML=CHECKOUT_STEPS.map((label,index)=>`<span class="${index+1===checkoutStep?"active":index+1<checkoutStep?"done":""}"><b>${index+1<checkoutStep?"✓":index+1}</b><small>${label}</small></span>`).join(""); $("checkoutBack").classList.toggle("hidden",checkoutStep===1); $("checkoutNext").classList.toggle("hidden",checkoutStep===5); $("checkoutSubmit").classList.toggle("hidden",checkoutStep!==5); $("checkoutError").classList.add("hidden"); if(checkoutStep===5)renderFinalReview(); }
 function normalizePhone(value) { const trimmed=String(value||"").trim().replace(/[\s().-]/g,""); if(/^08\d{8,11}$/.test(trimmed))return `62${trimmed.slice(1)}`; if(/^\+?62\d{8,12}$/.test(trimmed))return trimmed.replace(/^\+/,""); return trimmed; }
 function clearFieldErrors() { document.querySelectorAll("[data-field-error]").forEach(node=>node.textContent=""); document.querySelectorAll("#checkoutForm [aria-invalid]").forEach(node=>node.removeAttribute("aria-invalid")); }
@@ -196,9 +224,18 @@ function checkoutFieldErrors(step) {
   return errors;
 }
 function validateCheckoutStep() { clearFieldErrors(); const section=document.querySelector(`[data-checkout-step="${checkoutStep}"]`); const errors=Object.entries(checkoutFieldErrors(checkoutStep)); for(const [id,message] of errors){document.querySelector(`[data-field-error="${id}"]`).textContent=message;$(id).setAttribute("aria-invalid","true");} const invalid=errors[0]?.[0]&&$(errors[0][0]); if(invalid){$("checkoutError").textContent="Periksa kembali data yang ditandai.";$("checkoutError").classList.remove("hidden");invalid.focus();return false;} const nativeInvalid=[...section.querySelectorAll("input,textarea,select")].find(field=>!field.checkValidity()); if(nativeInvalid){$("checkoutError").textContent="Lengkapi pilihan wajib sebelum melanjutkan.";$("checkoutError").classList.remove("hidden");nativeInvalid.focus();return false;} if(checkoutStep===3&&!document.querySelector("input[name='shipping']:checked")){$("checkoutError").textContent="Pilih metode pengiriman sebelum melanjutkan.";$("checkoutError").classList.remove("hidden");section.querySelector("input[name='shipping']")?.focus();return false;} if(checkoutStep===4&&!document.querySelector("input[name='payment']:checked")){$("checkoutError").textContent="Pilih metode pembayaran sebelum melanjutkan.";$("checkoutError").classList.remove("hidden");section.querySelector("input[name='payment']")?.focus();return false;} return true; }
-function changeCheckoutStep(delta) { if(checkoutSubmitting||(delta>0&&!validateCheckoutStep()))return; checkoutStep=Math.max(1,Math.min(CHECKOUT_STEPS.length,checkoutStep+delta)); renderCheckoutStep(); $("checkoutModal").querySelector(".modal-card").scrollTop=0; }
+function advanceCheckout(delta){checkoutStep=Math.max(1,Math.min(CHECKOUT_STEPS.length,checkoutStep+delta));renderCheckoutStep();$("checkoutModal").querySelector(".modal-card").scrollTop=0;}
+function changeCheckoutStep(delta) {
+  if(checkoutSubmitting||(delta>0&&!validateCheckoutStep()))return;
+  if(delta>0&&checkoutStep===2){
+    const next=$("checkoutNext");next.disabled=true;next.textContent="Menghitung ongkir…";$("checkoutError").classList.add("hidden");
+    loadShippingQuotes().then(()=>advanceCheckout(1)).catch(error=>{$("checkoutError").textContent=error.message||"Opsi pengiriman belum dapat dimuat.";$("checkoutError").classList.remove("hidden");}).finally(()=>{next.disabled=false;next.textContent="Lanjutkan";});
+    return;
+  }
+  advanceCheckout(delta);
+}
 function paymentGuidance(payment) { if(payment==="COD")return "Pesanan diterima dan menunggu konfirmasi toko"; if(payment==="QRIS")return "Pembayaran diproses setelah pesanan dibuat"; return "Instruksi diberikan setelah pesanan dikonfirmasi"; }
-function renderFinalReview() { const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank"; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong><small>${escapeHTML(shipping.detail)} · ${shipping.price?money(shipping.price):"Gratis"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
+function renderFinalReview() { const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank"; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping?.name||"-")}</strong><small>${escapeHTML(shipping?shippingEta(shipping):"-")} · ${shipping?(shipping.price?money(shipping.price):"Gratis"):"-"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
 function startCheckout() { if (!cart.length) return showToast("Keranjang masih kosong."); setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
 function checkoutErrorMessage(message, status) { if(status===409)return "Stok salah satu produk sudah berubah. Silakan periksa keranjang Anda."; if(status===400||status===422)return message||"Data checkout belum valid. Silakan periksa kembali."; if(!status)return "Koneksi bermasalah. Periksa jaringan Anda lalu coba kembali."; return message||"Pesanan belum dapat diproses. Silakan coba kembali."; }
 async function createPaymentIntent(orderNumber,paymentToken) {
@@ -210,11 +247,11 @@ async function createPaymentIntent(orderNumber,paymentToken) {
 }
 async function submitOrder(event) {
   event.preventDefault(); if(checkoutSubmitting||checkoutStep!==5||!validateCheckoutStep())return;
-  const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank";
+  const shipping=selectedShipping(); if(!shipping)return; const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank";
   const customer={full_name:$("custName").value.trim(),whatsapp:normalizePhone($("custPhone").value),email:$("custEmail").value.trim().toLowerCase(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postal_code:$("custPostal").value.trim(),notes:$("custNotes").value.trim()};
   const button=$("checkoutSubmit"); checkoutSubmitting=true; button.disabled=true; button.textContent="Memproses pesanan..."; $("checkoutBack").disabled=true; $("checkoutError").classList.add("hidden");
   try {
-    const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({customer,payment,shippingId:shipping.id,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
+    const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({customer,payment,shippingQuoteId:shipping.quoteId,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
     const result=await response.json().catch(()=>({})); if(!response.ok){const failure=new Error(result.error||"");failure.status=response.status;throw failure;}
     const items=cart.map(item=>{const product=products.find(entry=>entry.id===item.id);return{id:item.id,name:product?.name||"Produk",qty:item.qty,price:product?.price||0};});
     let paymentIntent=null,paymentIntentError="";
@@ -222,7 +259,7 @@ async function submitOrder(event) {
       try{paymentIntent=await createPaymentIntent(result.orderNumber,result.paymentToken);}
       catch(paymentError){paymentIntentError=paymentError.message||"Pembayaran belum dapat disiapkan.";console.error("Payment intent preparation failed",{orderNumber:result.orderNumber,status:paymentError.status||null,message:paymentError.message});}
     }
-    const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:shipping.name,shippingId:shipping.id,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",paymentStatus:payment==="COD"?"unpaid":paymentIntent?.paymentStatus||"unpaid",paymentReference:paymentIntent?.paymentReference||null,paymentUrl:paymentIntent?.paymentUrl||null,paymentExpiresAt:paymentIntent?.expiresAt||null,paymentIntentReady:payment==="COD"||Boolean(paymentIntent),items};
+    const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:result.shippingServiceName||shipping.name,shippingId:shipping.method,shippingProvider:result.shippingProvider||shipping.provider,shippingServiceCode:result.shippingServiceCode||shipping.serviceCode,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",paymentStatus:payment==="COD"?"unpaid":paymentIntent?.paymentStatus||"unpaid",paymentReference:paymentIntent?.paymentReference||null,paymentUrl:paymentIntent?.paymentUrl||null,paymentExpiresAt:paymentIntent?.expiresAt||null,paymentIntentReady:payment==="COD"||Boolean(paymentIntent),items};
     orders.unshift(order); cart=[]; persist(); event.target.reset(); setModal("checkoutModal",false);
     const paymentNote=payment==="COD"
       ?"Pesanan Anda telah diterima. Pembayaran dilakukan saat pesanan diterima."
