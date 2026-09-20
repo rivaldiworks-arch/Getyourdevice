@@ -25,6 +25,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 9. `supabase/migrations/009_shipping_infrastructure.sql` — membuat `shipping_quotes`, snapshot provider/service/ETA pada order, field tracking, dan RPC `create_storefront_order_v3` yang hanya dapat dipanggil `service_role`. **Jalankan 009 sebelum merge/deploy Phase 6.**
 10. `supabase/migrations/010_product_shipping_dimensions.sql` — menambah `weight_grams`, `length_cm`, `width_cm`, dan `height_cm` ke produk. Semua nullable agar listing lama tetap berfungsi dan dapat dilengkapi saat edit produk.
 11. `supabase/migrations/011_shipment_booking_tracking.sql` — menambah snapshot berat/dimensi pada `order_items`, Biteship shipment/tracking IDs, shipment status/environment, biaya aktual, timestamp booking/event, dan memperbarui RPC checkout v3 agar parcel data dibekukan saat order dibuat.\n12. `supabase/migrations/012_secure_customer_order_access.sql` — menambah capability token terpisah untuk akses riwayat pesanan guest selama 365 hari dan RPC checkout v4.
+13. `supabase/migrations/013_api_rate_limiting.sql` — menambah fixed-window rate limiter atomik untuk endpoint publik checkout/payment/shipping/order history. Satu row per bucket+client menjaga storage tetap bounded; hanya `service_role` yang dapat mengonsumsi limiter.
 
 ## Payment infrastructure (Phase 5)
 
@@ -158,6 +159,18 @@ Browser menyimpan maksimal 20 capability token order di `localStorage` pada pera
 Konsekuensinya: riwayat pesanan tetap tersedia setelah refresh atau browser ditutup, tetapi hanya di browser yang masih memiliki capability tersebut. Belum ada login customer atau recovery lintas perangkat pada Phase 7A.
 
 Baseline security headers ditetapkan melalui `vercel.json`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, dan `Permissions-Policy`. Admin HTML diberi `Cache-Control: no-store` dan `X-Robots-Tag: noindex, nofollow`.
+
+## Production hardening — API abuse protection (Phase 7B)
+
+Endpoint publik yang melakukan write atau lookup berbasis capability sekarang melewati guard server-side sebelum business logic dijalankan. Guard mewajibkan `application/json`, membatasi ukuran body, memberi `Cache-Control: no-store`, dan memakai fixed-window limiter atomik di Supabase. Identitas client di-HMAC menggunakan secret server-side sehingga alamat client mentah tidak disimpan ke tabel limiter.
+
+Batas awal dibuat cukup longgar untuk traffic customer normal:
+- `POST /api/orders`: 20 request / 60 menit / client
+- `POST /api/shipping/quotes`: 120 request / 15 menit / client
+- `POST /api/payments/create`: 40 request / 15 menit / client
+- `POST /api/orders/detail`: 240 request / 15 menit / client
+
+Jika batas terlampaui API mengembalikan HTTP `429` dan `Retry-After`. Limiter bersifat fail-open bila storage limiter sementara tidak tersedia agar checkout tidak tumbang hanya karena komponen proteksi; validasi authoritative order/payment/shipping tetap berjalan di backend. Request publik juga mendapatkan `X-Request-ID` untuk korelasi log tanpa mencatat payload customer.
 
 ## Product schema final
 
