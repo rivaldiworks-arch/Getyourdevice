@@ -1,6 +1,7 @@
 "use strict";
 const { createHash, randomBytes } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
+const { guardPublicJson } = require("./_guard");
 
 const PAYMENT_METHODS = new Set(["Transfer Bank", "COD", "QRIS"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,8 +24,12 @@ function customerFrom(input={}) {
   };
 }
 function validCustomer(customer) {
-  return customer.full_name.length>=3 && PHONE.test(customer.whatsapp) && EMAIL.test(customer.email) &&
-    customer.address.length>=10 && customer.city.length>=2 && /^\d{5}$/.test(customer.postal_code);
+  return customer.full_name.length>=3 && customer.full_name.length<=120 &&
+    customer.whatsapp.length<=16 && PHONE.test(customer.whatsapp) &&
+    customer.email.length<=254 && EMAIL.test(customer.email) &&
+    customer.address.length>=10 && customer.address.length<=500 &&
+    customer.city.length>=2 && customer.city.length<=120 &&
+    /^\d{5}$/.test(customer.postal_code);
 }
 function cartFingerprint(items) {
   const normalized=items.map(item=>({productId:String(item.productId),quantity:Number(item.quantity)})).sort((a,b)=>a.productId.localeCompare(b.productId));
@@ -43,6 +48,9 @@ async function validateShippingQuote(quoteId,customer,items) {
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).setHeader("Allow", "POST").json({ error:"Method not allowed" });
+  const guard=await guardPublicJson(req,res,{bucket:"orders:create",limit:20,windowSeconds:3600,maxBytes:64*1024});
+  if(!guard.ok)return;
+  const {requestId}=guard;
   try {
     const body=typeof req.body === "string" ? JSON.parse(req.body) : req.body;
     if(!body?.customer || !Array.isArray(body.items) || !body.items.length || body.items.length>50) return res.status(400).json({error:"Data pesanan tidak lengkap."});
@@ -54,7 +62,7 @@ module.exports = async function handler(req, res) {
     catch(error){
       if(error.message==="SHIPPING_QUOTE_EXPIRED") return res.status(409).json({error:"Opsi ongkir sudah kedaluwarsa. Kembali ke langkah pengiriman untuk memuat tarif terbaru."});
       if(["SHIPPING_QUOTE_MISMATCH","SHIPPING_QUOTE_CART_MISMATCH"].includes(error.message)) return res.status(409).json({error:"Opsi ongkir tidak lagi cocok dengan alamat atau isi keranjang. Muat ulang tarif pengiriman."});
-      console.error("Shipping quote validation failed",{message:error.message});
+      console.error("Shipping quote validation failed",{requestId,message:error.message});
       return res.status(500).json({error:"Opsi pengiriman belum dapat diverifikasi."});
     }
     const paymentToken=randomBytes(32).toString("hex");
@@ -62,7 +70,7 @@ module.exports = async function handler(req, res) {
     const response=await supabaseAdmin("rpc/create_storefront_order_v4",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_quote_id:body.shippingQuoteId,p_payment_method:body.payment,p_payment_token:paymentToken,p_order_access_token:orderAccessToken})});
     const data=await response.json();
     if(!response.ok) {
-      console.error("Supabase order RPC failed", {status:response.status,code:data.code,message:data.message,details:data.details,hint:data.hint});
+      console.error("Supabase order RPC failed", {requestId,status:response.status,code:data.code,message:data.message,details:data.details,hint:data.hint});
       if(data.message==="INSUFFICIENT_STOCK") return res.status(409).json({error:"Stok salah satu produk sudah berubah. Silakan periksa keranjang Anda."});
       if(data.message==="INVALID_CUSTOMER") return res.status(400).json({error:"Data pelanggan dan alamat belum valid. Periksa kembali data checkout."});
       if(data.message==="INVALID_PRODUCT" || data.message==="INVALID_QUANTITY") return res.status(422).json({error:"Salah satu produk tidak lagi tersedia. Silakan periksa keranjang Anda."});
@@ -74,7 +82,7 @@ module.exports = async function handler(req, res) {
     return res.status(201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),orderAccessToken,...(body.payment!=="COD"?{paymentToken}: {})});
   } catch(error) {
     if (error instanceof SyntaxError) return res.status(400).json({error:"Format data pesanan tidak valid."});
-    console.error("Order endpoint failed", error);
+    console.error("Order endpoint failed",{requestId,message:error.message});
     return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
   }
 };
