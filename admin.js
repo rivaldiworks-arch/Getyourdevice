@@ -6,7 +6,7 @@ const escapeHTML = (value="") => String(value).replace(/[&<>'"]/g, char => ({"&"
 const IMAGE_BUCKET="product-images";
 const MAX_IMAGE_BYTES=5*1024*1024;
 const IMAGE_TYPES={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
-let config, session, products=[], orders=[], orderItems=[], payments=[], previewObjectUrl="";
+let config, session, products=[], orders=[], orderItems=[], payments=[], previewObjectUrl="", adminReady=false, applyingAdminRoute=false, adminRouteQueued=false;
 const ORDER_STATUSES=["pending","confirmed","processing","shipped","completed","cancelled"];
 const PAYMENT_STATUSES=["unpaid","pending","paid","failed","expired","refunded"];
 
@@ -28,12 +28,73 @@ async function serverRequest(path,options={}) {
   return data;
 }
 function toast(message){$("adminToast").textContent=message;$("adminToast").classList.remove("hidden");setTimeout(()=>$("adminToast").classList.add("hidden"),2800);}
-function showLogin(message=""){$("dashboardView").classList.add("hidden");$("loginView").classList.remove("hidden");$("loginError").textContent=message;$("loginError").classList.toggle("hidden",!message);}
+function adminRouteParts(){
+  const raw=String(location.hash||"").replace(/^#\/?/,"");
+  if(!raw)return ["produk"];
+  return raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
+}
+function adminRouteHash(route="produk"){
+  return "#"+String(route||"produk").replace(/^#\/?/,"").split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
+function setAdminTab(tab){
+  document.querySelectorAll("[data-tab]").forEach(button=>button.classList.toggle("active",button.dataset.tab===tab));
+  const ordersTab=tab==="orders";
+  $("productsPanel").classList.toggle("hidden",ordersTab);
+  $("ordersPanel").classList.toggle("hidden",!ordersTab);
+}
+function navigateAdminRoute(route="produk",{replace=false}={}){
+  const target=adminRouteHash(route);
+  if(location.hash===target){if(adminReady)applyAdminRoute(false);return;}
+  if(replace)history.replaceState(null,"",target);else history.pushState(null,"",target);
+  if(adminReady)applyAdminRoute(false);
+}
+function closeAdminDialogs(){
+  if($("productDialog").open)$("productDialog").close();
+  if($("orderDialog").open)$("orderDialog").close();
+}
+function queueAdminRouteApply(){
+  if(adminRouteQueued)return;
+  adminRouteQueued=true;
+  queueMicrotask(()=>{adminRouteQueued=false;applyAdminRoute(false);});
+}
+async function applyAdminRoute(initial=false){
+  if(!adminReady||applyingAdminRoute)return;
+  applyingAdminRoute=true;
+  try{
+    closeAdminDialogs();
+    const parts=adminRouteParts(),root=(parts[0]||"produk").toLowerCase();
+    if(root==="pesanan"){
+      setAdminTab("orders");
+      await loadOrders();
+      if(parts[1]){
+        const order=orders.find(row=>String(row.id)===String(parts[1]));
+        if(order)openOrderDetail(order.id);
+        else{history.replaceState(null,"",adminRouteHash("pesanan"));toast("Pesanan tidak ditemukan.");}
+      }
+      return;
+    }
+    if(root==="produk"){
+      setAdminTab("products");
+      await loadProducts();
+      if(parts[1]==="baru"){openForm();return;}
+      if(parts[1]){
+        const product=products.find(row=>String(row.id)===String(parts[1]));
+        if(product)openForm(product);
+        else{history.replaceState(null,"",adminRouteHash("produk"));toast("Produk tidak ditemukan.");}
+      }
+      return;
+    }
+    history.replaceState(null,"",adminRouteHash("produk"));
+    setAdminTab("products");
+    await loadProducts();
+  }finally{applyingAdminRoute=false;}
+}
+function showLogin(message=""){adminReady=false;$("dashboardView").classList.add("hidden");$("loginView").classList.remove("hidden");$("loginError").textContent=message;$("loginError").classList.toggle("hidden",!message);}
 async function authenticate(email,password){return request("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password})});}
 async function refreshSession(refreshToken){return request("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:refreshToken})});}
 function storeSession(value){session=value;if(value)localStorage.setItem("gyd_admin_session",JSON.stringify(value));else localStorage.removeItem("gyd_admin_session");}
 async function verifyAdmin(candidate){session=candidate;const profiles=await request(`/rest/v1/admin_profiles?select=id,full_name,role&id=eq.${encodeURIComponent(candidate.user.id)}`);if(profiles?.[0]?.role!=="admin")throw new Error("Akun ini tidak memiliki akses admin.");return profiles[0];}
-async function enterDashboard(profile){$("loginView").classList.add("hidden");$("dashboardView").classList.remove("hidden");$("adminIdentity").textContent=`${profile.full_name||session.user.email} · Admin`;await loadProducts();}
+async function enterDashboard(profile){$("loginView").classList.add("hidden");$("dashboardView").classList.remove("hidden");$("adminIdentity").textContent=`${profile.full_name||session.user.email} · Admin`;adminReady=true;await applyAdminRoute(true);}
 async function loadProducts(){$("productMessage").textContent="Memuat produk…";try{products=await request("/rest/v1/products?select=id,name,brand,category,description,specifications,price,original_price,stock,image_url,rating,is_active,weight_grams,length_cm,width_cm,height_cm,created_at,updated_at&order=updated_at.desc");renderProducts();$("productMessage").textContent=`${products.length} produk ditemukan.`;}catch(error){$("productMessage").textContent=error.message;}}
 function filteredProducts(){const query=$("productSearch").value.trim().toLowerCase(),status=$("statusFilter").value;return products.filter(p=>(status==="all"||(status==="active")===p.is_active)&&(!query||[p.name,p.brand,p.category].some(v=>String(v||"").toLowerCase().includes(query))));}
 function renderProducts(){const rows=filteredProducts();$("productTable").innerHTML=rows.length?`<table><thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${rows.map(p=>`<tr><td><div class="product-cell"><img src="${escapeHTML(p.image_url||"https://placehold.co/80x80?text=GYD")}" alt=""><span><strong>${escapeHTML(p.name)}</strong><small>${escapeHTML(p.brand||"")}</small></span></div></td><td>${escapeHTML(p.category||"-")}</td><td>${money(p.price)}</td><td><input class="quick-number" type="number" min="0" value="${Number(p.stock)||0}" data-stock="${p.id}" aria-label="Stok ${escapeHTML(p.name)}"></td><td><button class="status-pill ${p.is_active?"active":""}" data-toggle="${p.id}">${p.is_active?"Aktif":"Nonaktif"}</button></td><td><div class="row-actions"><button data-edit="${p.id}">Edit</button><button class="delete" data-delete="${p.id}">Hapus</button></div></td></tr>`).join("")}</tbody></table>`:'<div class="empty-admin">Tidak ada produk yang sesuai.</div>';}
@@ -90,7 +151,7 @@ async function saveProduct(event){
     const body=productPayload();if(file){uploaded=await uploadProductImage(file);body.image_url=uploaded.url;}
     await request(`/rest/v1/products${id?`?id=eq.${encodeURIComponent(id)}`:""}`,{method:id?"PATCH":"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
     let cleanupWarning=false;if(file&&oldProduct?.image_url&&oldProduct.image_url!==body.image_url){try{await removeStoredImage(oldProduct.image_url);}catch(error){console.error("Old product image cleanup failed",error);cleanupWarning=true;}}
-    $("productDialog").close();toast(cleanupWarning?"Produk diperbarui, tetapi gambar lama belum dapat dihapus.":id?"Produk diperbarui.":"Produk ditambahkan.");await loadProducts();
+    $("productDialog").close();toast(cleanupWarning?"Produk diperbarui, tetapi gambar lama belum dapat dihapus.":id?"Produk diperbarui.":"Produk ditambahkan.");navigateAdminRoute("produk",{replace:true});
   }catch(error){if(uploaded){try{await removeStoredImage(uploaded.url);}catch(cleanupError){console.error("Uploaded image rollback failed",cleanupError);}}showFormError(error.message);}
   finally{button.disabled=false;button.textContent="Simpan";}
 }
@@ -147,14 +208,16 @@ async function refreshShipmentTracking(id){
 
 $("loginForm").addEventListener("submit",async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;$("loginError").classList.add("hidden");try{const candidate=await authenticate($("email").value.trim(),$("password").value);const profile=await verifyAdmin(candidate);storeSession(candidate);await enterDashboard(profile);}catch(error){storeSession(null);showLogin(error.message);}finally{button.disabled=false;}});
 $("signOut").addEventListener("click",async()=>{try{await request("/auth/v1/logout",{method:"POST"});}catch{}storeSession(null);session=null;showLogin("Anda telah keluar.");});
-$("addProduct").addEventListener("click",()=>openForm());$("closeDialog").addEventListener("click",()=>$("productDialog").close());$("cancelDialog").addEventListener("click",()=>$("productDialog").close());$("productForm").addEventListener("submit",saveProduct);$("productSearch").addEventListener("input",renderProducts);$("statusFilter").addEventListener("change",renderProducts);
-$("productTable").addEventListener("click",async event=>{const edit=event.target.dataset.edit,toggle=event.target.dataset.toggle,del=event.target.dataset.delete;if(edit)openForm(products.find(p=>p.id===edit));if(toggle){const p=products.find(item=>item.id===toggle);await updateProduct(toggle,{is_active:!p.is_active},p.is_active?"Produk dinonaktifkan.":"Produk diaktifkan.");}if(del&&confirm("Hapus produk ini secara permanen? Tindakan ini tidak dapat dibatalkan.")){try{const product=products.find(item=>item.id===del);await request(`/rest/v1/products?id=eq.${encodeURIComponent(del)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});let warning=false;try{if(product?.image_url)await removeStoredImage(product.image_url);}catch(error){console.error("Deleted product image cleanup failed",error);warning=true;}toast(warning?"Produk dihapus, tetapi file gambar belum dapat dihapus.":"Produk dihapus.");await loadProducts();}catch(error){toast(error.message);}}});
+$("addProduct").addEventListener("click",()=>navigateAdminRoute("produk/baru"));$("closeDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("cancelDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("productDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("produk");});$("productForm").addEventListener("submit",saveProduct);$("productSearch").addEventListener("input",renderProducts);$("statusFilter").addEventListener("change",renderProducts);
+$("productTable").addEventListener("click",async event=>{const edit=event.target.dataset.edit,toggle=event.target.dataset.toggle,del=event.target.dataset.delete;if(edit)navigateAdminRoute(`produk/${edit}`);if(toggle){const p=products.find(item=>item.id===toggle);await updateProduct(toggle,{is_active:!p.is_active},p.is_active?"Produk dinonaktifkan.":"Produk diaktifkan.");}if(del&&confirm("Hapus produk ini secara permanen? Tindakan ini tidak dapat dibatalkan.")){try{const product=products.find(item=>item.id===del);await request(`/rest/v1/products?id=eq.${encodeURIComponent(del)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});let warning=false;try{if(product?.image_url)await removeStoredImage(product.image_url);}catch(error){console.error("Deleted product image cleanup failed",error);warning=true;}toast(warning?"Produk dihapus, tetapi file gambar belum dapat dihapus.":"Produk dihapus.");await loadProducts();}catch(error){toast(error.message);}}});
 $("productTable").addEventListener("change",async event=>{if(!event.target.dataset.stock)return;const stock=Number(event.target.value);if(!Number.isInteger(stock)||stock<0){toast("Stok harus berupa bilangan bulat nol atau lebih.");await loadProducts();return;}event.target.disabled=true;await updateProduct(event.target.dataset.stock,{stock},"Stok diperbarui.");});
 $("imageFile").addEventListener("change",event=>{const file=event.target.files[0];if(!file){setImagePreview($("imageUrl").value.trim());return;}try{validateImage(file);setImagePreview(file);$("formError").classList.add("hidden");}catch(error){event.target.value="";showFormError(error.message);setImagePreview($("imageUrl").value.trim());}});
 $("imageUrl").addEventListener("input",event=>{if(!$("imageFile").files.length)setImagePreview(event.target.value.trim());});
-$("orderSearch").addEventListener("input",renderOrders);$("orderStatusFilter").addEventListener("change",renderOrders);$("closeOrderDialog").addEventListener("click",()=>$("orderDialog").close());
-$("orderTable").addEventListener("click",event=>{const id=event.target.closest("[data-order-detail]")?.dataset.orderDetail;if(id)openOrderDetail(id);});
+$("orderSearch").addEventListener("input",renderOrders);$("orderStatusFilter").addEventListener("change",renderOrders);$("closeOrderDialog").addEventListener("click",()=>navigateAdminRoute("pesanan"));$("orderDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("pesanan");});
+$("orderTable").addEventListener("click",event=>{const id=event.target.closest("[data-order-detail]")?.dataset.orderDetail;if(id)navigateAdminRoute(`pesanan/${id}`);});
 $("orderDetailContent").addEventListener("click",event=>{const statusId=event.target.closest("[data-order-status-save]")?.dataset.orderStatusSave;if(statusId)saveOrderStatus(statusId);const bookId=event.target.closest("[data-shipping-book]")?.dataset.shippingBook;if(bookId)bookShipment(bookId);const trackId=event.target.closest("[data-shipping-track]")?.dataset.shippingTrack;if(trackId)refreshShipmentTracking(trackId);});
-document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>{document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===button));const orders=button.dataset.tab==="orders";$("productsPanel").classList.toggle("hidden",orders);$("ordersPanel").classList.toggle("hidden",!orders);if(orders)loadOrders();}));
+document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>navigateAdminRoute(button.dataset.tab==="orders"?"pesanan":"produk")));
+window.addEventListener("hashchange",queueAdminRouteApply);
+window.addEventListener("popstate",queueAdminRouteApply);
 
 (async()=>{try{config=await fetch("/api/config").then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);return data;});const saved=JSON.parse(localStorage.getItem("gyd_admin_session")||"null");if(!saved)return showLogin();const current=await refreshSession(saved.refresh_token);const profile=await verifyAdmin(current);storeSession(current);await enterDashboard(profile);}catch(error){storeSession(null);showLogin(error.message);}})();
