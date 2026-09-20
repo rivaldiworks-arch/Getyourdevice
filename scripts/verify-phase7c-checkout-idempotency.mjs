@@ -12,6 +12,8 @@ assert.match(migration,/checkout_idempotency_key_hash/);
 assert.match(migration,/orders_checkout_idempotency_key_hash_uidx/);
 assert.match(migration,/create_storefront_order_v5/);
 assert.match(migration,/pg_advisory_xact_lock/);
+assert.match(migration,/IDEMPOTENCY_REPLAY_EXPIRED/);
+assert.match(migration,/interval '24 hours'/);
 assert.match(migration,/SHIPPING_QUOTE_CART_MISMATCH/);
 assert.match(migration,/'reused',true/);
 
