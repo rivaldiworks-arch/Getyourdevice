@@ -31,8 +31,10 @@ const storage = {
 };
 let products = starterProducts;
 let cart = storage.get("gyd_cart", storage.get("nc_cart", []));
-// Orders are session-only here: Supabase, not localStorage, is the durable source of truth.
+// Session copy is used for immediate UX; durable customer order access uses capability tokens below.
 let orders = [];
+let orderAccessRecords = storage.get("gyd_order_access", []);
+if(!Array.isArray(orderAccessRecords)) orderAccessRecords=[];
 let activeCategory = "Semua";
 let recommendation = null;
 let detailProductId = null;
@@ -56,6 +58,17 @@ function migrateLegacyProducts() {
   return old.map(product => ({ ...product, category: CATEGORIES.includes(product.category) ? product.category : "Accessories", needs: product.needs || ["Produktivitas"] }));
 }
 function persist() { storage.set("gyd_cart", cart); updateCartCount(); }
+function rememberOrderAccess(orderNumber,token){
+  if(!/^GYD-\d{8}-\d{4,}$/.test(String(orderNumber||""))||!/^[a-f0-9]{64}$/i.test(String(token||"")))return;
+  orderAccessRecords=[{orderNumber,token,savedAt:new Date().toISOString()},...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
+  storage.set("gyd_order_access",orderAccessRecords);
+}
+async function fetchCustomerOrderAccess(entry){
+  const response=await fetch("/api/orders/detail",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({orderNumber:entry.orderNumber,orderAccessToken:entry.token})});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw Object.assign(new Error(data.error||"Pesanan belum dapat dimuat."),{status:response.status});
+  return data;
+}
 function mapProduct(row) {
   const specifications = row.specifications;
   const spec = typeof specifications === "string" ? specifications : Array.isArray(specifications) ? specifications.join(" · ") : specifications?.summary || (specifications && typeof specifications === "object" ? Object.entries(specifications).map(([key,value]) => `${key}: ${value}`).join(" · ") : "");
@@ -265,6 +278,7 @@ async function submitOrder(event) {
       catch(paymentError){paymentIntentError=paymentError.message||"Pembayaran belum dapat disiapkan.";console.error("Payment intent preparation failed",{orderNumber:result.orderNumber,status:paymentError.status||null,message:paymentError.message});}
     }
     const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:result.shippingServiceName||shipping.name,shippingId:shipping.method,shippingProvider:result.shippingProvider||shipping.provider,shippingServiceCode:result.shippingServiceCode||shipping.serviceCode,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",paymentStatus:payment==="COD"?"unpaid":paymentIntent?.paymentStatus||"unpaid",paymentReference:paymentIntent?.paymentReference||null,paymentUrl:paymentIntent?.paymentUrl||null,paymentExpiresAt:paymentIntent?.expiresAt||null,paymentIntentReady:payment==="COD"||Boolean(paymentIntent),items};
+    rememberOrderAccess(result.orderNumber,result.orderAccessToken);
     orders.unshift(order); cart=[]; persist(); event.target.reset(); setModal("checkoutModal",false);
     const paymentNote=payment==="COD"
       ?"Pesanan Anda telah diterima. Pembayaran dilakukan saat pesanan diterima."
@@ -279,7 +293,29 @@ async function submitOrder(event) {
 function normalizeOrderStatus(status){return ({"Menunggu Pembayaran":"Pending","Dibayar":"Paid","Diproses":"Processing","Dikirim":"Shipped","Selesai":"Completed","Dibatalkan":"Cancelled"})[status]||status||"Pending";}
 function statusLabel(status){return ({Pending:"Menunggu Pembayaran",Paid:"Sudah Dibayar",Processing:"Sedang Diproses",Shipped:"Dalam Pengiriman",Completed:"Selesai",Cancelled:"Dibatalkan"})[normalizeOrderStatus(status)]||status;}
 function renderOrders(){const target=$("orderList");if(!orders.length){target.innerHTML='<div class="empty-state"><span class="state-icon">▤</span><h3>Belum ada pesanan</h3><p>Pesanan baru akan tampil di sini.</p></div>';return;}target.innerHTML=orders.map(order=>`<article class="admin-order-card"><div class="admin-order-head"><div><span class="overline">${escapeHTML(order.id)}</span><h3>${escapeHTML(order.customer.name)}</h3><p>${new Date(order.createdAt).toLocaleString("id-ID")} · ${escapeHTML(order.customer.phone)}</p></div><strong>${money(order.total)}</strong></div><div class="admin-order-meta"><span><small>Pengiriman</small>${escapeHTML(order.shipping||"Reguler")}</span><span><small>Pembayaran</small>${escapeHTML(order.payment)}</span><span><small>Tujuan</small>${escapeHTML(order.customer.city||order.customer.address||"-")}</span></div><p class="admin-order-items">${order.items.map(item=>`${escapeHTML(item.name)} × ${item.qty}`).join(", ")}</p><label>Status pesanan<select data-order="${escapeHTML(order.id)}" aria-label="Status pesanan ${escapeHTML(order.id)}">${ORDER_STATUSES.map(status=>`<option value="${status}" ${status===normalizeOrderStatus(order.status)?"selected":""}>${statusLabel(status)}</option>`).join("")}</select></label></article>`).join("");}
-function renderCustomerOrders(){const target=$("customerOrderList");if(!orders.length){target.innerHTML='<div class="orders-empty"><span>▤</span><h2>Belum ada pesanan</h2><p>Pesanan yang Anda buat akan tersimpan dan muncul di halaman ini.</p><button class="primary" type="button" data-action="show-store">Mulai Belanja</button></div>';return;}target.innerHTML=orders.map(order=>`<article class="customer-order-card"><header><div><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></div><div><span>Tanggal</span><strong>${new Date(order.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"})}</strong></div><span class="order-status status-${normalizeOrderStatus(order.status).toLowerCase()}">${escapeHTML(statusLabel(order.status))}</span></header><div class="customer-order-body"><div class="customer-order-items">${order.items.map(item=>`<div><span>${escapeHTML(item.name)} <small>× ${item.qty}</small></span><strong>${money(item.price*item.qty)}</strong></div>`).join("")}</div><dl><div><dt>Pengiriman</dt><dd>${escapeHTML(order.shipping||"Reguler")}</dd></div><div><dt>Pembayaran</dt><dd>${escapeHTML(order.payment)}</dd></div><div><dt>Total</dt><dd>${money(order.total)}</dd></div></dl></div></article>`).join("");}
+function customerOrderStatus(status){
+  const value=String(status||"").toLowerCase();
+  return ({pending:"Menunggu Konfirmasi",confirmed:"Dikonfirmasi",processing:"Sedang Diproses",shipped:"Dalam Pengiriman",completed:"Selesai",cancelled:"Dibatalkan"})[value]||status||"Menunggu Konfirmasi";
+}
+function customerOrderModel(order){
+  if(order?.orderNumber)return {id:order.orderNumber,createdAt:order.createdAt,status:order.status,payment:order.paymentMethod,paymentStatus:order.paymentStatus,shipping:order.shippingServiceName||order.shippingServiceCode||"Pengiriman",shippingStatus:order.shippingStatus,shippingCost:order.shippingCost,total:order.total,trackingNumber:order.trackingNumber,trackingUrl:/^https:\/\//i.test(String(order.trackingUrl||""))?order.trackingUrl:null,items:(order.items||[]).map(item=>({name:item.name,qty:item.quantity,price:item.unitPrice,subtotal:item.subtotal}))};
+  return {...order,shippingStatus:order.shippingStatus||null,trackingNumber:order.trackingNumber||null,trackingUrl:/^https:\/\//i.test(String(order.trackingUrl||""))?order.trackingUrl:null};
+}
+function renderCustomerOrderCards(target,list){
+  if(!list.length){target.innerHTML='<div class="orders-empty"><span>▤</span><h2>Belum ada pesanan</h2><p>Pesanan yang dibuat dari browser ini akan muncul di sini.</p><button class="primary" type="button" data-action="show-store">Mulai Belanja</button></div>';return;}
+  target.innerHTML=list.map(raw=>{const order=customerOrderModel(raw);return `<article class="customer-order-card"><header><div><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></div><div><span>Tanggal</span><strong>${new Date(order.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"})}</strong></div><span class="order-status status-${String(order.status||"pending").toLowerCase()}">${escapeHTML(customerOrderStatus(order.status))}</span></header><div class="customer-order-body"><div class="customer-order-items">${(order.items||[]).map(item=>`<div><span>${escapeHTML(item.name)} <small>× ${item.qty}</small></span><strong>${money(item.subtotal??item.price*item.qty)}</strong></div>`).join("")}</div><dl><div><dt>Pengiriman</dt><dd>${escapeHTML(order.shipping||"Reguler")}</dd></div>${order.shippingStatus?`<div><dt>Status kiriman</dt><dd>${escapeHTML(order.shippingStatus)}</dd></div>`:""}${order.trackingNumber?`<div><dt>Resi</dt><dd>${escapeHTML(order.trackingNumber)}</dd></div>`:""}<div><dt>Pembayaran</dt><dd>${escapeHTML(order.payment||"-")} · ${escapeHTML(order.paymentStatus||"unpaid")}</dd></div><div><dt>Total</dt><dd>${money(order.total)}</dd></div></dl>${order.trackingUrl?`<a class="secondary" href="${escapeHTML(order.trackingUrl)}" target="_blank" rel="noopener">Lacak Pengiriman</a>`:""}</div></article>`;}).join("");
+}
+async function renderCustomerOrders(){
+  const target=$("customerOrderList");
+  const session=[...orders];
+  if(!orderAccessRecords.length){renderCustomerOrderCards(target,session);return;}
+  target.innerHTML='<div class="orders-empty"><span>…</span><h2>Memuat pesanan</h2><p>Mengambil status terbaru pesanan Anda.</p></div>';
+  const results=await Promise.allSettled(orderAccessRecords.slice(0,20).map(fetchCustomerOrderAccess));
+  const remote=results.filter(result=>result.status==="fulfilled").map(result=>result.value);
+  const remoteIds=new Set(remote.map(order=>order.orderNumber));
+  const merged=[...remote,...session.filter(order=>!remoteIds.has(order.id))].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  renderCustomerOrderCards(target,merged);
+}
 
 function handleAction(action) {
   switch(action){

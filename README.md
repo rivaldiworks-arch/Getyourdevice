@@ -24,7 +24,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 8. `supabase/migrations/008_phase5_pgcrypto_search_path.sql` — memastikan RPC security-definer dapat memakai `pgcrypto` dari schema `extensions`.
 9. `supabase/migrations/009_shipping_infrastructure.sql` — membuat `shipping_quotes`, snapshot provider/service/ETA pada order, field tracking, dan RPC `create_storefront_order_v3` yang hanya dapat dipanggil `service_role`. **Jalankan 009 sebelum merge/deploy Phase 6.**
 10. `supabase/migrations/010_product_shipping_dimensions.sql` — menambah `weight_grams`, `length_cm`, `width_cm`, dan `height_cm` ke produk. Semua nullable agar listing lama tetap berfungsi dan dapat dilengkapi saat edit produk.
-11. `supabase/migrations/011_shipment_booking_tracking.sql` — menambah snapshot berat/dimensi pada `order_items`, Biteship shipment/tracking IDs, shipment status/environment, biaya aktual, timestamp booking/event, dan memperbarui RPC checkout v3 agar parcel data dibekukan saat order dibuat.
+11. `supabase/migrations/011_shipment_booking_tracking.sql` — menambah snapshot berat/dimensi pada `order_items`, Biteship shipment/tracking IDs, shipment status/environment, biaya aktual, timestamp booking/event, dan memperbarui RPC checkout v3 agar parcel data dibekukan saat order dibuat.\n12. `supabase/migrations/012_secure_customer_order_access.sql` — menambah capability token terpisah untuk akses riwayat pesanan guest selama 365 hari dan RPC checkout v4.
 
 ## Payment infrastructure (Phase 5)
 
@@ -148,6 +148,16 @@ BITESHIP_WEBHOOK_HEADER_SECRET=<secret acak yang panjang>
 ```
 
 Di Biteship Webhook, isi **Headers Signature Key** dengan nilai dari `BITESHIP_WEBHOOK_HEADER_NAME` dan **Headers Signature Secret** dengan nilai secret yang sama. Endpoint membandingkan header secara timing-safe dan mengabaikan event yang tidak dikenal. Webhook memperbarui shipment status, AWB/resi, tracking URL, actual shipping cost, serta timestamp shipped/delivered tanpa mengubah grand total customer ketika Biteship melaporkan perubahan biaya aktual.
+
+## Production hardening — secure customer orders (Phase 7A)
+
+Checkout sekarang menerbitkan capability token acak 256-bit yang khusus untuk **membaca pesanan customer**. Token ini berbeda dari payment token: payment token tetap berumur pendek untuk payment intent, sedangkan order-access token disimpan sebagai hash SHA-256 di database dengan expiry 365 hari.
+
+Browser menyimpan maksimal 20 capability token order di `localStorage` pada perangkat yang membuat pesanan. Menu **Pesanan** menggunakan `POST /api/orders/detail` untuk mengambil status order/payment/shipping terbaru, item snapshot, resi, dan tracking URL. Nomor order saja tidak cukup untuk membaca detail; backend membandingkan hash dengan `timingSafeEqual` dan tidak pernah mengembalikan hash/token/provider payload.
+
+Konsekuensinya: riwayat pesanan tetap tersedia setelah refresh atau browser ditutup, tetapi hanya di browser yang masih memiliki capability tersebut. Belum ada login customer atau recovery lintas perangkat pada Phase 7A.
+
+Baseline security headers ditetapkan melalui `vercel.json`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, dan `Permissions-Policy`. Admin HTML diberi `Cache-Control: no-store` dan `X-Robots-Tag: noindex, nofollow`.
 
 ## Product schema final
 

@@ -58,7 +58,8 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({error:"Opsi pengiriman belum dapat diverifikasi."});
     }
     const paymentToken=randomBytes(32).toString("hex");
-    const response=await supabaseAdmin("rpc/create_storefront_order_v3",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_quote_id:body.shippingQuoteId,p_payment_method:body.payment,p_payment_token:paymentToken})});
+    const orderAccessToken=randomBytes(32).toString("hex");
+    const response=await supabaseAdmin("rpc/create_storefront_order_v4",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_quote_id:body.shippingQuoteId,p_payment_method:body.payment,p_payment_token:paymentToken,p_order_access_token:orderAccessToken})});
     const data=await response.json();
     if(!response.ok) {
       console.error("Supabase order RPC failed", {status:response.status,code:data.code,message:data.message,details:data.details,hint:data.hint});
@@ -67,9 +68,10 @@ module.exports = async function handler(req, res) {
       if(data.message==="INVALID_PRODUCT" || data.message==="INVALID_QUANTITY") return res.status(422).json({error:"Salah satu produk tidak lagi tersedia. Silakan periksa keranjang Anda."});
       if(data.message==="SHIPPING_QUOTE_EXPIRED") return res.status(409).json({error:"Opsi ongkir sudah kedaluwarsa. Kembali ke langkah pengiriman untuk memuat tarif terbaru."});
       if(data.message==="SHIPPING_QUOTE_MISMATCH") return res.status(409).json({error:"Opsi ongkir tidak cocok dengan alamat tujuan. Muat ulang tarif pengiriman."});
+      if(data.message==="ORDER_ACCESS_TOKEN_INVALID") return res.status(500).json({error:"Akses pesanan belum dapat dibuat. Silakan coba kembali."});
       return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
     }
-    return res.status(201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),...(body.payment!=="COD"?{paymentToken}: {})});
+    return res.status(201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),orderAccessToken,...(body.payment!=="COD"?{paymentToken}: {})});
   } catch(error) {
     if (error instanceof SyntaxError) return res.status(400).json({error:"Format data pesanan tidak valid."});
     console.error("Order endpoint failed", error);
