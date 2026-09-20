@@ -1,6 +1,7 @@
 "use strict";
 const { createHash } = require("node:crypto");
 const { supabaseAdmin } = require("../_supabase");
+const { guardPublicJson } = require("../_guard");
 const { retrieveRates } = require("./_biteship");
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -81,11 +82,14 @@ async function insertQuotes(rows) {
 
 module.exports=async function handler(req,res) {
   if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
+  const guard=await guardPublicJson(req,res,{bucket:"shipping:quotes",limit:120,windowSeconds:900,maxBytes:32*1024});
+  if(!guard.ok)return;
+  const {requestId}=guard;
   try{
     const body=typeof req.body==="string"?JSON.parse(req.body):req.body||{};
     const city=String(body.city||body.destination?.city||"").trim();
     const postalCode=String(body.postalCode||body.destination?.postalCode||"").trim();
-    if(city.length<2||!/^\d{5}$/.test(postalCode)) return res.status(400).json({error:"Kota dan kode pos tujuan belum valid."});
+    if(city.length<2||city.length>120||!/^\d{5}$/.test(postalCode)) return res.status(400).json({error:"Kota dan kode pos tujuan belum valid."});
     const items=normalizeItems(body.items);
     const fingerprint=cartFingerprint(items);
     const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
@@ -124,7 +128,7 @@ module.exports=async function handler(req,res) {
     });
   }catch(error){
     if(error instanceof SyntaxError||error.message==="INVALID_ITEMS") return res.status(400).json({error:"Data permintaan ongkir tidak valid."});
-    console.error("Shipping quote creation failed",{message:error.message});
+    console.error("Shipping quote creation failed",{requestId,message:error.message});
     if(error.message==="SUPABASE_SERVICE_ROLE_KEY is not configured") return res.status(503).json({error:"Layanan ongkir belum dikonfigurasi."});
     if(error.message==="INVALID_PRODUCT") return res.status(422).json({error:"Salah satu produk tidak tersedia untuk pengiriman."});
     if(error.message==="BITESHIP_API_KEY is not configured"||error.message==="SHIPPING_ORIGIN_POSTAL_CODE is not configured") return res.status(503).json({error:"Integrasi kurir belum dikonfigurasi."});
