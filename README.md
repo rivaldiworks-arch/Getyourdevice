@@ -26,6 +26,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 10. `supabase/migrations/010_product_shipping_dimensions.sql` — menambah `weight_grams`, `length_cm`, `width_cm`, dan `height_cm` ke produk. Semua nullable agar listing lama tetap berfungsi dan dapat dilengkapi saat edit produk.
 11. `supabase/migrations/011_shipment_booking_tracking.sql` — menambah snapshot berat/dimensi pada `order_items`, Biteship shipment/tracking IDs, shipment status/environment, biaya aktual, timestamp booking/event, dan memperbarui RPC checkout v3 agar parcel data dibekukan saat order dibuat.\n12. `supabase/migrations/012_secure_customer_order_access.sql` — menambah capability token terpisah untuk akses riwayat pesanan guest selama 365 hari dan RPC checkout v4.
 13. `supabase/migrations/013_api_rate_limiting.sql` — menambah fixed-window rate limiter atomik untuk endpoint publik checkout/payment/shipping/order history. Satu row per bucket+client menjaga storage tetap bounded; hanya `service_role` yang dapat mengonsumsi limiter.
+14. `supabase/migrations/014_checkout_idempotency.sql` — menambah idempotency key per checkout agar retry/double-submit mengembalikan order yang sama, bukan membuat order kedua.
 
 ## Payment infrastructure (Phase 5)
 
@@ -171,6 +172,16 @@ Batas awal dibuat cukup longgar untuk traffic customer normal:
 - `POST /api/orders/detail`: 240 request / 15 menit / client
 
 Jika batas terlampaui API mengembalikan HTTP `429` dan `Retry-After`. Limiter bersifat fail-open bila storage limiter sementara tidak tersedia agar checkout tidak tumbang hanya karena komponen proteksi; validasi authoritative order/payment/shipping tetap berjalan di backend. Request publik juga mendapatkan `X-Request-ID` untuk korelasi log tanpa mencatat payload customer.
+
+## Production hardening — checkout idempotency (Phase 7C)
+
+Storefront sekarang membuat idempotency key acak 256-bit untuk satu logical checkout attempt dan menyimpannya di `sessionStorage`, sehingga refresh di tab yang sama tetap memakai key yang sama. Key dikirim lewat header `Idempotency-Key`; database hanya menyimpan SHA-256 digest-nya.
+
+`create_storefront_order_v5` memakai advisory transaction lock berdasarkan digest tersebut. Jika request yang sama datang bersamaan atau di-retry setelah response jaringan hilang, request berikutnya menunggu transaksi pertama lalu mengembalikan order yang sudah dibuat dengan `reused=true`. Quote, destination, dan cart fingerprint tetap divalidasi secara authoritative untuk first write.
+
+Payment capability dan customer order-access capability diturunkan secara deterministik dengan HMAC server-side dari idempotency key. Karena itu retry terhadap order yang sama menghasilkan capability token yang sama tanpa menyimpan raw token di database. Existing payment intent flow sudah bersifat reuse-per-order, sehingga replay checkout tidak membuat payment intent aktif kedua.
+
+Setelah response order diterima dengan sukses, browser menghapus idempotency key checkout agar transaksi berikutnya memakai key baru.
 
 ## Product schema final
 
