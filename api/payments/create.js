@@ -1,5 +1,6 @@
 "use strict";
 const { supabase, supabaseAdmin } = require("../_supabase");
+const { guardPublicJson } = require("../_guard");
 const { customerSafePayment, providerFor } = require("./_provider");
 const { createQrisCharge, getTransactionStatus, paymentFieldsFromTransaction, rawTransactionStatus } = require("./_midtrans");
 
@@ -38,6 +39,9 @@ async function updatePayment(id,changes) {
 
 module.exports=async function handler(req,res) {
   if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
+  const guard=await guardPublicJson(req,res,{bucket:"payments:create",limit:40,windowSeconds:900,maxBytes:8*1024});
+  if(!guard.ok)return;
+  const {requestId}=guard;
   try {
     const body=typeof req.body==="string"?JSON.parse(req.body):req.body||{};
     const keys=Object.keys(body);
@@ -52,7 +56,7 @@ module.exports=async function handler(req,res) {
     if(!response.ok) {
       if(["ORDER_NOT_FOUND","PAYMENT_ACCESS_DENIED"].includes(data.message)) return res.status(404).json({error:"Pesanan tidak ditemukan atau akses pembayaran sudah tidak valid."});
       if(["ORDER_NOT_PAYABLE","INVALID_PAYMENT_METHOD"].includes(data.message)) return res.status(409).json({error:"Pesanan ini tidak dapat dibuatkan pembayaran."});
-      console.error("Payment intent RPC failed",{status:response.status,code:data.code,message:data.message});
+      console.error("Payment intent RPC failed",{requestId,status:response.status,code:data.code,message:data.message});
       return res.status(500).json({error:"Pembayaran belum dapat disiapkan."});
     }
 
@@ -86,7 +90,7 @@ module.exports=async function handler(req,res) {
           qrContent:charge?.qrContent||authoritative?.qrContent
         };
       }catch(statusError){
-        console.warn("Midtrans GET status fallback failed after QR charge",{orderNumber:order.order_number,status:statusError.status||null,message:statusError.message});
+        console.warn("Midtrans GET status fallback failed after QR charge",{requestId,orderNumber:order.order_number,status:statusError.status||null,message:statusError.message});
       }
     }
     const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
@@ -101,7 +105,7 @@ module.exports=async function handler(req,res) {
     });
   } catch(error) {
     if(error instanceof SyntaxError) return res.status(400).json({error:"Format data tidak valid."});
-    console.error("Payment creation failed",{message:error.message,status:error.status||null,midtransStatus:error.midtrans?.status_code||null});
+    console.error("Payment creation failed",{requestId,message:error.message,status:error.status||null,midtransStatus:error.midtrans?.status_code||null});
     if(error.message==="MIDTRANS_SERVER_KEY is not configured" || error.message==="SUPABASE_SERVICE_ROLE_KEY is not configured") {
       return res.status(503).json({error:"Gateway pembayaran belum dikonfigurasi."});
     }
