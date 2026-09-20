@@ -1,11 +1,11 @@
 "use strict";
+const fs=require("node:fs");
+
 module.exports=async function handler(req,res){
   if(process.env.VERCEL_ENV==="production") return res.status(404).json({error:"Not found"});
   try{
-    const base=`https://${process.env.VERCEL_URL}`;
-    const [appRes,adminRes]=await Promise.all([fetch(base+"/app.js"),fetch(base+"/admin.js")]);
-    const app=await appRes.text(),admin=await adminRes.text();
-    if(!appRes.ok||!adminRes.ok) throw new Error("Static JS fetch failed");
+    const app=fs.readFileSync(require.resolve("../app.js"),"utf8");
+    const admin=fs.readFileSync(require.resolve("../admin.js"),"utf8");
     new Function(app);
     new Function(admin);
     const checks={
