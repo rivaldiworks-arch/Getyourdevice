@@ -41,6 +41,7 @@ let detailProductId = null;
 let detailQuantity = 1;
 let checkoutStep = 1;
 let checkoutSubmitting = false;
+let checkoutIdempotencyKey = storage.get("gyd_checkout_idempotency_key", null);
 let shippingQuotes = [];
 let shippingQuotesLoading = false;
 let shippingRatesLive = false;
@@ -61,6 +62,22 @@ function migrateLegacyProducts() {
   return old.map(product => ({ ...product, category: CATEGORIES.includes(product.category) ? product.category : "Accessories", needs: product.needs || ["Produktivitas"] }));
 }
 function persist() { storage.set("gyd_cart", cart); updateCartCount(); }
+function generateCheckoutIdempotencyKey(){
+  const bytes=new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map(value=>value.toString(16).padStart(2,"0")).join("");
+}
+function ensureCheckoutIdempotencyKey(){
+  if(!/^[a-f0-9]{64}$/i.test(String(checkoutIdempotencyKey||""))){
+    checkoutIdempotencyKey=generateCheckoutIdempotencyKey();
+    storage.set("gyd_checkout_idempotency_key",checkoutIdempotencyKey);
+  }
+  return checkoutIdempotencyKey;
+}
+function clearCheckoutIdempotencyKey(){
+  checkoutIdempotencyKey=null;
+  try{localStorage.removeItem("gyd_checkout_idempotency_key");}catch{}
+}
 function rememberOrderAccess(orderNumber,token){
   if(!/^GYD-\d{8}-\d{4,}$/.test(String(orderNumber||""))||!/^[a-f0-9]{64}$/i.test(String(token||"")))return;
   orderAccessRecords=[{orderNumber,token,savedAt:new Date().toISOString()},...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
@@ -357,7 +374,7 @@ function changeCheckoutStep(delta) {
 }
 function paymentGuidance(payment) { if(payment==="COD")return "Pesanan diterima dan menunggu konfirmasi toko"; if(payment==="QRIS")return "Pembayaran diproses setelah pesanan dibuat"; return "Instruksi diberikan setelah pesanan dikonfirmasi"; }
 function renderFinalReview() { const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank"; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping?.name||"-")}</strong><small>${escapeHTML(shipping?shippingEta(shipping):"-")} · ${shipping?(shipping.price?money(shipping.price):"Gratis"):"-"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
-function startCheckout(updateRoute=true) { if (!cart.length) return showToast("Keranjang masih kosong."); if(updateRoute){navigateRoute("checkout");return;} setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
+function startCheckout(updateRoute=true) { if (!cart.length) return showToast("Keranjang masih kosong."); ensureCheckoutIdempotencyKey(); if(updateRoute){navigateRoute("checkout");return;} setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
 function checkoutErrorMessage(message, status) { if(status===409)return message||"Stok atau opsi pengiriman sudah berubah. Silakan periksa checkout Anda."; if(status===400||status===422)return message||"Data checkout belum valid. Silakan periksa kembali."; if(!status)return "Koneksi bermasalah. Periksa jaringan Anda lalu coba kembali."; return message||"Pesanan belum dapat diproses. Silakan coba kembali."; }
 async function createPaymentIntent(orderNumber,paymentToken) {
   if(!orderNumber||!paymentToken)throw new Error("Token pembayaran tidak tersedia.");
@@ -372,7 +389,8 @@ async function submitOrder(event) {
   const customer={full_name:$("custName").value.trim(),whatsapp:normalizePhone($("custPhone").value),email:$("custEmail").value.trim().toLowerCase(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postal_code:$("custPostal").value.trim(),notes:$("custNotes").value.trim()};
   const button=$("checkoutSubmit"); checkoutSubmitting=true; button.disabled=true; button.textContent="Memproses pesanan..."; $("checkoutBack").disabled=true; $("checkoutError").classList.add("hidden");
   try {
-    const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({customer,payment,shippingQuoteId:shipping.quoteId,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
+    const checkoutKey=ensureCheckoutIdempotencyKey();
+    const response=await fetch("/api/orders",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json","Idempotency-Key":checkoutKey},body:JSON.stringify({customer,payment,shippingQuoteId:shipping.quoteId,items:cart.map(item=>({productId:item.id,quantity:item.qty}))})});
     const result=await response.json().catch(()=>({})); if(!response.ok){const failure=new Error(result.error||"");failure.status=response.status;throw failure;}
     const items=cart.map(item=>{const product=products.find(entry=>entry.id===item.id);return{id:item.id,name:product?.name||"Produk",qty:item.qty,price:product?.price||0};});
     let paymentIntent=null,paymentIntentError="";
@@ -382,12 +400,15 @@ async function submitOrder(event) {
     }
     const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:result.shippingServiceName||shipping.name,shippingId:shipping.method,shippingProvider:result.shippingProvider||shipping.provider,shippingServiceCode:result.shippingServiceCode||shipping.serviceCode,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",paymentStatus:payment==="COD"?"unpaid":paymentIntent?.paymentStatus||"unpaid",paymentReference:paymentIntent?.paymentReference||null,paymentUrl:paymentIntent?.paymentUrl||null,paymentExpiresAt:paymentIntent?.expiresAt||null,paymentIntentReady:payment==="COD"||Boolean(paymentIntent),items};
     rememberOrderAccess(result.orderNumber,result.orderAccessToken);
-    orders.unshift(order); cart=[]; persist(); event.target.reset(); setModal("checkoutModal",false);
-    const paymentNote=payment==="COD"
-      ?"Pesanan Anda telah diterima. Pembayaran dilakukan saat pesanan diterima."
-      :paymentIntent
-        ?(paymentIntent.message||"Pembayaran berhasil disiapkan dan menunggu instruksi gateway.")
-        :"Pesanan berhasil dibuat, tetapi instruksi pembayaran belum dapat disiapkan. Jangan membuat pesanan baru; tim kami dapat menyiapkan pembayaran dari nomor pesanan ini.";
+    clearCheckoutIdempotencyKey();
+    orders=[order,...orders.filter(existing=>existing.id!==order.id)]; cart=[]; persist(); event.target.reset(); setModal("checkoutModal",false);
+    const paymentNote=result.reused
+      ?"Permintaan checkout sebelumnya sudah diproses. Sistem menampilkan pesanan yang sama dan tidak membuat pesanan duplikat."
+      :payment==="COD"
+        ?"Pesanan Anda telah diterima. Pembayaran dilakukan saat pesanan diterima."
+        :paymentIntent
+          ?(paymentIntent.message||"Pembayaran berhasil disiapkan dan menunggu instruksi gateway.")
+          :"Pesanan berhasil dibuat, tetapi instruksi pembayaran belum dapat disiapkan. Jangan membuat pesanan baru; tim kami dapat menyiapkan pembayaran dari nomor pesanan ini.";
     $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(order.paymentStatus)}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa.</small></div>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
     history.replaceState(null,"",routeHash("pesanan")); setModal("successModal",true); loadProducts();
   } catch(error) { checkoutSubmitting=false; button.disabled=false; $("checkoutBack").disabled=false; button.textContent="Konfirmasi & Buat Pesanan"; $("checkoutError").textContent=checkoutErrorMessage(error.message,error.status); $("checkoutError").classList.remove("hidden"); }
