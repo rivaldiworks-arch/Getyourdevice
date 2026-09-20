@@ -67,6 +67,7 @@ module.exports = async function handler(req, res) {
       if(data.message==="SHIPPING_QUOTE_EXPIRED") return res.status(409).json({error:"Opsi ongkir sudah kedaluwarsa. Kembali ke langkah pengiriman untuk memuat tarif terbaru."});
       if(["SHIPPING_QUOTE_MISMATCH","SHIPPING_QUOTE_CART_MISMATCH"].includes(data.message)) return res.status(409).json({error:"Opsi ongkir tidak lagi cocok dengan alamat atau isi keranjang. Muat ulang tarif pengiriman."});
       if(["INVALID_IDEMPOTENCY_KEY","INVALID_CART_FINGERPRINT"].includes(data.message)) return res.status(400).json({error:"Identitas checkout tidak valid. Muat ulang halaman lalu coba kembali."});
+      if(data.message==="IDEMPOTENCY_REPLAY_EXPIRED") return res.status(409).json({error:"Sesi retry checkout sudah kedaluwarsa. Periksa menu Pesanan sebelum membuat checkout baru."});
       if(data.message==="ORDER_ACCESS_TOKEN_INVALID") return res.status(500).json({error:"Akses pesanan belum dapat dibuat. Silakan coba kembali."});
       return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
     }
