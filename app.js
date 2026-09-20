@@ -41,7 +41,7 @@ let detailProductId = null;
 let detailQuantity = 1;
 let checkoutStep = 1;
 let checkoutSubmitting = false;
-let checkoutIdempotencyKey = storage.get("gyd_checkout_idempotency_key", null);
+let checkoutIdempotencyKey = (()=>{try{return sessionStorage.getItem("gyd_checkout_idempotency_key");}catch{return null;}})();
 let shippingQuotes = [];
 let shippingQuotesLoading = false;
 let shippingRatesLive = false;
@@ -70,13 +70,13 @@ function generateCheckoutIdempotencyKey(){
 function ensureCheckoutIdempotencyKey(){
   if(!/^[a-f0-9]{64}$/i.test(String(checkoutIdempotencyKey||""))){
     checkoutIdempotencyKey=generateCheckoutIdempotencyKey();
-    storage.set("gyd_checkout_idempotency_key",checkoutIdempotencyKey);
+    try{sessionStorage.setItem("gyd_checkout_idempotency_key",checkoutIdempotencyKey);}catch{}
   }
   return checkoutIdempotencyKey;
 }
 function clearCheckoutIdempotencyKey(){
   checkoutIdempotencyKey=null;
-  try{localStorage.removeItem("gyd_checkout_idempotency_key");}catch{}
+  try{sessionStorage.removeItem("gyd_checkout_idempotency_key");}catch{}
 }
 function rememberOrderAccess(orderNumber,token){
   if(!/^GYD-\d{8}-\d{4,}$/.test(String(orderNumber||""))||!/^[a-f0-9]{64}$/i.test(String(token||"")))return;
