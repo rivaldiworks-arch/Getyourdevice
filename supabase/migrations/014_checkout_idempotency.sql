@@ -53,6 +53,10 @@ begin
   for update;
 
   if found then
+    if v_existing.checkout_idempotency_created_at is null
+       or v_existing.checkout_idempotency_created_at < now()-interval '24 hours' then
+      raise exception using message='IDEMPOTENCY_REPLAY_EXPIRED',errcode='P0001';
+    end if;
     return jsonb_build_object(
       'order_number',v_existing.order_number,
       'created_at',v_existing.created_at,
