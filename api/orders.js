@@ -1,5 +1,5 @@
 "use strict";
-const { createHash, randomBytes } = require("node:crypto");
+const { createHash, createHmac, randomBytes } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
 const { guardPublicJson } = require("./_guard");
 
@@ -35,17 +35,11 @@ function cartFingerprint(items) {
   const normalized=items.map(item=>({productId:String(item.productId),quantity:Number(item.quantity)})).sort((a,b)=>a.productId.localeCompare(b.productId));
   return createHash("sha256").update(normalized.map(item=>`${item.productId}:${item.quantity}`).join("|")).digest("hex");
 }
-async function validateShippingQuote(quoteId,customer,items) {
-  const response=await supabaseAdmin(`shipping_quotes?select=id,destination_city,destination_postal_code,cart_fingerprint,expires_at,used_at&id=eq.${encodeURIComponent(quoteId)}&limit=1`);
-  const rows=await response.json().catch(()=>[]);
-  if(!response.ok) throw new Error(rows?.message||rows?.error||"SHIPPING_QUOTE_LOOKUP_FAILED");
-  const quote=rows?.[0];
-  if(!quote||quote.used_at||new Date(quote.expires_at).getTime()<=Date.now()) throw new Error("SHIPPING_QUOTE_EXPIRED");
-  if(String(quote.destination_city||"").trim().toLowerCase()!==customer.city.toLowerCase()||String(quote.destination_postal_code||"").trim()!==customer.postal_code) throw new Error("SHIPPING_QUOTE_MISMATCH");
-  if(quote.cart_fingerprint!==cartFingerprint(items)) throw new Error("SHIPPING_QUOTE_CART_MISMATCH");
-  return quote;
+function checkoutToken(idempotencyKey,purpose) {
+  const secret=String(process.env.SUPABASE_SERVICE_ROLE_KEY||"");
+  if(!secret) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured");
+  return createHmac("sha256",secret).update(`${purpose}:${idempotencyKey}`).digest("hex");
 }
-
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).setHeader("Allow", "POST").json({ error:"Method not allowed" });
   const guard=await guardPublicJson(req,res,{bucket:"orders:create",limit:20,windowSeconds:3600,maxBytes:64*1024});
@@ -58,16 +52,12 @@ module.exports = async function handler(req, res) {
     if(!validCustomer(customer)) return res.status(400).json({error:"Data pelanggan belum valid. Periksa nama, WhatsApp, email, alamat, kota, dan kode pos."});
     if(!UUID.test(String(body.shippingQuoteId||"")) || !PAYMENT_METHODS.has(body.payment)) return res.status(400).json({error:"Opsi pengiriman atau pembayaran tidak valid. Muat ulang checkout lalu coba lagi."});
     if(!body.items.every(item=>UUID.test(item.productId||"") && Number.isInteger(item.quantity) && item.quantity>0 && item.quantity<=99)) return res.status(400).json({error:"Item pesanan tidak valid."});
-    try{await validateShippingQuote(body.shippingQuoteId,customer,body.items);}
-    catch(error){
-      if(error.message==="SHIPPING_QUOTE_EXPIRED") return res.status(409).json({error:"Opsi ongkir sudah kedaluwarsa. Kembali ke langkah pengiriman untuk memuat tarif terbaru."});
-      if(["SHIPPING_QUOTE_MISMATCH","SHIPPING_QUOTE_CART_MISMATCH"].includes(error.message)) return res.status(409).json({error:"Opsi ongkir tidak lagi cocok dengan alamat atau isi keranjang. Muat ulang tarif pengiriman."});
-      console.error("Shipping quote validation failed",{requestId,message:error.message});
-      return res.status(500).json({error:"Opsi pengiriman belum dapat diverifikasi."});
-    }
-    const paymentToken=randomBytes(32).toString("hex");
-    const orderAccessToken=randomBytes(32).toString("hex");
-    const response=await supabaseAdmin("rpc/create_storefront_order_v4",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_quote_id:body.shippingQuoteId,p_payment_method:body.payment,p_payment_token:paymentToken,p_order_access_token:orderAccessToken})});
+    const headerKey=String(req.headers["idempotency-key"]||"").trim().toLowerCase();
+    if(headerKey && !/^[0-9a-f]{64}$/.test(headerKey)) return res.status(400).json({error:"Idempotency key checkout tidak valid."});
+    const idempotencyKey=headerKey||randomBytes(32).toString("hex");
+    const paymentToken=checkoutToken(idempotencyKey,"payment");
+    const orderAccessToken=checkoutToken(idempotencyKey,"order-access");
+    const response=await supabaseAdmin("rpc/create_storefront_order_v5",{method:"POST",body:JSON.stringify({p_customer:customer,p_items:body.items.map(item=>({product_id:item.productId,quantity:item.quantity})),p_shipping_quote_id:body.shippingQuoteId,p_payment_method:body.payment,p_payment_token:paymentToken,p_order_access_token:orderAccessToken,p_checkout_idempotency_key:idempotencyKey,p_cart_fingerprint:cartFingerprint(body.items)})});
     const data=await response.json();
     if(!response.ok) {
       console.error("Supabase order RPC failed", {requestId,status:response.status,code:data.code,message:data.message,details:data.details,hint:data.hint});
@@ -75,11 +65,15 @@ module.exports = async function handler(req, res) {
       if(data.message==="INVALID_CUSTOMER") return res.status(400).json({error:"Data pelanggan dan alamat belum valid. Periksa kembali data checkout."});
       if(data.message==="INVALID_PRODUCT" || data.message==="INVALID_QUANTITY") return res.status(422).json({error:"Salah satu produk tidak lagi tersedia. Silakan periksa keranjang Anda."});
       if(data.message==="SHIPPING_QUOTE_EXPIRED") return res.status(409).json({error:"Opsi ongkir sudah kedaluwarsa. Kembali ke langkah pengiriman untuk memuat tarif terbaru."});
-      if(data.message==="SHIPPING_QUOTE_MISMATCH") return res.status(409).json({error:"Opsi ongkir tidak cocok dengan alamat tujuan. Muat ulang tarif pengiriman."});
+      if(["SHIPPING_QUOTE_MISMATCH","SHIPPING_QUOTE_CART_MISMATCH"].includes(data.message)) return res.status(409).json({error:"Opsi ongkir tidak lagi cocok dengan alamat atau isi keranjang. Muat ulang tarif pengiriman."});
+      if(["INVALID_IDEMPOTENCY_KEY","INVALID_CART_FINGERPRINT"].includes(data.message)) return res.status(400).json({error:"Identitas checkout tidak valid. Muat ulang halaman lalu coba kembali."});
+      if(data.message==="IDEMPOTENCY_REPLAY_EXPIRED") return res.status(409).json({error:"Sesi retry checkout sudah kedaluwarsa. Periksa menu Pesanan sebelum membuat checkout baru."});
       if(data.message==="ORDER_ACCESS_TOKEN_INVALID") return res.status(500).json({error:"Akses pesanan belum dapat dibuat. Silakan coba kembali."});
       return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
     }
-    return res.status(201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),orderAccessToken,...(body.payment!=="COD"?{paymentToken}: {})});
+    const reused=Boolean(data.reused);
+    res.setHeader("Idempotency-Replayed",reused?"true":"false");
+    return res.status(reused?200:201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),orderAccessToken,reused,...(body.payment!=="COD"?{paymentToken}: {})});
   } catch(error) {
     if (error instanceof SyntaxError) return res.status(400).json({error:"Format data pesanan tidak valid."});
     console.error("Order endpoint failed",{requestId,message:error.message});
