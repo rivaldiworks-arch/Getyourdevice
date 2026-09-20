@@ -1,6 +1,7 @@
 "use strict";
 const { createHash, timingSafeEqual } = require("node:crypto");
 const { supabaseAdmin } = require("../_supabase");
+const { guardPublicJson } = require("../_guard");
 
 const ORDER_NUMBER=/^GYD-\d{8}-\d{4,}$/;
 const TOKEN=/^[a-f0-9]{64}$/i;
@@ -19,6 +20,9 @@ async function rows(path){
 
 module.exports=async function handler(req,res){
   if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
+  const guard=await guardPublicJson(req,res,{bucket:"orders:detail",limit:240,windowSeconds:900,maxBytes:8*1024});
+  if(!guard.ok)return;
+  const {requestId}=guard;
   try{
     const body=typeof req.body==="string"?JSON.parse(req.body):req.body||{};
     const orderNumber=String(body.orderNumber||"").trim();
@@ -61,7 +65,7 @@ module.exports=async function handler(req,res){
     });
   }catch(error){
     if(error instanceof SyntaxError) return res.status(400).json({error:"Format permintaan tidak valid."});
-    console.error("Customer order lookup failed",{message:error.message});
+    console.error("Customer order lookup failed",{requestId,message:error.message});
     return res.status(500).json({error:"Pesanan belum dapat dimuat."});
   }
 };
