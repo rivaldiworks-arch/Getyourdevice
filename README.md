@@ -177,7 +177,7 @@ Jika batas terlampaui API mengembalikan HTTP `429` dan `Retry-After`. Limiter be
 
 Storefront sekarang membuat idempotency key acak 256-bit untuk satu logical checkout attempt dan menyimpannya di `sessionStorage`, sehingga refresh di tab yang sama tetap memakai key yang sama. Key dikirim lewat header `Idempotency-Key`; database hanya menyimpan SHA-256 digest-nya.
 
-`create_storefront_order_v5` memakai advisory transaction lock berdasarkan digest tersebut. Jika request yang sama datang bersamaan atau di-retry setelah response jaringan hilang, request berikutnya menunggu transaksi pertama lalu mengembalikan order yang sudah dibuat dengan `reused=true`. Quote, destination, dan cart fingerprint tetap divalidasi secara authoritative untuk first write.
+`create_storefront_order_v5` memakai advisory transaction lock berdasarkan digest tersebut. Jika request yang sama datang bersamaan atau di-retry setelah response jaringan hilang, request berikutnya menunggu transaksi pertama lalu mengembalikan order yang sudah dibuat dengan `reused=true`. Replay window dibatasi 24 jam. Quote, destination, dan cart fingerprint tetap divalidasi secara authoritative untuk first write.
 
 Payment capability dan customer order-access capability diturunkan secara deterministik dengan HMAC server-side dari idempotency key. Karena itu retry terhadap order yang sama menghasilkan capability token yang sama tanpa menyimpan raw token di database. Existing payment intent flow sudah bersifat reuse-per-order, sehingga replay checkout tidak membuat payment intent aktif kedua.
 
