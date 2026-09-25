@@ -28,6 +28,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 13. `supabase/migrations/013_api_rate_limiting.sql` — menambah fixed-window rate limiter atomik untuk endpoint publik checkout/payment/shipping/order history. Satu row per bucket+client menjaga storage tetap bounded; hanya `service_role` yang dapat mengonsumsi limiter.
 14. `supabase/migrations/014_checkout_idempotency.sql` — menambah idempotency key per checkout agar retry/double-submit mengembalikan order yang sama, bukan membuat order kedua.
 15. `supabase/migrations/015_payment_provider_environment.sql` — menambah `payments.provider_environment` (`sandbox`/`production`) agar QR dari environment Midtrans lain tidak pernah ditampilkan ke customer. Additive, tanpa backfill. **Jalankan 015 sebelum deploy kode Phase 7D.**
+16. `supabase/migrations/016_paid_order_confirmation.sql` — order `pending` otomatis menjadi `confirmed` saat payment `paid`, dan menambah `orders.paid_notified_at` agar email pembayaran ke penjual terkirim tepat sekali. **Jalankan 016 sebelum deploy kode Phase 7E.**
 
 ## Payment infrastructure (Phase 5)
 
@@ -109,7 +110,7 @@ Jika semua item dalam cart sudah memiliki data fisik dan environment Biteship te
 Environment server-side:
 
 ```text
-BITESHIP_API_KEY=<biteship_test... untuk testing>
+BITESHIP_API_KEY=<biteship_test... untuk testing, biteship_live... untuk production>
 SHIPPING_ORIGIN_POSTAL_CODE=10140
 # Optional:
 BITESHIP_COURIERS=jne,jnt,sicepat,anteraja,ninja,pos,tiki
@@ -246,6 +247,37 @@ Modal pembayaran menampilkan hitung mundur masa berlaku QR, memeriksa status set
 5. Di dashboard Midtrans **Production**: aktifkan channel QRIS dan set Payment Notification URL ke `https://getyourdevice.vercel.app/api/payments/webhook`.
 6. Redeploy Production agar env baru terbaca.
 7. Uji satu transaksi QRIS nominal kecil hingga admin menampilkan `paid`. Jika status tidak berubah dalam 1–2 menit, periksa log webhook sebelum membuka toko.
+
+## Operasional toko (Phase 7E)
+
+### Metode pembayaran di checkout
+
+Checkout hanya menawarkan **QRIS** (default) dan **COD**. Transfer Bank tetap merupakan nilai valid di database untuk order lama, tetapi `POST /api/orders` menolaknya (`CHECKOUT_PAYMENT_METHODS`) sampai tersedia rail pembayaran nyata seperti Midtrans Virtual Account; tanpa itu customer tidak pernah menerima instruksi pembayaran.
+
+### Konfirmasi otomatis
+
+Trigger payment (migration 016) mengubah order `pending` menjadi `confirmed` begitu payment `paid`, dari jalur mana pun (webhook Midtrans, sinkronisasi status di API pembayaran, atau admin). Order yang sudah diproses admin tidak diubah. Order yang sudah `cancelled` tetap `cancelled` walaupun pembayaran masuk; kasus ini memerlukan refund manual.
+
+### Email notifikasi penjual
+
+Dikirim melalui [Resend](https://resend.com), best effort: kegagalan email tidak pernah menggagalkan checkout atau webhook.
+
+- **Pesanan COD baru** — saat order COD dibuat, karena perlu tindakan toko.
+- **Pembayaran diterima** — saat order QRIS lunas. Pengiriman diklaim lewat `paid_notified_at` sehingga retry webhook tidak menggandakan email; bila pengiriman gagal, klaim dilepas dan retry berikutnya mencoba lagi.
+
+```text
+RESEND_API_KEY=<re_...>
+ORDER_NOTIFY_EMAIL=<email penjual; pisahkan dengan koma untuk lebih dari satu>
+# Optional:
+ORDER_NOTIFY_FROM=GETYOURDEVICE <pesanan@domain-anda>   # default onboarding@resend.dev
+SITE_URL=https://getyourdevice.vercel.app               # untuk tautan Admin di email
+```
+
+Tanpa domain terverifikasi, pengirim default `onboarding@resend.dev` hanya dapat mengirim ke email pemilik akun Resend; cukup untuk notifikasi penjual. Bila `RESEND_API_KEY` atau `ORDER_NOTIFY_EMAIL` kosong, notifikasi dilewati tanpa error.
+
+### Biteship live
+
+Dengan `BITESHIP_API_KEY` berawalan `biteship_live.`, booking shipment mewajibkan payment `paid` dan membuat pengiriman kurir sungguhan (bersaldo). Tarif live hanya dipakai bila semua produk di cart memiliki berat dan dimensi; lengkapi data fisik produk di admin sebelum go-live, jika tidak checkout memakai tarif fallback internal.
 
 ## Product schema final
 

@@ -2,6 +2,7 @@
 const { supabase, supabaseAdmin } = require("../_supabase");
 const { guardPublicJson } = require("../_guard");
 const { isServerConfigError } = require("../_secrets");
+const { notifyOrderPaid } = require("../_notify");
 const { canTransition, customerSafePayment, providerFor } = require("./_provider");
 const {
   createQrisCharge,
@@ -98,11 +99,14 @@ async function syncMidtransPayment(payment,requestId) {
   }
   const next=normalizeTransactionStatus(transaction);
   if(next===payment.status || !canTransition(payment.status,next)) return payment;
-  return updatePayment(payment.id,{
+  const updated=await updatePayment(payment.id,{
     status:next,
     external_transaction_id:transaction.transaction_id||payment.external_transaction_id||null,
     provider_payload:safeProviderPayload(transaction)
   });
+  // The webhook was missed, so this sync is where the seller learns about the payment.
+  if(next==="paid") await notifyOrderPaid(payment.order_id,{requestId});
+  return updated;
 }
 
 // Decides what to do with the active payment row returned by the intent RPC:

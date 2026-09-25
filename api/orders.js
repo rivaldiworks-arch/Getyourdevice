@@ -3,8 +3,13 @@ const { createHash, randomBytes } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
 const { guardPublicJson } = require("./_guard");
 const { isServerConfigError, serverHmac } = require("./_secrets");
+const { notifyOrderCreated } = require("./_notify");
 
 const PAYMENT_METHODS = new Set(["Transfer Bank", "COD", "QRIS"]);
+// Methods customers can choose at checkout. Transfer Bank stays a valid stored value
+// but is not offered until it has a real payment rail (e.g. Midtrans Virtual Account);
+// until then customers would receive no payment instructions.
+const CHECKOUT_PAYMENT_METHODS = new Set(["QRIS", "COD"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE = /^\+?\d{9,15}$/;
@@ -51,7 +56,7 @@ module.exports = async function handler(req, res) {
     if(!body?.customer || !Array.isArray(body.items) || !body.items.length || body.items.length>50) return res.status(400).json({error:"Data pesanan tidak lengkap."});
     const customer=customerFrom(body.customer);
     if(!validCustomer(customer)) return res.status(400).json({error:"Data pelanggan belum valid. Periksa nama, WhatsApp, email, alamat, kota, dan kode pos."});
-    if(!UUID.test(String(body.shippingQuoteId||"")) || !PAYMENT_METHODS.has(body.payment)) return res.status(400).json({error:"Opsi pengiriman atau pembayaran tidak valid. Muat ulang checkout lalu coba lagi."});
+    if(!UUID.test(String(body.shippingQuoteId||"")) || !PAYMENT_METHODS.has(body.payment) || !CHECKOUT_PAYMENT_METHODS.has(body.payment)) return res.status(400).json({error:"Opsi pengiriman atau pembayaran tidak valid. Muat ulang checkout lalu coba lagi."});
     if(!body.items.every(item=>UUID.test(item.productId||"") && Number.isInteger(item.quantity) && item.quantity>0 && item.quantity<=99)) return res.status(400).json({error:"Item pesanan tidak valid."});
     const headerKey=String(req.headers["idempotency-key"]||"").trim().toLowerCase();
     if(headerKey && !/^[0-9a-f]{64}$/.test(headerKey)) return res.status(400).json({error:"Idempotency key checkout tidak valid."});
@@ -73,6 +78,8 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
     }
     const reused=Boolean(data.reused);
+    // QRIS orders are announced once paid (webhook); COD needs the seller right away.
+    if(!reused && body.payment==="COD") await notifyOrderCreated(data.order_number,{requestId});
     res.setHeader("Idempotency-Replayed",reused?"true":"false");
     return res.status(reused?200:201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),orderAccessToken,reused,...(body.payment!=="COD"?{paymentToken}: {})});
   } catch(error) {

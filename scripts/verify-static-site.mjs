@@ -13,6 +13,8 @@ const shippingMigration = readFileSync(new URL("../supabase/migrations/009_shipp
 const orderApi = readFileSync(new URL("../api/orders.js", import.meta.url), "utf8");
 const quoteApi = readFileSync(new URL("../api/shipping/quotes.js", import.meta.url), "utf8");
 const canonicalPayments = ["Transfer Bank", "COD", "QRIS"];
+// Transfer Bank is hidden at checkout until it has a real payment rail.
+const checkoutPayments = ["QRIS", "COD"];
 const canonicalShipping = ["regular", "express", "sameday", "pickup"];
 
 new Script(javascript, { filename: "app.js" });
@@ -49,9 +51,11 @@ if ((html.match(/data-checkout-step=/g) || []).length !== 5) {
 for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko"]) {
   if (!quoteApi.includes(option)) throw new Error(`Shipping option missing: ${option}`);
 }
-for (const option of canonicalPayments) {
+for (const option of checkoutPayments) {
   if (!`${html}\n${javascript}`.includes(option)) throw new Error(`Checkout option missing: ${option}`);
 }
+if (/name="payment" value="Transfer Bank"/.test(html)) throw new Error("Transfer Bank must not be offered at checkout");
+if (!/CHECKOUT_PAYMENT_METHODS = new Set\(\["QRIS", "COD"\]\)/.test(orderApi)) throw new Error("Order API must only accept QRIS and COD at checkout");
 
 const combined = `${html}\n${css}\n${javascript}`;
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(combined)) {
@@ -88,7 +92,7 @@ const apiShipping = [...new Set([...quoteApi.matchAll(/shippingMethod:"([^"]+)"/
 const rpcPayments = [...checkoutMigration.match(/p_payment_method not in \(([^)]+)\)/)?.[1].matchAll(/'([^']+)'/g) || []].map(match => match[1]);
 const rpcShipping = [...(shippingMigration.match(/shipping_quotes_method_check check\(shipping_method in \(([^)]+)\)/)?.[1].matchAll(/'([^']+)'/g) || [])].map(match => match[1]);
 for (const [label, actual, expected] of [
-  ["frontend payments", frontendPayments, canonicalPayments], ["API payments", apiPayments, canonicalPayments], ["RPC payments", rpcPayments, canonicalPayments],
+  ["frontend payments", frontendPayments, checkoutPayments], ["API payments", apiPayments, canonicalPayments], ["RPC payments", rpcPayments, canonicalPayments],
   ["quote API shipping", apiShipping, canonicalShipping], ["RPC shipping", rpcShipping, canonicalShipping]
 ]) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} contract drift: ${JSON.stringify(actual)}`);
