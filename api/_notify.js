@@ -115,9 +115,13 @@ async function notifyOrderPaid(orderId,{requestId}={}) {
     const order=claimed?.[0];
     if(!order) return false;
     const items=await loadItems(order.id);
-    const content=orderEmail(order,items,{headline:"Pembayaran diterima",intro:"Pembayaran pesanan sudah masuk. Pesanan otomatis dikonfirmasi dan siap diproses.",siteUrl:cfg.siteUrl});
+    // The payments trigger has already run, so the status reflects auto-confirmation.
+    const cancelled=String(order.status||"").toLowerCase()==="cancelled";
+    const content=orderEmail(order,items,cancelled
+      ?{headline:"Perlu refund: pesanan dibatalkan tetapi sudah dibayar",intro:"Pembayaran masuk untuk pesanan yang sudah dibatalkan. Hubungi pelanggan dan proses refund.",siteUrl:cfg.siteUrl}
+      :{headline:"Pembayaran diterima",intro:"Pembayaran pesanan sudah masuk. Pesanan otomatis dikonfirmasi dan siap diproses.",siteUrl:cfg.siteUrl});
     try {
-      await sendEmail(cfg,{subject:`[GETYOURDEVICE] Lunas ${order.order_number} · ${rupiah(order.total)}`,...content});
+      await sendEmail(cfg,{subject:cancelled?`[GETYOURDEVICE] PERLU REFUND ${order.order_number} · ${rupiah(order.total)}`:`[GETYOURDEVICE] Lunas ${order.order_number} · ${rupiah(order.total)}`,...content});
     } catch(error) {
       // Release the claim so a later webhook retry or status sync can try again.
       await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({paid_notified_at:null})}).catch(()=>{});

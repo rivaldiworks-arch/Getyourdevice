@@ -196,4 +196,15 @@ resetEnv(); reset();
   assert.match(sent[0].html,/&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
 }
 
+// 7. A payment landing on a cancelled order flags a refund instead of "confirmed".
+resetEnv(); reset();
+{
+  const order=addOrder({status:"cancelled"});
+  const payment=addPendingPayment(order);
+  await midtransNotification(payment,"settlement");
+  assert.equal(sent.length,1);
+  assert.match(sent[0].subject,/PERLU REFUND/);
+  assert.doesNotMatch(sent[0].html,/otomatis dikonfirmasi/);
+}
+
 console.log("Phase 7E order notification verification passed.");
