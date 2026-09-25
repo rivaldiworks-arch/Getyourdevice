@@ -1,0 +1,23 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check API and scripts
+        run: find api scripts -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
+      - name: Run verification scripts
+        run: node scripts/verify-all.mjs

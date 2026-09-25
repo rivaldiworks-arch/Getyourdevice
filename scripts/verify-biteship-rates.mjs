@@ -21,7 +21,8 @@ assert.match(adapter,/authorization:apiKey/);
 assert.match(adapter,/origin_postal_code:Number\(originPostalCode\)/);
 assert.match(adapter,/destination_postal_code:Number\(destinationPostalCode\)/);
 assert.match(adapter,/jne,jnt,sicepat,anteraja,ninja,pos,tiki/);
-assert.doesNotMatch(adapter,/biteship_test\.|biteship_live\./);
+// The adapter may check the key prefix, but must never embed an actual key.
+assert.doesNotMatch(adapter,/biteship_(test|live)\.[A-Za-z0-9_-]{8,}/);
 
 assert.match(quotes,/weight_grams,length_cm,width_cm,height_cm/);
 assert.match(quotes,/retrieveRates/);

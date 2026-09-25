@@ -45,7 +45,7 @@ new Script(`
   const CHECKOUT_STEPS=["Pelanggan","Alamat","Pengiriman","Pembayaran","Tinjau"];
   let checkoutStep=1,checkoutSubmitting=false;
   const $=id=>document.getElementById(id);
-  const renderShowcases=()=>{},renderProducts=()=>{},renderCustomerOrders=()=>{},openCart=()=>{},setModal=()=>{},startCheckout=()=>{},resetFilters=()=>{};
+  const renderShowcases=()=>{},renderProducts=()=>{},renderCustomerOrders=()=>{},openCart=()=>{},setModal=()=>{},startCheckout=()=>{},resetFilters=()=>{},navigateRoute=()=>{};
   ${checkoutFunctions}
   ${dispatcher}
 `).runInContext(context);

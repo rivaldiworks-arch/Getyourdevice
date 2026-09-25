@@ -183,6 +183,16 @@ Payment capability dan customer order-access capability diturunkan secara determ
 
 Setelah response order diterima dengan sukses, browser menghapus idempotency key checkout agar transaksi berikutnya memakai key baru.
 
+## Verifikasi & CI
+
+Semua script `scripts/verify-*.mjs` dijalankan oleh GitHub Actions (`.github/workflows/verify.yml`) pada setiap pull request dan push ke `main`. Jalankan secara lokal sebelum membuka PR:
+
+```bash
+node scripts/verify-all.mjs
+```
+
+Script verifikasi adalah contract check statis; bila sebuah phase sengaja mengubah contract (misalnya versi RPC checkout), perbarui assertion di PR yang sama agar CI tetap hijau.
+
 ## Product schema final
 
 `public.products` menggunakan: `id`, `name`, `brand`, `category`, `description`, `specifications jsonb`, `price`, `original_price`, `stock`, `image_url`, `rating`, `is_active`, `created_at`, dan `updated_at`. Admin dapat mencari/filter, menambah, mengedit, mengubah harga/stok/status, dan menghapus dengan konfirmasi.

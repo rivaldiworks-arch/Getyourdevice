@@ -14,8 +14,8 @@ assert.match(migration,/create_storefront_order_v4/);
 assert.match(migration,/digest\(p_order_access_token,'sha256'\)/);
 assert.match(migration,/interval '365 days'/);
 
-assert.match(ordersApi,/randomBytes\(32\).*orderAccessToken/s);
-assert.match(ordersApi,/rpc\/create_storefront_order_v4/);
+assert.match(ordersApi,/orderAccessToken=checkoutToken\(idempotencyKey,"order-access"\)/);
+assert.match(ordersApi,/rpc\/create_storefront_order_v5/);
 assert.match(ordersApi,/orderAccessToken/);
 
 assert.match(detailApi,/timingSafeEqual/);
