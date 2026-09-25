@@ -192,6 +192,14 @@ Semua script `scripts/verify-*.mjs` dijalankan oleh GitHub Actions (`.github/wor
 node scripts/verify-all.mjs
 ```
 
+Test browser (`scripts/e2e-*.mjs`) menjalankan storefront di Chromium dengan API yang di-mock, pada lebar desktop dan ponsel. CI menjalankannya sebagai job terpisah. Lokal:
+
+```bash
+npm install --no-save playwright@1.56.1
+npx playwright install chromium
+node scripts/e2e-payment-button.mjs
+```
+
 Script verifikasi adalah contract check statis; bila sebuah phase sengaja mengubah contract (misalnya versi RPC checkout), perbarui assertion di PR yang sama agar CI tetap hijau.
 
 ## Production readiness — Midtrans production & secret separation (Phase 7D)
@@ -222,6 +230,12 @@ Midtrans menolak `order_id` yang sudah pernah dipakai. Sebelumnya `order_id` = n
 - QR yang melewati `expires_at` dicek ke Midtrans (GET Status) sebagai sumber kebenaran: `settlement` → customer melihat pembayaran diterima; `expire/deny/cancel` → attempt ditutup dan QR baru dibuat; masih `pending` → QR yang sama dikembalikan. Webhook yang terlewat tidak lagi membuat customer terjebak.
 - Payment Midtrans dari environment lain (termasuk row lama tanpa `provider_environment`, yang dianggap sandbox) ditutup sebagai `expired` dan diganti attempt baru di environment aktif.
 - Webhook mengabaikan notifikasi berulang dengan status sama agar snapshot status order tidak ditimpa.
+
+### Bayar QRIS dari menu Pesanan
+
+Saat checkout, browser menyimpan payment capability token bersama order-access token (`gyd_order_access`). Kartu pesanan QRIS yang belum lunas menampilkan tombol **Bayar dengan QRIS** / **Tampilkan QRIS** selama jendela pembayaran 24 jam (`paymentDeadline` dari `POST /api/orders/detail`). Tombol memanggil `POST /api/payments/create`, yang memakai ulang QR yang masih berlaku atau membuat attempt baru.
+
+Modal pembayaran menampilkan hitung mundur masa berlaku QR, memeriksa status setiap 8 detik selama tab aktif, dan menawarkan **Buat QR Baru** setelah QR kedaluwarsa. Setelah jendela 24 jam lewat, tombol diganti catatan untuk menghubungi toko. Pesanan yang dibuat sebelum fitur ini tidak memiliki token pembayaran tersimpan dan menampilkan catatan yang sama.
 
 ### Checklist aktivasi production
 

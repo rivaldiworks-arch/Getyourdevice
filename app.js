@@ -35,6 +35,9 @@ let cart = storage.get("gyd_cart", storage.get("nc_cart", []));
 let orders = [];
 let orderAccessRecords = storage.get("gyd_order_access", []);
 if(!Array.isArray(orderAccessRecords)) orderAccessRecords=[];
+let customerOrderCache = new Map();
+const PAYMENT_POLL_SECONDS = 8;
+let paymentSession = null;
 let activeCategory = "Semua";
 let recommendation = null;
 let detailProductId = null;
@@ -78,9 +81,13 @@ function clearCheckoutIdempotencyKey(){
   checkoutIdempotencyKey=null;
   try{sessionStorage.removeItem("gyd_checkout_idempotency_key");}catch{}
 }
-function rememberOrderAccess(orderNumber,token){
+// The payment token lets this browser request a (new) QRIS until the 24-hour payment
+// window closes; the server still verifies it on every request.
+function rememberOrderAccess(orderNumber,token,paymentToken){
   if(!/^GYD-\d{8}-\d{4,}$/.test(String(orderNumber||""))||!/^[a-f0-9]{64}$/i.test(String(token||"")))return;
-  orderAccessRecords=[{orderNumber,token,savedAt:new Date().toISOString()},...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
+  const record={orderNumber,token,savedAt:new Date().toISOString()};
+  if(/^[a-f0-9]{64}$/i.test(String(paymentToken||"")))record.paymentToken=paymentToken;
+  orderAccessRecords=[record,...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
   storage.set("gyd_order_access",orderAccessRecords);
 }
 async function fetchCustomerOrderAccess(entry){
@@ -138,7 +145,8 @@ function navigateRoute(route="beranda",{replace=false}={}) {
   if(appReady)applyRoute(false);
 }
 function closeStoreModals() {
-  ["cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));
+  stopPaymentPolling(); paymentSession=null;
+  ["cartDrawer","checkoutModal","productModal","helperModal","successModal","paymentModal"].forEach(id=>setModal(id,false));
 }
 function showStoreBase() {
   $("storeView").classList.remove("hidden");
@@ -383,6 +391,78 @@ async function createPaymentIntent(orderNumber,paymentToken) {
   if(!response.ok){const failure=new Error(result.error||"Pembayaran belum dapat disiapkan.");failure.status=response.status;throw failure;}
   return result;
 }
+// QRIS payment from "Pesanan Saya". POST /api/payments/create reuses a still-valid QR
+// or issues a new attempt, so the same call serves "show QR" and "new QR".
+function stopPaymentPolling(){if(paymentSession?.timer)clearInterval(paymentSession.timer);if(paymentSession)paymentSession.timer=null;}
+function closePaymentModal(){stopPaymentPolling();paymentSession=null;setModal("paymentModal",false);}
+function formatCountdown(ms){const total=Math.max(0,Math.floor(ms/1000));return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;}
+function renderPaymentState(state){
+  const target=$("paymentContent");if(!target||!paymentSession)return;
+  const order=paymentSession.orderNumber;
+  if(state.kind==="loading"){target.innerHTML=`<div class="payment-state"><span class="state-mark">…</span><p>Menyiapkan QRIS untuk pesanan <strong>${escapeHTML(order)}</strong>.</p></div>`;return;}
+  if(state.kind==="paid"){target.innerHTML=`<div class="payment-state paid"><span class="state-mark">✓</span><p>Pembayaran untuk pesanan <strong>${escapeHTML(order)}</strong> sudah kami terima. Terima kasih!</p></div><div class="payment-actions"><button class="primary full" type="button" data-action="close-payment">Tutup</button></div>`;return;}
+  if(state.kind==="expired"){target.innerHTML=`<div class="payment-state error"><span class="state-mark">!</span><p>QR sudah kedaluwarsa. Buat QR baru untuk melanjutkan pembayaran. Jika Anda sudah membayar, cek status terlebih dahulu.</p></div><div class="payment-actions"><button class="primary full" type="button" data-action="renew-payment">Buat QR Baru</button><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div>`;return;}
+  if(state.kind==="error"){target.innerHTML=`<div class="payment-state error"><span class="state-mark">!</span><p>${escapeHTML(state.message||"Pembayaran belum dapat disiapkan.")}</p></div><div class="payment-actions">${state.retry?'<button class="primary full" type="button" data-action="renew-payment">Coba Lagi</button>':""}<button class="secondary full" type="button" data-action="close-payment">Tutup</button></div>`;return;}
+  const expiresAt=paymentSession.expiresAt;
+  target.innerHTML=`<div class="payment-meta"><span>Pesanan ${escapeHTML(order)}</span>${paymentSession.total!=null?`<strong>${money(paymentSession.total)}</strong>`:""}</div><div class="payment-qr"><img src="${escapeHTML(state.url)}" alt="QRIS untuk pesanan ${escapeHTML(order)}"><small>Scan dengan aplikasi e-wallet atau mobile banking yang mendukung QRIS.</small>${expiresAt?`<small>Berlaku <span class="payment-countdown" id="paymentCountdown">${formatCountdown(expiresAt-Date.now())}</span></small>`:""}</div><p class="payment-note" id="paymentPollNote">Status diperbarui otomatis setelah pembayaran berhasil.</p><div class="payment-actions"><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div>`;
+}
+async function refreshPaymentStatus({manual=false}={}){
+  const session=paymentSession;if(!session||session.checking)return;
+  const record=orderAccessRecord(session.orderNumber);if(!record)return;
+  session.checking=true;
+  try{
+    const detail=await fetchCustomerOrderAccess(record);
+    if(paymentSession!==session)return;
+    session.total=Number(detail.total)||session.total;
+    const status=String(detail.paymentStatus||"").toLowerCase();
+    if(status==="paid"){stopPaymentPolling();renderPaymentState({kind:"paid"});renderCustomerOrders();return;}
+    if(["expired","failed"].includes(status)){stopPaymentPolling();renderPaymentState({kind:"expired"});return;}
+    if(manual){const note=$("paymentPollNote");if(note)note.textContent="Pembayaran belum terdeteksi. Jika baru saja membayar, tunggu beberapa detik.";else showToast("Pembayaran belum terdeteksi.");}
+  }catch(error){
+    if(manual&&paymentSession===session)showToast(error.message||"Status pembayaran belum dapat diperiksa.");
+  }finally{session.checking=false;}
+}
+function startPaymentPolling(){
+  stopPaymentPolling();
+  const session=paymentSession;if(!session)return;
+  let ticks=0;
+  session.timer=setInterval(()=>{
+    if(paymentSession!==session){clearInterval(session.timer);return;}
+    const countdown=$("paymentCountdown");
+    if(session.expiresAt&&countdown)countdown.textContent=formatCountdown(session.expiresAt-Date.now());
+    if(session.expiresAt&&Date.now()>=session.expiresAt){stopPaymentPolling();renderPaymentState({kind:"expired"});return;}
+    ticks+=1;
+    if(ticks%PAYMENT_POLL_SECONDS===0&&!document.hidden)refreshPaymentStatus();
+  },1000);
+}
+async function openQrisPayment(orderNumber){
+  const record=orderAccessRecord(orderNumber);
+  if(!record?.paymentToken){showToast("Pembayaran tidak dapat dibuka dari browser ini.");return;}
+  stopPaymentPolling();
+  const known=customerOrderCache.get(orderNumber);
+  const session={orderNumber,total:known?.total??null,expiresAt:null,timer:null,checking:false};
+  paymentSession=session;
+  renderPaymentState({kind:"loading"});
+  setModal("paymentModal",true);
+  try{
+    const result=await createPaymentIntent(orderNumber,record.paymentToken);
+    if(paymentSession!==session)return;
+    const status=String(result.paymentStatus||"").toLowerCase();
+    if(status==="paid"){renderPaymentState({kind:"paid"});renderCustomerOrders();return;}
+    if(!result.paymentUrl){renderPaymentState({kind:"error",message:"QR belum dapat ditampilkan. Silakan coba lagi beberapa saat.",retry:true});return;}
+    const expiresAt=Date.parse(result.expiresAt||"");
+    session.expiresAt=Number.isFinite(expiresAt)?expiresAt:null;
+    renderPaymentState({kind:"qr",url:result.paymentUrl});
+    startPaymentPolling();
+  }catch(error){
+    if(paymentSession!==session)return;
+    // 404/409 mean the payment window closed or the order is no longer payable.
+    const final=[404,409].includes(error.status);
+    renderPaymentState({kind:"error",message:final?`${error.message} Hubungi toko bila perlu bantuan.`:error.message,retry:!final});
+    if(final)renderCustomerOrders();
+  }
+}
+
 async function submitOrder(event) {
   event.preventDefault(); if(checkoutSubmitting||checkoutStep!==5||!validateCheckoutStep())return;
   const shipping=selectedShipping(); if(!shipping)return; const payment=document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank";
@@ -399,7 +479,7 @@ async function submitOrder(event) {
       catch(paymentError){paymentIntentError=paymentError.message||"Pembayaran belum dapat disiapkan.";console.error("Payment intent preparation failed",{orderNumber:result.orderNumber,status:paymentError.status||null,message:paymentError.message});}
     }
     const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:result.shippingServiceName||shipping.name,shippingId:shipping.method,shippingProvider:result.shippingProvider||shipping.provider,shippingServiceCode:result.shippingServiceCode||shipping.serviceCode,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",paymentStatus:payment==="COD"?"unpaid":paymentIntent?.paymentStatus||"unpaid",paymentReference:paymentIntent?.paymentReference||null,paymentUrl:paymentIntent?.paymentUrl||null,paymentExpiresAt:paymentIntent?.expiresAt||null,paymentIntentReady:payment==="COD"||Boolean(paymentIntent),items};
-    rememberOrderAccess(result.orderNumber,result.orderAccessToken);
+    rememberOrderAccess(result.orderNumber,result.orderAccessToken,result.paymentToken);
     clearCheckoutIdempotencyKey();
     orders=[order,...orders.filter(existing=>existing.id!==order.id)]; cart=[]; persist(); event.target.reset(); setModal("checkoutModal",false);
     const paymentNote=result.reused
@@ -409,7 +489,7 @@ async function submitOrder(event) {
         :paymentIntent
           ?(paymentIntent.message||"Pembayaran berhasil disiapkan dan menunggu instruksi gateway.")
           :"Pesanan berhasil dibuat, tetapi instruksi pembayaran belum dapat disiapkan. Jangan membuat pesanan baru; tim kami dapat menyiapkan pembayaran dari nomor pesanan ini.";
-    $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(order.paymentStatus)}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa.</small></div>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
+    $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(order.paymentStatus)}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa. QR dapat dibuka kembali dari menu Pesanan.</small></div>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
     history.replaceState(null,"",routeHash("pesanan")); setModal("successModal",true); loadProducts();
   } catch(error) { checkoutSubmitting=false; button.disabled=false; $("checkoutBack").disabled=false; button.textContent="Konfirmasi & Buat Pesanan"; $("checkoutError").textContent=checkoutErrorMessage(error.message,error.status); $("checkoutError").classList.remove("hidden"); }
 }
@@ -421,13 +501,38 @@ function customerOrderStatus(status){
   const value=String(status||"").toLowerCase();
   return ({pending:"Menunggu Konfirmasi",confirmed:"Dikonfirmasi",processing:"Sedang Diproses",shipped:"Dalam Pengiriman",completed:"Selesai",cancelled:"Dibatalkan"})[value]||status||"Menunggu Konfirmasi";
 }
+function paymentStatusLabel(status){
+  const value=String(status||"unpaid").toLowerCase();
+  return ({unpaid:"Belum dibayar",pending:"Menunggu pembayaran",paid:"Lunas",failed:"Gagal",expired:"Kedaluwarsa",refunded:"Dikembalikan"})[value]||status;
+}
+function orderAccessRecord(orderNumber){return orderAccessRecords.find(entry=>entry?.orderNumber===orderNumber)||null;}
+// Whether this browser can still (re)open a QRIS for the order. The server enforces
+// the same rules; this only decides what to show.
+function qrisPaymentOption(order){
+  if(order.payment!=="QRIS")return null;
+  const paymentStatus=String(order.paymentStatus||"unpaid").toLowerCase();
+  if(!["unpaid","pending","expired","failed"].includes(paymentStatus)||["cancelled","completed"].includes(String(order.status||"").toLowerCase()))return null;
+  if(!orderAccessRecord(order.id)?.paymentToken)return {note:"Pembayaran QRIS hanya dapat dilanjutkan dari browser yang membuat pesanan ini. Hubungi toko bila perlu bantuan."};
+  const deadline=Date.parse(order.paymentDeadline||"");
+  if(Number.isFinite(deadline)&&deadline<=Date.now())return {note:"Batas waktu pembayaran sudah lewat. Hubungi toko untuk bantuan."};
+  return {canPay:true,label:paymentStatus==="pending"?"Tampilkan QRIS":"Bayar dengan QRIS",deadline:Number.isFinite(deadline)?deadline:null};
+}
+function customerOrderActions(order){
+  const option=qrisPaymentOption(order);
+  const pay=option?.canPay
+    ?`<button class="primary" type="button" data-pay-order="${escapeHTML(order.id)}">${escapeHTML(option.label)}</button>${option.deadline?`<small>Bayar sebelum ${escapeHTML(new Date(option.deadline).toLocaleString("id-ID",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}))}</small>`:""}`
+    :option?.note?`<small class="payment-note">${escapeHTML(option.note)}</small>`:"";
+  const track=order.trackingUrl?`<a class="secondary" href="${escapeHTML(order.trackingUrl)}" target="_blank" rel="noopener">Lacak Pengiriman</a>`:"";
+  return pay||track?`<div class="customer-order-actions">${pay}${track}</div>`:"";
+}
 function customerOrderModel(order){
-  if(order?.orderNumber)return {id:order.orderNumber,createdAt:order.createdAt,status:order.status,payment:order.paymentMethod,paymentStatus:order.paymentStatus,shipping:order.shippingServiceName||order.shippingServiceCode||"Pengiriman",shippingStatus:order.shippingStatus,shippingCost:order.shippingCost,total:order.total,trackingNumber:order.trackingNumber,trackingUrl:/^https:\/\//i.test(String(order.trackingUrl||""))?order.trackingUrl:null,items:(order.items||[]).map(item=>({name:item.name,qty:item.quantity,price:item.unitPrice,subtotal:item.subtotal}))};
+  if(order?.orderNumber)return {id:order.orderNumber,createdAt:order.createdAt,status:order.status,payment:order.paymentMethod,paymentStatus:order.paymentStatus,paymentDeadline:order.paymentDeadline||null,shipping:order.shippingServiceName||order.shippingServiceCode||"Pengiriman",shippingStatus:order.shippingStatus,shippingCost:order.shippingCost,total:order.total,trackingNumber:order.trackingNumber,trackingUrl:/^https:\/\//i.test(String(order.trackingUrl||""))?order.trackingUrl:null,items:(order.items||[]).map(item=>({name:item.name,qty:item.quantity,price:item.unitPrice,subtotal:item.subtotal}))};
   return {...order,shippingStatus:order.shippingStatus||null,trackingNumber:order.trackingNumber||null,trackingUrl:/^https:\/\//i.test(String(order.trackingUrl||""))?order.trackingUrl:null};
 }
 function renderCustomerOrderCards(target,list){
   if(!list.length){target.innerHTML='<div class="orders-empty"><span>▤</span><h2>Belum ada pesanan</h2><p>Pesanan yang dibuat dari browser ini akan muncul di sini.</p><button class="primary" type="button" data-action="show-store">Mulai Belanja</button></div>';return;}
-  target.innerHTML=list.map(raw=>{const order=customerOrderModel(raw);return `<article class="customer-order-card"><header><div><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></div><div><span>Tanggal</span><strong>${new Date(order.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"})}</strong></div><span class="order-status status-${String(order.status||"pending").toLowerCase()}">${escapeHTML(customerOrderStatus(order.status))}</span></header><div class="customer-order-body"><div class="customer-order-items">${(order.items||[]).map(item=>`<div><span>${escapeHTML(item.name)} <small>× ${item.qty}</small></span><strong>${money(item.subtotal??item.price*item.qty)}</strong></div>`).join("")}</div><dl><div><dt>Pengiriman</dt><dd>${escapeHTML(order.shipping||"Reguler")}</dd></div>${order.shippingStatus?`<div><dt>Status kiriman</dt><dd>${escapeHTML(order.shippingStatus)}</dd></div>`:""}${order.trackingNumber?`<div><dt>Resi</dt><dd>${escapeHTML(order.trackingNumber)}</dd></div>`:""}<div><dt>Pembayaran</dt><dd>${escapeHTML(order.payment||"-")} · ${escapeHTML(order.paymentStatus||"unpaid")}</dd></div><div><dt>Total</dt><dd>${money(order.total)}</dd></div></dl>${order.trackingUrl?`<a class="secondary" href="${escapeHTML(order.trackingUrl)}" target="_blank" rel="noopener">Lacak Pengiriman</a>`:""}</div></article>`;}).join("");
+  customerOrderCache=new Map(list.map(raw=>{const order=customerOrderModel(raw);return [order.id,order];}));
+  target.innerHTML=list.map(raw=>{const order=customerOrderModel(raw);return `<article class="customer-order-card"><header><div><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></div><div><span>Tanggal</span><strong>${new Date(order.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"})}</strong></div><span class="order-status status-${String(order.status||"pending").toLowerCase()}">${escapeHTML(customerOrderStatus(order.status))}</span></header><div class="customer-order-body"><div class="customer-order-items">${(order.items||[]).map(item=>`<div><span>${escapeHTML(item.name)} <small>× ${item.qty}</small></span><strong>${money(item.subtotal??item.price*item.qty)}</strong></div>`).join("")}</div><div class="customer-order-summary"><dl><div><dt>Pengiriman</dt><dd>${escapeHTML(order.shipping||"Reguler")}</dd></div>${order.shippingStatus?`<div><dt>Status kiriman</dt><dd>${escapeHTML(order.shippingStatus)}</dd></div>`:""}${order.trackingNumber?`<div><dt>Resi</dt><dd>${escapeHTML(order.trackingNumber)}</dd></div>`:""}<div><dt>Pembayaran</dt><dd>${escapeHTML(order.payment||"-")} · ${escapeHTML(paymentStatusLabel(order.paymentStatus))}</dd></div><div><dt>Total</dt><dd>${money(order.total)}</dd></div></dl>${customerOrderActions(order)}</div></div></article>`;}).join("");
 }
 async function renderCustomerOrders(){
   const target=$("customerOrderList");
@@ -459,12 +564,15 @@ function handleAction(action) {
     case "success-orders": setModal("successModal",false); navigateRoute("pesanan"); break;
     case "scroll-products": navigateRoute("produk"); break;
     case "reset-filter": resetFilters(); break;
+    case "close-payment": closePaymentModal(); break;
+    case "check-payment": refreshPaymentStatus({manual:true}); break;
+    case "renew-payment": if(paymentSession)openQrisPayment(paymentSession.orderNumber); break;
     case "reset-product": $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; break;
   }
 }
-document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
+document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openQrisPayment(payOrder);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
 document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment']"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
-document.addEventListener("keydown", event => { if(event.key === "Escape"){const root=routeParts()[0];if(root==="checkout")navigateRoute("keranjang");else if(root==="produk"&&routeParts()[1])navigateRoute("produk");else if(["keranjang","bantu-pilih"].includes(root))navigateRoute("beranda");else ["cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
+document.addEventListener("keydown", event => { if(event.key === "Escape"&&!$("paymentModal")?.classList.contains("hidden")){closePaymentModal();return;} if(event.key === "Escape"){const root=routeParts()[0];if(root==="checkout")navigateRoute("keranjang");else if(root==="produk"&&routeParts()[1])navigateRoute("produk");else if(["keranjang","bantu-pilih"].includes(root))navigateRoute("beranda");else ["cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
 function bindElementEvent(id, type, handler) { const element=$(id); if (!element) { console.warn(`Optional UI element #${id} is unavailable.`); return; } element.addEventListener(type, handler); }
 bindElementEvent("searchForm", "submit", event => { event.preventDefault(); recommendation=null;activeCategory="Semua";buildNavigation();navigateRoute("produk"); });
 bindElementEvent("searchInput", "input", () => { recommendation=null;renderProducts(); });

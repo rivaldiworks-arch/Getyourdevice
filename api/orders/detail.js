@@ -29,7 +29,7 @@ module.exports=async function handler(req,res){
     const token=String(body.orderAccessToken||"").trim();
     if(!ORDER_NUMBER.test(orderNumber)||!TOKEN.test(token)) return res.status(400).json({error:"Nomor pesanan atau akses pesanan tidak valid."});
 
-    const order=(await rows(`orders?select=id,order_number,created_at,status,payment_method,payment_status,shipping_provider,shipping_service_code,shipping_service_name,shipping_status,shipping_cost,shipping_eta_min_days,shipping_eta_max_days,tracking_number,tracking_url,shipped_at,delivered_at,subtotal,total,customer_name,city,order_access_token_hash,order_access_expires_at&order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`))[0];
+    const order=(await rows(`orders?select=id,order_number,created_at,status,payment_method,payment_status,shipping_provider,shipping_service_code,shipping_service_name,shipping_status,shipping_cost,shipping_eta_min_days,shipping_eta_max_days,tracking_number,tracking_url,shipped_at,delivered_at,subtotal,total,customer_name,city,payment_access_expires_at,order_access_token_hash,order_access_expires_at&order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`))[0];
     if(!order||!secureEqual(hash(token),order.order_access_token_hash)||!order.order_access_expires_at||new Date(order.order_access_expires_at).getTime()<=Date.now()){
       return res.status(404).json({error:"Pesanan tidak ditemukan atau akses sudah kedaluwarsa."});
     }
@@ -41,6 +41,9 @@ module.exports=async function handler(req,res){
       status:order.status,
       paymentMethod:order.payment_method,
       paymentStatus:order.payment_status,
+      // Payment capability tokens expire 24 hours after checkout; the storefront uses
+      // this to decide whether the customer can still request a QR.
+      paymentDeadline:order.payment_access_expires_at||null,
       shippingProvider:order.shipping_provider,
       shippingServiceCode:order.shipping_service_code,
       shippingServiceName:order.shipping_service_name,
