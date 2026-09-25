@@ -233,7 +233,7 @@ Midtrans menolak `order_id` yang sudah pernah dipakai. Sebelumnya `order_id` = n
 6. Redeploy Production agar env baru terbaca.
 7. Uji satu transaksi QRIS nominal kecil hingga admin menampilkan `paid`. Jika status tidak berubah dalam 1–2 menit, periksa log webhook sebelum membuka toko.
 
-
+## Product schema final
 
 `public.products` menggunakan: `id`, `name`, `brand`, `category`, `description`, `specifications jsonb`, `price`, `original_price`, `stock`, `image_url`, `rating`, `is_active`, `created_at`, dan `updated_at`. Admin dapat mencari/filter, menambah, mengedit, mengubah harga/stok/status, dan menghapus dengan konfirmasi.
 
