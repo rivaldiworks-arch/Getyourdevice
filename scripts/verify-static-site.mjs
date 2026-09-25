@@ -9,7 +9,9 @@ const adminJavascript = readFileSync(new URL("../admin.js", import.meta.url), "u
 const storageMigration = readFileSync(new URL("../supabase/migrations/003_product_storage.sql", import.meta.url), "utf8");
 const orderMigration = readFileSync(new URL("../supabase/migrations/004_order_management.sql", import.meta.url), "utf8");
 const checkoutMigration = readFileSync(new URL("../supabase/migrations/005_checkout_hardening.sql", import.meta.url), "utf8");
+const shippingMigration = readFileSync(new URL("../supabase/migrations/009_shipping_infrastructure.sql", import.meta.url), "utf8");
 const orderApi = readFileSync(new URL("../api/orders.js", import.meta.url), "utf8");
+const quoteApi = readFileSync(new URL("../api/shipping/quotes.js", import.meta.url), "utf8");
 const canonicalPayments = ["Transfer Bank", "COD", "QRIS"];
 const canonicalShipping = ["regular", "express", "sameday", "pickup"];
 
@@ -43,7 +45,11 @@ for (const functionName of requiredFunctions) {
 if ((html.match(/data-checkout-step=/g) || []).length !== 5) {
   throw new Error("Checkout must contain exactly five reviewable steps");
 }
-for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko", ...canonicalPayments]) {
+// Shipping options are rendered from server-created quotes, so their labels live in the quote API.
+for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko"]) {
+  if (!quoteApi.includes(option)) throw new Error(`Shipping option missing: ${option}`);
+}
+for (const option of canonicalPayments) {
   if (!`${html}\n${javascript}`.includes(option)) throw new Error(`Checkout option missing: ${option}`);
 }
 
@@ -69,21 +75,21 @@ if (/^(<<<<<<<|=======|>>>>>>>)/m.test(orderMigration)) throw new Error("Unresol
 for (const marker of ["alter column whatsapp drop not null", "alter column unit_price drop not null", "alter column total_price drop not null", "order_notes", "grand_total", "INVALID_CUSTOMER", "INSUFFICIENT_STOCK"]) {
   if (!checkoutMigration.includes(marker)) throw new Error(`Checkout migration requirement missing: ${marker}`);
 }
-for (const marker of ["normalizePhone", "validCustomer", "PAYMENT_METHODS", "SHIPPING_METHODS", "productId", "quantity"]) {
+for (const marker of ["normalizePhone", "validCustomer", "PAYMENT_METHODS", "shippingQuoteId", "productId", "quantity"]) {
   if (!orderApi.includes(marker)) throw new Error(`Order API hardening missing: ${marker}`);
 }
 for (const marker of ["checkoutSubmitting", "clearFieldErrors", "normalizePhone", "Memproses pesanan...", "success-detail"]) {
   if (!javascript.includes(marker)) throw new Error(`Checkout hardening missing: ${marker}`);
 }
 const frontendPayments = [...html.matchAll(/name="payment" value="([^"]+)"/g)].map(match => match[1]);
-const frontendShipping = [...javascript.matchAll(/\{ id: "([^"]+)", name:/g)].map(match => match[1]);
 const apiPayments = [...orderApi.match(/PAYMENT_METHODS = new Set\(\[([^\]]+)\]/)?.[1].matchAll(/"([^"]+)"/g) || []].map(match => match[1]);
-const apiShipping = [...orderApi.match(/SHIPPING_METHODS = new Set\(\[([^\]]+)\]/)?.[1].matchAll(/"([^"]+)"/g) || []].map(match => match[1]);
+// Since Phase 6 shipping methods come from server-created quotes, constrained in migration 009.
+const apiShipping = [...new Set([...quoteApi.matchAll(/shippingMethod:"([^"]+)"/g)].map(match => match[1]))];
 const rpcPayments = [...checkoutMigration.match(/p_payment_method not in \(([^)]+)\)/)?.[1].matchAll(/'([^']+)'/g) || []].map(match => match[1]);
-const rpcShipping = [...checkoutMigration.matchAll(/when '([^']+)' then/g)].map(match => match[1]);
+const rpcShipping = [...(shippingMigration.match(/shipping_quotes_method_check check\(shipping_method in \(([^)]+)\)/)?.[1].matchAll(/'([^']+)'/g) || [])].map(match => match[1]);
 for (const [label, actual, expected] of [
   ["frontend payments", frontendPayments, canonicalPayments], ["API payments", apiPayments, canonicalPayments], ["RPC payments", rpcPayments, canonicalPayments],
-  ["frontend shipping", frontendShipping, canonicalShipping], ["API shipping", apiShipping, canonicalShipping], ["RPC shipping", rpcShipping, canonicalShipping]
+  ["quote API shipping", apiShipping, canonicalShipping], ["RPC shipping", rpcShipping, canonicalShipping]
 ]) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} contract drift: ${JSON.stringify(actual)}`);
 }

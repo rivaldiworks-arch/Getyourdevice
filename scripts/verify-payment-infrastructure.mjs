@@ -28,7 +28,7 @@ assert.match(migration,/unique index if not exists payments_external_transaction
 assert.doesNotMatch(createApi,/body\.(amount|status|provider_reference|external_transaction_id)/);
 assert.match(createApi,/paymentToken/);
 assert.match(createApi,/p_payment_token:paymentToken/);
-assert.match(orderApi,/randomBytes\(32\)\.toString\("hex"\)/);
+assert.match(orderApi,/paymentToken=checkoutToken\(idempotencyKey,"payment"\)/);
 assert.match(orderApi,/p_payment_token:paymentToken/);
 assert.match(orderApi,/paymentToken/);
 assert.equal(canTransition("pending","paid"),true);
@@ -44,7 +44,7 @@ assert.equal(normalizeTransactionStatus({qrUrl:"https://example.test/q.png"},{de
 assert.equal(paymentFieldsFromTransaction({latestTransactionStatus:"03",partnerReferenceNo:"GYD-TEST",referenceNo:"mid-ref",qrUrl:"https://example.test/q.png",qrContent:"000201"},{defaultPending:true}).payment_url,"https://example.test/q.png");
 assert.match(migration,/payment_status=new\.status/);
 assert.match(migration,/payment_method='COD'[\s\S]*return jsonb_build_object\('payment_method','COD','status','unpaid'/);
-assert.match(orderApi,/create_storefront_order_v2/);
+assert.match(orderApi,/rpc\/create_storefront_order_v5/);
 assert.match(orderApi,/"Transfer Bank", "COD", "QRIS"/);
 assert.match(admin,/paymentForOrder\(order\)/);
 assert.match(admin,/Status pembayaran/);
@@ -67,7 +67,7 @@ assert.match(webhook,/verifyNotificationSignature/);
 assert.match(webhook,/getTransactionStatus/);
 assert.match(webhook,/payment amount mismatch/i);
 assert.match(createApi,/getTransactionStatus/);
-assert.match(createApi,/knownStatuses/);
+assert.match(createApi,/paymentFieldsFromTransaction\(transaction,\{expiresAt,defaultPending:true\}\)/);
 assert.match(createApi,/actions:charge\?\.actions\|\|authoritative\?\.actions/);
 assert.match(supabaseHelper,/SUPABASE_SERVICE_ROLE_KEY/);
 assert.doesNotMatch(storefront,/MIDTRANS_SERVER_KEY|SUPABASE_SERVICE_ROLE_KEY/);
