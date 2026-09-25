@@ -1,7 +1,8 @@
 "use strict";
-const { createHash, createHmac, randomBytes } = require("node:crypto");
+const { createHash, randomBytes } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
 const { guardPublicJson } = require("./_guard");
+const { isServerConfigError, serverHmac } = require("./_secrets");
 
 const PAYMENT_METHODS = new Set(["Transfer Bank", "COD", "QRIS"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -35,10 +36,10 @@ function cartFingerprint(items) {
   const normalized=items.map(item=>({productId:String(item.productId),quantity:Number(item.quantity)})).sort((a,b)=>a.productId.localeCompare(b.productId));
   return createHash("sha256").update(normalized.map(item=>`${item.productId}:${item.quantity}`).join("|")).digest("hex");
 }
+// Retries with the same idempotency key must return the same capabilities, so they are
+// derived rather than random. Only their SHA-256 digests are stored in the database.
 function checkoutToken(idempotencyKey,purpose) {
-  const secret=String(process.env.SUPABASE_SERVICE_ROLE_KEY||"");
-  if(!secret) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured");
-  return createHmac("sha256",secret).update(`${purpose}:${idempotencyKey}`).digest("hex");
+  return serverHmac(purpose,idempotencyKey);
 }
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).setHeader("Allow", "POST").json({ error:"Method not allowed" });
@@ -77,6 +78,7 @@ module.exports = async function handler(req, res) {
   } catch(error) {
     if (error instanceof SyntaxError) return res.status(400).json({error:"Format data pesanan tidak valid."});
     console.error("Order endpoint failed",{requestId,message:error.message});
+    if (isServerConfigError(error)) return res.status(503).json({error:"Checkout sedang dalam pemeliharaan. Silakan coba beberapa saat lagi."});
     return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
   }
 };

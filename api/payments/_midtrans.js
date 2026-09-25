@@ -1,6 +1,7 @@
 "use strict";
 
 const { createHash, timingSafeEqual } = require("node:crypto");
+const { ServerConfigError } = require("../_secrets");
 
 const MIDTRANS_STATUS_MAP = Object.freeze({
   // Legacy Core API textual statuses.
@@ -26,16 +27,38 @@ const MIDTRANS_STATUS_MAP = Object.freeze({
   "09":"failed"
 });
 
+// Midtrans issues sandbox server keys as "SB-Mid-server-..." and production keys as
+// "Mid-server-...". A mismatch otherwise surfaces only as an opaque 401 at charge time.
+const SERVER_KEY_PREFIX=Object.freeze({sandbox:"SB-Mid-server-",production:"Mid-server-"});
+
 function midtransConfig() {
   const serverKey=String(process.env.MIDTRANS_SERVER_KEY||"").trim();
   const env=String(process.env.MIDTRANS_ENV||"sandbox").trim().toLowerCase();
-  if(!serverKey) throw new Error("MIDTRANS_SERVER_KEY is not configured");
-  if(!["sandbox","production"].includes(env)) throw new Error("MIDTRANS_ENV must be sandbox or production");
+  if(!serverKey) throw new ServerConfigError("MIDTRANS_SERVER_KEY is not configured");
+  if(!Object.hasOwn(SERVER_KEY_PREFIX,env)) throw new ServerConfigError("MIDTRANS_ENV must be sandbox or production");
+  if(!serverKey.startsWith(SERVER_KEY_PREFIX[env])) throw new ServerConfigError(`MIDTRANS_SERVER_KEY does not match MIDTRANS_ENV=${env}`);
+  // Vercel Preview deployments run unreviewed branch code; they must never charge real money.
+  const vercelEnv=String(process.env.VERCEL_ENV||"").trim().toLowerCase();
+  if(env==="production" && vercelEnv && vercelEnv!=="production") throw new ServerConfigError(`MIDTRANS_ENV=production is not allowed on VERCEL_ENV=${vercelEnv}`);
   return {
     serverKey,
     env,
     baseUrl:env==="production"?"https://api.midtrans.com":"https://api.sandbox.midtrans.com"
   };
+}
+
+// Midtrans order_id must be unique per charge and cannot be reused after a QR expires.
+// Deriving it from the payment row keeps retries of the same attempt idempotent (a
+// duplicate charge returns 406 and is recovered via GET status) while every new
+// attempt row gets a fresh Midtrans transaction.
+function midtransOrderId(orderNumber,paymentId) {
+  const suffix=String(paymentId||"").replace(/-/g,"").slice(0,12).toLowerCase();
+  if(!/^GYD-\d{8}-\d{4}$/.test(String(orderNumber||"")) || !/^[0-9a-f]{12}$/.test(suffix)) throw new Error("Invalid Midtrans order reference");
+  return `${orderNumber}-${suffix}`;
+}
+
+function isMidtransNotFound(error) {
+  return error?.status===404 || String(error?.midtrans?.status_code||"")==="404";
 }
 
 function authHeader(serverKey) {
@@ -163,7 +186,9 @@ function paymentFieldsFromTransaction(transaction,{expiresAt=null,defaultPending
 module.exports={
   createQrisCharge,
   getTransactionStatus,
+  isMidtransNotFound,
   midtransConfig,
+  midtransOrderId,
   normalizeMidtransStatus,
   normalizeTransactionStatus,
   paymentFieldsFromTransaction,

@@ -27,6 +27,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 11. `supabase/migrations/011_shipment_booking_tracking.sql` — menambah snapshot berat/dimensi pada `order_items`, Biteship shipment/tracking IDs, shipment status/environment, biaya aktual, timestamp booking/event, dan memperbarui RPC checkout v3 agar parcel data dibekukan saat order dibuat.\n12. `supabase/migrations/012_secure_customer_order_access.sql` — menambah capability token terpisah untuk akses riwayat pesanan guest selama 365 hari dan RPC checkout v4.
 13. `supabase/migrations/013_api_rate_limiting.sql` — menambah fixed-window rate limiter atomik untuk endpoint publik checkout/payment/shipping/order history. Satu row per bucket+client menjaga storage tetap bounded; hanya `service_role` yang dapat mengonsumsi limiter.
 14. `supabase/migrations/014_checkout_idempotency.sql` — menambah idempotency key per checkout agar retry/double-submit mengembalikan order yang sama, bukan membuat order kedua.
+15. `supabase/migrations/015_payment_provider_environment.sql` — menambah `payments.provider_environment` (`sandbox`/`production`) agar QR dari environment Midtrans lain tidak pernah ditampilkan ke customer. Additive, tanpa backfill. **Jalankan 015 sebelum deploy kode Phase 7D.**
 
 ## Payment infrastructure (Phase 5)
 
@@ -77,7 +78,7 @@ MIDTRANS_ENV=sandbox
 SUPABASE_SERVICE_ROLE_KEY=<server-only Supabase service-role key>
 ```
 
-Jangan commit atau tampilkan nilai ketiga secret tersebut di browser. Saat Production Midtrans aktif, ganti `MIDTRANS_SERVER_KEY` dengan Production Server Key dan `MIDTRANS_ENV=production`; source code tetap sama.
+Jangan commit atau tampilkan nilai ketiga secret tersebut di browser. Aktivasi production dijelaskan di bagian Phase 7D.
 
 Set Payment Notification URL di dashboard Midtrans Sandbox ke:
 
@@ -193,7 +194,46 @@ node scripts/verify-all.mjs
 
 Script verifikasi adalah contract check statis; bila sebuah phase sengaja mengubah contract (misalnya versi RPC checkout), perbarui assertion di PR yang sama agar CI tetap hijau.
 
-## Product schema final
+## Production readiness — Midtrans production & secret separation (Phase 7D)
+
+### Secret HMAC terpisah
+
+Capability token checkout (payment + order-access) dan identitas client rate limiter di-HMAC dengan `SERVER_HMAC_SECRET`, bukan lagi dengan `SUPABASE_SERVICE_ROLE_KEY`. Rotasi credential database tidak lagi mengubah nilai turunan, dan kebocoran satu secret tidak membuka tujuan lain. Setiap turunan memakai purpose string (`payment`, `order-access`, `rate-limit`) sehingga output satu tujuan tidak dapat dipakai untuk tujuan lain.
+
+Secret wajib minimal 32 karakter dan harus berbeda dari service role key. Buat dengan:
+
+```bash
+openssl rand -hex 32
+```
+
+Jika secret tidak ada atau tidak valid, checkout dan endpoint publik mengembalikan `503` (fail closed); rate limiter tidak pernah dimatikan diam-diam. Gangguan storage limiter tetap fail open seperti Phase 7B. Mengganti secret tidak memutus token yang sudah dimiliki customer (database hanya menyimpan hash token); yang terdampak hanya replay checkout yang sama dalam 24 jam.
+
+### Validasi konfigurasi Midtrans
+
+- `MIDTRANS_ENV=sandbox` wajib memakai key berawalan `SB-Mid-server-`; `MIDTRANS_ENV=production` wajib `Mid-server-`. Salah pasang menghasilkan `503 Gateway pembayaran belum dikonfigurasi` sebelum ada charge, bukan 401 samar dari Midtrans.
+- `MIDTRANS_ENV=production` ditolak pada `VERCEL_ENV=preview`/`development`, sehingga deploy preview tidak pernah menagih uang sungguhan.
+
+### Siklus QRIS per attempt
+
+Midtrans menolak `order_id` yang sudah pernah dipakai. Sebelumnya `order_id` = nomor order, sehingga setelah QR kedaluwarsa customer tidak dapat membayar order tersebut lagi (API selalu 500 atau mengembalikan QR mati). Sekarang:
+
+- `order_id` Midtrans = `<nomor order>-<12 hex payment id>`, deterministik per attempt: retry attempt yang sama tetap idempotent, attempt baru mendapat transaksi baru.
+- QR yang masih berlaku dipakai ulang tanpa memanggil Midtrans.
+- QR yang melewati `expires_at` dicek ke Midtrans (GET Status) sebagai sumber kebenaran: `settlement` → customer melihat pembayaran diterima; `expire/deny/cancel` → attempt ditutup dan QR baru dibuat; masih `pending` → QR yang sama dikembalikan. Webhook yang terlewat tidak lagi membuat customer terjebak.
+- Payment Midtrans dari environment lain (termasuk row lama tanpa `provider_environment`, yang dianggap sandbox) ditutup sebagai `expired` dan diganti attempt baru di environment aktif.
+- Webhook mengabaikan notifikasi berulang dengan status sama agar snapshot status order tidak ditimpa.
+
+### Checklist aktivasi production
+
+1. Jalankan migration `015_payment_provider_environment.sql` di Supabase SQL Editor.
+2. Di Vercel → Settings → Environment Variables, set `SERVER_HMAC_SECRET` untuk **Production dan Preview** (nilai berbeda per environment dianjurkan).
+3. Deploy/merge kode Phase 7D. Pastikan checkout sandbox masih berjalan.
+4. Khusus environment **Production**: `MIDTRANS_SERVER_KEY=<Mid-server-...>` dan `MIDTRANS_ENV=production`. Preview tetap `SB-Mid-server-...` + `sandbox`.
+5. Di dashboard Midtrans **Production**: aktifkan channel QRIS dan set Payment Notification URL ke `https://getyourdevice.vercel.app/api/payments/webhook`.
+6. Redeploy Production agar env baru terbaca.
+7. Uji satu transaksi QRIS nominal kecil hingga admin menampilkan `paid`. Jika status tidak berubah dalam 1–2 menit, periksa log webhook sebelum membuka toko.
+
+
 
 `public.products` menggunakan: `id`, `name`, `brand`, `category`, `description`, `specifications jsonb`, `price`, `original_price`, `stock`, `image_url`, `rating`, `is_active`, `created_at`, dan `updated_at`. Admin dapat mencari/filter, menambah, mengedit, mengubah harga/stok/status, dan menghapus dengan konfirmasi.
 

@@ -1,6 +1,7 @@
 "use strict";
-const { createHmac, randomUUID } = require("node:crypto");
+const { randomUUID } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
+const { isServerConfigError, serverHmac } = require("./_secrets");
 
 function noStore(res){
   res.setHeader("Cache-Control","no-store, max-age=0");
@@ -20,9 +21,7 @@ function rawClientAddress(req){
   return String(first||req.socket?.remoteAddress||"unknown").trim().slice(0,128);
 }
 function clientKeyHash(req){
-  const secret=String(process.env.SUPABASE_SERVICE_ROLE_KEY||"");
-  if(!secret)throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured");
-  return createHmac("sha256",secret).update(rawClientAddress(req)).digest("hex");
+  return serverHmac("rate-limit",rawClientAddress(req));
 }
 function bodyBytes(req){
   if(req.body==null)return 0;
@@ -71,6 +70,13 @@ async function guardPublicJson(req,res,{bucket,limit,windowSeconds,maxBytes}){
       return {ok:false,requestId};
     }
   }catch(error){
+    // A missing or invalid HMAC secret is a deployment error, not an outage: fail
+    // closed so protection is never silently disabled.
+    if(isServerConfigError(error)){
+      console.error("Rate limit misconfigured",{requestId,bucket,message:error.message});
+      res.status(503).json({error:"Layanan sedang dalam pemeliharaan. Silakan coba beberapa saat lagi."});
+      return {ok:false,requestId};
+    }
     // Fail open: checkout should not become unavailable merely because the limiter
     // storage is temporarily unreachable. The endpoint's normal backend calls still
     // provide authoritative validation.

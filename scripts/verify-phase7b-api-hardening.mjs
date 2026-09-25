@@ -16,7 +16,9 @@ assert.match(migration,/create or replace function public\.consume_api_rate_limi
 assert.match(migration,/on conflict \(bucket, key_hash\) do update/);
 assert.match(migration,/grant execute .*service_role/s);
 
-assert.match(guard,/createHmac\("sha256"/);
+// Client addresses are keyed with the dedicated server HMAC secret (Phase 7D).
+assert.match(guard,/serverHmac\("rate-limit"/);
+assert.doesNotMatch(guard,/SUPABASE_SERVICE_ROLE_KEY/);
 assert.match(guard,/application\/json/);
 assert.match(guard,/status\(413\)/);
 assert.match(guard,/status\(429\)/);
