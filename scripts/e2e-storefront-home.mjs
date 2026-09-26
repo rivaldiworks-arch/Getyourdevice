@@ -29,6 +29,8 @@ const contrast=(a,b)=>{const [x,y]=[luminance(a),luminance(b)].sort((p,q)=>q-p);
 for(const width of [1440,834,390]){
   const page=await browser.newPage({viewport:{width,height:900}});
   page.on("pageerror",e=>errors.push(e.message));
+  const imageRequests=new Map();
+  page.on("request",request=>{const url=request.url();if(!url.startsWith(origin)&&/images\.example\.test|placehold/.test(url))imageRequests.set(url,(imageRequests.get(url)||0)+1);});
   await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
   await page.route(`${origin}/api/**`,route=>{
     const path=new URL(route.request().url()).pathname;
@@ -82,6 +84,16 @@ for(const width of [1440,834,390]){
   await page.waitForSelector("#productModal:not(.hidden)");
   await page.keyboard.press("Escape");
   await page.locator('#productModal [data-action="close-product"]').click().catch(()=>{});
+  // Wordmark: "getyour" light + "device" bold blue, in the brand font.
+  const logo=await page.evaluate(()=>{const a=document.querySelector(".brand .logo .a"),b=document.querySelector(".brand .logo .b"),s=el=>getComputedStyle(el);
+    return {text:document.querySelector(".brand .logo").textContent,aWeight:s(a).fontWeight,bWeight:s(b).fontWeight,bColor:s(b).color,family:s(a).fontFamily};});
+  assert.equal(logo.text,"getyourdevice");
+  assert.deepEqual([logo.aWeight,logo.bWeight,logo.bColor],["300","700","rgb(47, 111, 219)"]);
+  assert.match(logo.family,/^"?Outfit/);
+  // A broken product photo falls back to a local placeholder once; it never loops.
+  await page.waitForTimeout(400);
+  assert.equal([...imageRequests.keys()].some(url=>url.includes("placehold")),false,"no third-party placeholder requests");
+  assert.ok([...imageRequests.values()].every(count=>count<=4),`broken images are not retried in a loop: ${JSON.stringify([...imageRequests.values()])}`);
   // Header actions still work.
   await page.locator('.header-actions [data-action="open-cart"]').click();
   await page.waitForSelector("#cartDrawer:not(.hidden)");

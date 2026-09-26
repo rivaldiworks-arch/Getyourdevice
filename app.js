@@ -10,6 +10,9 @@ const CATEGORY_IMAGES = {
   Audio: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=500&q=85",
   Accessories: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=500&q=85"
 };
+// Local placeholder for product photos that fail to load. It never fails itself, and the
+// onerror handler clears itself, so a broken image cannot trigger a request loop.
+const IMAGE_FALLBACK = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700"><rect width="700" height="700" fill="#f5f5f7"/><path d="M290 250h120a18 18 0 0 1 18 18v164a18 18 0 0 1-18 18H290a18 18 0 0 1-18-18V268a18 18 0 0 1 18-18z" fill="none" stroke="#c7c7cc" stroke-width="8"/><circle cx="350" cy="420" r="8" fill="#c7c7cc"/></svg>');
 const ORDER_STATUSES = ["Pending", "Paid", "Processing", "Shipped", "Completed", "Cancelled"];
 const CHECKOUT_STEPS = ["Pelanggan", "Alamat", "Pengiriman", "Pembayaran", "Tinjau"];
 const starterProducts = [
@@ -61,7 +64,7 @@ let routeEventQueued = false;
 const $ = (id) => document.getElementById(id);
 const money = (value) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value || 0);
 const escapeHTML = (value = "") => String(value).replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char]));
-const safeImage = (value) => /^(https?:\/\/|data:image\/)/.test(value || "") ? value : "https://placehold.co/700x700/eef1f5/172033?text=GETYOURDEVICE";
+const safeImage = (value) => /^(https?:\/\/|data:image\/)/.test(value || "") ? value : IMAGE_FALLBACK;
 
 function migrateLegacyProducts() {
   const old = storage.get("nc_products", null);
@@ -244,7 +247,7 @@ function buildNavigation() {
 }
 function productCard(product, compact = false) {
   const out = product.stock <= 0, low = product.stock > 0 && product.stock <= 5;
-  return `<article class="product-card ${compact ? "showcase-card" : ""}" data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="Lihat detail ${escapeHTML(product.name)}"><div class="product-image-wrap"><img class="product-img" src="${safeImage(product.image)}" alt="${escapeHTML(product.name)}" width="700" height="700" loading="lazy" onerror="this.src='https://placehold.co/700x700/eef1f5/172033?text=GETYOURDEVICE'">${product.badge ? `<span class="product-badge">${escapeHTML(product.badge)}</span>` : ""}<span class="view-detail">Lihat detail</span></div><div class="product-info"><span class="product-brand">${escapeHTML(product.brand || product.category)}</span><h3>${escapeHTML(product.name)}</h3><p class="product-spec">${escapeHTML(product.spec || product.description)}</p><div class="rating" aria-label="Rating ${product.rating || 4.7} dari 5"><span aria-hidden="true">★</span> ${product.rating || "4.7"} <small>(${Math.max(12, product.stock * 7 + 9)})</small></div><div class="price-row"><div class="price">${money(product.price)}</div>${product.originalPrice ? `<del>${money(product.originalPrice)}</del>` : ""}</div><span class="stock ${out ? "out" : low ? "low" : ""}">${out ? "Stok habis" : low ? `Tersisa ${product.stock} unit` : "Stok tersedia"}</span><div class="product-actions"><button class="secondary" type="button" data-buy="${escapeHTML(product.id)}" ${out ? "disabled" : ""}>Beli Sekarang</button><button class="primary" type="button" data-add="${escapeHTML(product.id)}" ${out ? "disabled" : ""}>+ Keranjang</button></div></div></article>`;
+  return `<article class="product-card ${compact ? "showcase-card" : ""}" data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="Lihat detail ${escapeHTML(product.name)}"><div class="product-image-wrap"><img class="product-img" src="${safeImage(product.image)}" alt="${escapeHTML(product.name)}" width="700" height="700" loading="lazy" onerror="this.onerror=null;this.src='${IMAGE_FALLBACK}'">${product.badge ? `<span class="product-badge">${escapeHTML(product.badge)}</span>` : ""}<span class="view-detail">Lihat detail</span></div><div class="product-info"><span class="product-brand">${escapeHTML(product.brand || product.category)}</span><h3>${escapeHTML(product.name)}</h3><p class="product-spec">${escapeHTML(product.spec || product.description)}</p><div class="rating" aria-label="Rating ${product.rating || 4.7} dari 5"><span aria-hidden="true">★</span> ${product.rating || "4.7"} <small>(${Math.max(12, product.stock * 7 + 9)})</small></div><div class="price-row"><div class="price">${money(product.price)}</div>${product.originalPrice ? `<del>${money(product.originalPrice)}</del>` : ""}</div><span class="stock ${out ? "out" : low ? "low" : ""}">${out ? "Stok habis" : low ? `Tersisa ${product.stock} unit` : "Stok tersedia"}</span><div class="product-actions"><button class="secondary" type="button" data-buy="${escapeHTML(product.id)}" ${out ? "disabled" : ""}>Beli Sekarang</button><button class="primary" type="button" data-add="${escapeHTML(product.id)}" ${out ? "disabled" : ""}>+ Keranjang</button></div></div></article>`;
 }
 function storyCard(product, index = 0) {
   const out = product.stock <= 0;
