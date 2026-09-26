@@ -31,6 +31,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 16. `supabase/migrations/016_paid_order_confirmation.sql` — order `pending` otomatis menjadi `confirmed` saat payment `paid`, dan menambah `orders.paid_notified_at` agar email pembayaran ke penjual terkirim tepat sekali. **Jalankan 016 sebelum deploy kode Phase 7E.**
 17. `supabase/migrations/017_revoke_legacy_checkout_rpcs.sql` — mencabut akses `anon`/`authenticated` ke RPC checkout lama (`create_storefront_order`, `create_storefront_order_v2`) dan `next_order_number()`. Sebelumnya siapa pun dengan anon key publik dapat membuat order langsung ke database, melewati rate limit, validasi ongkir, idempotency, dan allow-list metode pembayaran, sekaligus mengurangi stok. Tidak dipakai kode sejak Phase 7C.
 18. `supabase/migrations/018_restore_stock_on_cancel.sql` — mengembalikan stok saat order dibatalkan dari `pending`/`confirmed`/`processing` (tepat sekali, ditandai `orders.stock_restored_at`). Order yang sudah dikirim/selesai tidak di-restock. Membuka kembali order yang dibatalkan memotong stok lagi dan ditolak bila stok tidak cukup. Termasuk perbaikan satu kali untuk order yang sudah dibatalkan sebelum trigger ada.
+19. `supabase/migrations/019_virtual_account_payments.sql` — menambah `payments.va_bank`, `va_number`, dan `biller_code` untuk instruksi Transfer Bank via Midtrans Virtual Account. Additive. **Jalankan 019 sebelum deploy kode Phase 8A.**
 
 ## Payment infrastructure (Phase 5)
 
@@ -281,6 +282,28 @@ Tanpa domain terverifikasi, pengirim default `onboarding@resend.dev` hanya dapat
 ### Biteship live
 
 Dengan `BITESHIP_API_KEY` berawalan `biteship_live.`, booking shipment mewajibkan payment `paid` dan membuat pengiriman kurir sungguhan (bersaldo). Tarif live hanya dipakai bila semua produk di cart memiliki berat dan dimensi; lengkapi data fisik produk di admin sebelum go-live, jika tidak checkout memakai tarif fallback internal.
+
+## Transfer Bank via Virtual Account (Phase 8A)
+
+Transfer Bank kembali tersedia dan dibayar melalui Midtrans Core API:
+
+- **BNI, BRI, Permata, CIMB Niaga** — `payment_type: bank_transfer`, customer menerima nomor Virtual Account.
+- **Mandiri** — `payment_type: echannel` (Bill Payment), customer menerima **kode perusahaan (biller code)** dan **kode bayar (bill key)**.
+- VA berlaku 24 jam. Setiap attempt memakai `order_id` Midtrans sendiri seperti QRIS: VA yang masih berlaku dipakai ulang, VA kedaluwarsa diganti dengan nomor baru, dan webhook yang sama menandai pembayaran `paid` serta mengonfirmasi order.
+- Selama VA masih aktif, permintaan dengan bank lain tetap mengembalikan VA yang sama, karena menerbitkan VA kedua saat yang pertama masih bisa dibayar dapat membuat customer membayar dua kali.
+- Checkout menampilkan pemilih bank; nomor VA tampil di popup sukses dan dapat dibuka kembali dari **Pesanan** (tombol **Bayar via Transfer Bank / Lihat Nomor Virtual Account**) lengkap dengan tombol salin.
+- QRIS otomatis dinonaktifkan di checkout, dan ditolak oleh API (`409 QRIS_LIMIT`), untuk total di atas Rp10.000.000 sesuai batas QRIS Bank Indonesia.
+
+Environment (semuanya **Config**, opsional):
+
+```text
+# Metode yang ditawarkan di checkout, berurutan. Default: Transfer Bank,QRIS,COD
+CHECKOUT_PAYMENT_METHODS=Transfer Bank,COD        # sembunyikan QRIS sampai Midtrans mengaktifkannya
+# Bank VA yang ditawarkan. Default: bni,bri,mandiri,permata,cimb
+MIDTRANS_VA_BANKS=bni,bri,mandiri,permata,cimb
+```
+
+Storefront membaca daftar ini dari `GET /api/config` (`checkout.paymentMethods`, `checkout.vaBanks`) sehingga hanya menampilkan metode yang aktif; `POST /api/orders` dan `POST /api/payments/create` menegakkan aturan yang sama di server.
 
 ## Product schema final
 

@@ -41,6 +41,11 @@ function customerSafePayment(payment) {
   if(payment.payment_url) result.paymentUrl=payment.payment_url;
   if(payment.qr_string) result.qrString=payment.qr_string;
   if(payment.expires_at) result.expiresAt=payment.expires_at;
+  if(payment.va_number) {
+    result.vaBank=payment.va_bank||null;
+    result.vaNumber=payment.va_number;
+    if(payment.biller_code) result.billerCode=payment.biller_code;
+  }
   return result;
 }
 

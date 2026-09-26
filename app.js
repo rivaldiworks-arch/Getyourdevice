@@ -38,6 +38,10 @@ if(!Array.isArray(orderAccessRecords)) orderAccessRecords=[];
 let customerOrderCache = new Map();
 const PAYMENT_POLL_SECONDS = 8;
 let paymentSession = null;
+const VA_BANK_NAMES = {bni:"BNI",bri:"BRI",mandiri:"Mandiri",permata:"Permata",cimb:"CIMB Niaga"};
+const QRIS_MAX_AMOUNT = 10000000;
+// Public checkout config from /api/config: which methods and VA banks are live.
+let checkoutConfig = null;
 let activeCategory = "Semua";
 let recommendation = null;
 let detailProductId = null;
@@ -83,10 +87,11 @@ function clearCheckoutIdempotencyKey(){
 }
 // The payment token lets this browser request a (new) QRIS until the 24-hour payment
 // window closes; the server still verifies it on every request.
-function rememberOrderAccess(orderNumber,token,paymentToken){
+function rememberOrderAccess(orderNumber,token,paymentToken,bank){
   if(!/^GYD-\d{8}-\d{4,}$/.test(String(orderNumber||""))||!/^[a-f0-9]{64}$/i.test(String(token||"")))return;
   const record={orderNumber,token,savedAt:new Date().toISOString()};
   if(/^[a-f0-9]{64}$/i.test(String(paymentToken||"")))record.paymentToken=paymentToken;
+  if(Object.hasOwn(VA_BANK_NAMES,bank||""))record.bank=bank;
   orderAccessRecords=[record,...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
   storage.set("gyd_order_access",orderAccessRecords);
 }
@@ -349,7 +354,7 @@ function selectedShipping() {
   return shippingQuotes.find(option=>option.quoteId===quoteId)||shippingQuotes[0]||null;
 }
 function checkoutTotals() { const subtotal=cart.reduce((sum,item)=>{const product=products.find(entry=>entry.id===item.id);return sum+(product?(product.originalPrice||product.price)*item.qty:0);},0); const payable=cartSubtotal(); const discount=Math.max(0,subtotal-payable); const shipping=selectedShipping(); const shippingPrice=shipping?.price||0; return {subtotal,discount,payable,shipping,total:payable+shippingPrice}; }
-function updateCheckoutTotal() { const totals=checkoutTotals(); $("summarySubtotal").textContent=money(totals.subtotal); $("summaryDiscount").textContent=totals.discount?`−${money(totals.discount)}`:"Rp0"; $("summaryShipping").textContent=totals.shipping?(totals.shipping.price?money(totals.shipping.price):"Gratis"):"—"; $("summaryTotal").textContent=money(totals.total); if(checkoutStep===5)renderFinalReview(); }
+function updateCheckoutTotal() { const totals=checkoutTotals(); $("summarySubtotal").textContent=money(totals.subtotal); $("summaryDiscount").textContent=totals.discount?`−${money(totals.discount)}`:"Rp0"; $("summaryShipping").textContent=totals.shipping?(totals.shipping.price?money(totals.shipping.price):"Gratis"):"—"; $("summaryTotal").textContent=money(totals.total); applyPaymentAvailability(); if(checkoutStep===5)renderFinalReview(); }
 function renderCheckoutStep() { document.querySelectorAll("[data-checkout-step]").forEach(section=>section.classList.toggle("hidden",Number(section.dataset.checkoutStep)!==checkoutStep)); $("checkoutProgress").innerHTML=CHECKOUT_STEPS.map((label,index)=>`<span class="${index+1===checkoutStep?"active":index+1<checkoutStep?"done":""}"><b>${index+1<checkoutStep?"✓":index+1}</b><small>${label}</small></span>`).join(""); $("checkoutBack").classList.toggle("hidden",checkoutStep===1); $("checkoutNext").classList.toggle("hidden",checkoutStep===5); $("checkoutSubmit").classList.toggle("hidden",checkoutStep!==5); $("checkoutError").classList.add("hidden"); if(checkoutStep===5)renderFinalReview(); }
 function normalizePhone(value) { const trimmed=String(value||"").trim().replace(/[\s().-]/g,""); if(/^08\d{8,11}$/.test(trimmed))return `62${trimmed.slice(1)}`; if(/^\+?62\d{8,12}$/.test(trimmed))return trimmed.replace(/^\+/,""); return trimmed; }
 function clearFieldErrors() { document.querySelectorAll("[data-field-error]").forEach(node=>node.textContent=""); document.querySelectorAll("#checkoutForm [aria-invalid]").forEach(node=>node.removeAttribute("aria-invalid")); }
@@ -380,15 +385,55 @@ function changeCheckoutStep(delta) {
   }
   advanceCheckout(delta);
 }
-function paymentGuidance(payment) { if(payment==="COD")return "Pesanan diterima dan menunggu konfirmasi toko"; if(payment==="QRIS")return "Pembayaran diproses setelah pesanan dibuat"; return "Instruksi diberikan setelah pesanan dikonfirmasi"; }
-function renderFinalReview() { const shipping=selectedShipping(); const payment=document.querySelector("input[name='payment']:checked")?.value||"QRIS"; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping?.name||"-")}</strong><small>${escapeHTML(shipping?shippingEta(shipping):"-")} · ${shipping?(shipping.price?money(shipping.price):"Gratis"):"-"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
+function vaBankName(code){return VA_BANK_NAMES[code]||String(code||"").toUpperCase();}
+function selectedPayment(){return document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank";}
+function selectedVaBank(){return selectedPayment()==="Transfer Bank"?($("vaBank")?.value||null):null;}
+async function loadCheckoutConfig(){
+  try{
+    const response=await fetch("/api/config",{headers:{Accept:"application/json"}});
+    const data=await response.json().catch(()=>null);
+    if(response.ok&&data?.checkout){
+      checkoutConfig=data.checkout;
+      const select=$("vaBank");
+      if(select&&Array.isArray(checkoutConfig.vaBanks)&&checkoutConfig.vaBanks.length){
+        const current=select.value;
+        select.innerHTML=checkoutConfig.vaBanks.map(bank=>`<option value="${escapeHTML(bank.code)}">${escapeHTML(bank.name)}</option>`).join("");
+        if(checkoutConfig.vaBanks.some(bank=>bank.code===current))select.value=current;
+      }
+    }
+  }catch(error){console.warn("Checkout config unavailable; offering all payment methods",error);}
+  applyPaymentAvailability();
+}
+// Hides methods the store has not enabled and QRIS above the Bank Indonesia cap. The
+// server enforces the same rules; this keeps customers away from options that would fail.
+function applyPaymentAvailability(){
+  const methods=checkoutConfig?.paymentMethods||["Transfer Bank","QRIS","COD"];
+  const limit=Number(checkoutConfig?.qrisMaxAmount)||QRIS_MAX_AMOUNT;
+  const total=cart.length?checkoutTotals().total:0;
+  const overLimit=total>limit;
+  document.querySelectorAll("[data-payment-option]").forEach(option=>{
+    const method=option.dataset.paymentOption,input=option.querySelector("input");
+    const offered=methods.includes(method),blocked=method==="QRIS"&&overLimit;
+    option.classList.toggle("hidden",!offered);
+    option.classList.toggle("is-disabled",blocked);
+    if(input)input.disabled=!offered||blocked;
+  });
+  const note=$("qrisOptionNote");
+  if(note)note.textContent=overLimit?`Tidak tersedia untuk total di atas ${money(limit)} (batas QRIS). Gunakan Transfer Bank.`:"Bayar instan dengan e-wallet atau mobile banking. QR tampil setelah pesanan dibuat.";
+  const checked=document.querySelector("input[name='payment']:checked");
+  if(!checked||checked.disabled){const first=[...document.querySelectorAll("input[name='payment']")].find(input=>!input.disabled);if(first)first.checked=true;}
+  const picker=$("vaBankPicker");
+  if(picker){const showPicker=selectedPayment()==="Transfer Bank"&&methods.includes("Transfer Bank");picker.classList.toggle("hidden",!showPicker);const select=$("vaBank");if(select)select.disabled=!showPicker;}
+}
+function paymentGuidance(payment) { if(payment==="COD")return "Pesanan diterima dan menunggu konfirmasi toko"; if(payment==="QRIS")return "Pembayaran diproses setelah pesanan dibuat"; if(payment==="Transfer Bank")return `Nomor Virtual Account ${vaBankName(selectedVaBank())} muncul setelah pesanan dibuat`; return "Instruksi diberikan setelah pesanan dikonfirmasi"; }
+function renderFinalReview() { const shipping=selectedShipping(); const payment=selectedPayment(); const paymentLabel=payment==="Transfer Bank"?`Transfer Bank · ${vaBankName(selectedVaBank())}`:payment; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping?.name||"-")}</strong><small>${escapeHTML(shipping?shippingEta(shipping):"-")} · ${shipping?(shipping.price?money(shipping.price):"Gratis"):"-"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(paymentLabel)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
 function startCheckout(updateRoute=true) { if (!cart.length) return showToast("Keranjang masih kosong."); ensureCheckoutIdempotencyKey(); if(updateRoute){navigateRoute("checkout");return;} setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
 function checkoutErrorMessage(message, status) { if(status===409)return message||"Stok atau opsi pengiriman sudah berubah. Silakan periksa checkout Anda."; if(status===400||status===422)return message||"Data checkout belum valid. Silakan periksa kembali."; if(!status)return "Koneksi bermasalah. Periksa jaringan Anda lalu coba kembali."; return message||"Pesanan belum dapat diproses. Silakan coba kembali."; }
-async function createPaymentIntent(orderNumber,paymentToken) {
+async function createPaymentIntent(orderNumber,paymentToken,bank=null) {
   if(!orderNumber||!paymentToken)throw new Error("Token pembayaran tidak tersedia.");
-  const response=await fetch("/api/payments/create",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({orderNumber,paymentToken})});
+  const response=await fetch("/api/payments/create",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({orderNumber,paymentToken,...(bank?{bank}:{})})});
   const result=await response.json().catch(()=>({}));
-  if(!response.ok){const failure=new Error(result.error||"Pembayaran belum dapat disiapkan.");failure.status=response.status;throw failure;}
+  if(!response.ok){const failure=new Error(result.error||"Pembayaran belum dapat disiapkan.");failure.status=response.status;failure.code=result.code||null;throw failure;}
   return result;
 }
 // QRIS payment from "Pesanan Saya". POST /api/payments/create reuses a still-valid QR
@@ -396,11 +441,42 @@ async function createPaymentIntent(orderNumber,paymentToken) {
 function stopPaymentPolling(){if(paymentSession?.timer)clearInterval(paymentSession.timer);if(paymentSession)paymentSession.timer=null;}
 function closePaymentModal(){stopPaymentPolling();paymentSession=null;setModal("paymentModal",false);}
 function formatCountdown(ms){const total=Math.max(0,Math.floor(ms/1000));return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;}
+function copyToClipboard(value){
+  const done=()=>showToast(`Disalin: ${value}`);
+  if(navigator.clipboard?.writeText){navigator.clipboard.writeText(value).then(done).catch(()=>showToast(`Salin manual: ${value}`));return;}
+  showToast(`Salin manual: ${value}`);
+}
+function formatDeadline(ms){return new Date(ms).toLocaleString("id-ID",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});}
+// Payment instructions for a Midtrans VA (or Mandiri Bill Payment), shared by the
+// checkout success modal and the Pesanan payment modal.
+function vaInstructionsHTML(payment,total){
+  const bank=payment.vaBank,mandiri=bank==="mandiri";
+  const copy=(value,label)=>`<button class="va-copy" type="button" data-copy="${escapeHTML(value)}" aria-label="Salin ${escapeHTML(label)}">Salin</button>`;
+  const rows=[];
+  if(mandiri&&payment.billerCode)rows.push(`<div class="va-row"><span>Kode perusahaan (biller code)</span><div class="va-value"><strong>${escapeHTML(payment.billerCode)}</strong>${copy(payment.billerCode,"kode perusahaan")}</div></div>`);
+  rows.push(`<div class="va-row"><span>${mandiri?"Kode bayar (bill key)":`Nomor Virtual Account ${escapeHTML(vaBankName(bank))}`}</span><div class="va-value"><strong>${escapeHTML(payment.vaNumber)}</strong>${copy(payment.vaNumber,mandiri?"kode bayar":"nomor Virtual Account")}</div></div>`);
+  if(total!=null)rows.push(`<div class="va-row"><span>Jumlah transfer (harus persis)</span><div class="va-value"><strong>${money(total)}</strong>${copy(String(Math.round(Number(total))),"jumlah transfer")}</div></div>`);
+  const deadline=Date.parse(payment.expiresAt||"");
+  const steps=mandiri
+    ?["Buka Livin' by Mandiri atau ATM Mandiri, pilih Bayar lalu Multipayment.","Masukkan kode perusahaan, kemudian kode bayar di atas.","Pastikan nama merchant dan jumlahnya sesuai, lalu konfirmasi."]
+    :[`Buka m-banking, internet banking, atau ATM ${vaBankName(bank)} dan pilih transfer ke Virtual Account.`,"Masukkan nomor Virtual Account di atas.","Pastikan nama merchant dan jumlahnya sesuai, lalu konfirmasi."];
+  return `<div class="payment-va">${rows.join("")}${Number.isFinite(deadline)?`<small>Bayar sebelum <strong>${escapeHTML(formatDeadline(deadline))}</strong></small>`:""}<ol>${steps.map(step=>`<li>${escapeHTML(step)}</li>`).join("")}</ol></div>`;
+}
 function renderPaymentState(state){
   const target=$("paymentContent");if(!target||!paymentSession)return;
   const order=paymentSession.orderNumber;
-  if(state.kind==="loading"){target.innerHTML=`<div class="payment-state"><span class="state-mark">…</span><p>Menyiapkan QRIS untuk pesanan <strong>${escapeHTML(order)}</strong>.</p></div>`;return;}
+  if(state.kind==="loading"){target.innerHTML=`<div class="payment-state"><span class="state-mark">…</span><p>Menyiapkan pembayaran untuk pesanan <strong>${escapeHTML(order)}</strong>.</p></div>`;return;}
   if(state.kind==="paid"){target.innerHTML=`<div class="payment-state paid"><span class="state-mark">✓</span><p>Pembayaran untuk pesanan <strong>${escapeHTML(order)}</strong> sudah kami terima. Terima kasih!</p></div><div class="payment-actions"><button class="primary full" type="button" data-action="close-payment">Tutup</button></div>`;return;}
+  if(state.kind==="expired"&&paymentSession.method==="Transfer Bank"){state={kind:"choose-bank",message:"Nomor Virtual Account sudah kedaluwarsa. Pilih bank untuk nomor baru. Jika Anda sudah membayar, cek status terlebih dahulu.",offerCheck:true};}
+  if(state.kind==="choose-bank"){
+    const banks=checkoutConfig?.vaBanks?.length?checkoutConfig.vaBanks:Object.entries(VA_BANK_NAMES).map(([code,name])=>({code,name}));
+    target.innerHTML=`<div class="payment-state"><p>${escapeHTML(state.message||"Pilih bank untuk mendapatkan nomor Virtual Account.")}</p></div><div class="va-bank-choices">${banks.map(bank=>`<button type="button" data-va-bank="${escapeHTML(bank.code)}">${escapeHTML(bank.name)}</button>`).join("")}</div>${state.offerCheck?'<div class="payment-actions"><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div>':""}`;
+    return;
+  }
+  if(state.kind==="va"){
+    target.innerHTML=`<div class="payment-meta"><span>Pesanan ${escapeHTML(order)}</span></div>${vaInstructionsHTML(state.payment,paymentSession.total)}<p class="payment-note" id="paymentPollNote">Status diperbarui otomatis setelah transfer diterima, biasanya dalam beberapa menit.</p><div class="payment-actions"><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div>`;
+    return;
+  }
   if(state.kind==="expired"){target.innerHTML=`<div class="payment-state error"><span class="state-mark">!</span><p>QR sudah kedaluwarsa. Buat QR baru untuk melanjutkan pembayaran. Jika Anda sudah membayar, cek status terlebih dahulu.</p></div><div class="payment-actions"><button class="primary full" type="button" data-action="renew-payment">Buat QR Baru</button><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div>`;return;}
   if(state.kind==="error"){target.innerHTML=`<div class="payment-state error"><span class="state-mark">!</span><p>${escapeHTML(state.message||"Pembayaran belum dapat disiapkan.")}</p></div><div class="payment-actions">${state.retry?'<button class="primary full" type="button" data-action="renew-payment">Coba Lagi</button>':""}<button class="secondary full" type="button" data-action="close-payment">Tutup</button></div>`;return;}
   const expiresAt=paymentSession.expiresAt;
@@ -435,27 +511,37 @@ function startPaymentPolling(){
     if(ticks%PAYMENT_POLL_SECONDS===0&&!document.hidden)refreshPaymentStatus();
   },1000);
 }
-async function openQrisPayment(orderNumber){
+async function openGatewayPayment(orderNumber,{bank=null}={}){
   const record=orderAccessRecord(orderNumber);
   if(!record?.paymentToken){showToast("Pembayaran tidak dapat dibuka dari browser ini.");return;}
   stopPaymentPolling();
   const known=customerOrderCache.get(orderNumber);
-  const session={orderNumber,total:known?.total??null,expiresAt:null,timer:null,checking:false};
+  const method=known?.payment==="Transfer Bank"?"Transfer Bank":"QRIS";
+  if(bank&&record.bank!==bank){record.bank=bank;storage.set("gyd_order_access",orderAccessRecords);}
+  const session={orderNumber,method,total:known?.total??null,expiresAt:null,timer:null,checking:false};
   paymentSession=session;
+  const title=$("paymentTitle");if(title)title.textContent=method==="Transfer Bank"?"Bayar via Transfer Bank":"Bayar dengan QRIS";
   renderPaymentState({kind:"loading"});
   setModal("paymentModal",true);
   try{
-    const result=await createPaymentIntent(orderNumber,record.paymentToken);
+    const result=await createPaymentIntent(orderNumber,record.paymentToken,method==="Transfer Bank"?(bank||record.bank||null):null);
     if(paymentSession!==session)return;
     const status=String(result.paymentStatus||"").toLowerCase();
     if(status==="paid"){renderPaymentState({kind:"paid"});renderCustomerOrders();return;}
-    if(!result.paymentUrl){renderPaymentState({kind:"error",message:"QR belum dapat ditampilkan. Silakan coba lagi beberapa saat.",retry:true});return;}
     const expiresAt=Date.parse(result.expiresAt||"");
     session.expiresAt=Number.isFinite(expiresAt)?expiresAt:null;
+    if(result.vaNumber){
+      if(result.vaBank&&record.bank!==result.vaBank){record.bank=result.vaBank;storage.set("gyd_order_access",orderAccessRecords);}
+      renderPaymentState({kind:"va",payment:result});
+      startPaymentPolling();
+      return;
+    }
+    if(!result.paymentUrl){renderPaymentState({kind:"error",message:"Instruksi pembayaran belum dapat ditampilkan. Silakan coba lagi beberapa saat.",retry:true});return;}
     renderPaymentState({kind:"qr",url:result.paymentUrl});
     startPaymentPolling();
   }catch(error){
     if(paymentSession!==session)return;
+    if(["BANK_REQUIRED","BANK_UNAVAILABLE"].includes(error.code)){renderPaymentState({kind:"choose-bank",message:error.code==="BANK_UNAVAILABLE"?error.message:null});return;}
     // 404/409 mean the payment window closed or the order is no longer payable.
     const final=[404,409].includes(error.status);
     renderPaymentState({kind:"error",message:final?`${error.message} Hubungi toko bila perlu bantuan.`:error.message,retry:!final});
@@ -465,7 +551,7 @@ async function openQrisPayment(orderNumber){
 
 async function submitOrder(event) {
   event.preventDefault(); if(checkoutSubmitting||checkoutStep!==5||!validateCheckoutStep())return;
-  const shipping=selectedShipping(); if(!shipping)return; const payment=document.querySelector("input[name='payment']:checked")?.value||"QRIS";
+  const shipping=selectedShipping(); if(!shipping)return; const payment=selectedPayment(); const bank=selectedVaBank();
   const customer={full_name:$("custName").value.trim(),whatsapp:normalizePhone($("custPhone").value),email:$("custEmail").value.trim().toLowerCase(),address:$("custAddress").value.trim(),city:$("custCity").value.trim(),postal_code:$("custPostal").value.trim(),notes:$("custNotes").value.trim()};
   const button=$("checkoutSubmit"); checkoutSubmitting=true; button.disabled=true; button.textContent="Memproses pesanan..."; $("checkoutBack").disabled=true; $("checkoutError").classList.add("hidden");
   try {
@@ -475,11 +561,11 @@ async function submitOrder(event) {
     const items=cart.map(item=>{const product=products.find(entry=>entry.id===item.id);return{id:item.id,name:product?.name||"Produk",qty:item.qty,price:product?.price||0};});
     let paymentIntent=null,paymentIntentError="";
     if(payment!=="COD"){
-      try{paymentIntent=await createPaymentIntent(result.orderNumber,result.paymentToken);}
+      try{paymentIntent=await createPaymentIntent(result.orderNumber,result.paymentToken,bank);}
       catch(paymentError){paymentIntentError=paymentError.message||"Pembayaran belum dapat disiapkan.";console.error("Payment intent preparation failed",{orderNumber:result.orderNumber,status:paymentError.status||null,message:paymentError.message});}
     }
     const order={id:result.orderNumber,createdAt:result.createdAt,customer:{name:customer.full_name,phone:customer.whatsapp,email:customer.email,address:customer.address,city:customer.city,postalCode:customer.postal_code},payment,shipping:result.shippingServiceName||shipping.name,shippingId:shipping.method,shippingProvider:result.shippingProvider||shipping.provider,shippingServiceCode:result.shippingServiceCode||shipping.serviceCode,shippingCost:result.shippingCost,subtotal:result.subtotal,discount:0,total:result.total,status:"Pending",paymentStatus:payment==="COD"?"unpaid":paymentIntent?.paymentStatus||"unpaid",paymentReference:paymentIntent?.paymentReference||null,paymentUrl:paymentIntent?.paymentUrl||null,paymentExpiresAt:paymentIntent?.expiresAt||null,paymentIntentReady:payment==="COD"||Boolean(paymentIntent),items};
-    rememberOrderAccess(result.orderNumber,result.orderAccessToken,result.paymentToken);
+    rememberOrderAccess(result.orderNumber,result.orderAccessToken,result.paymentToken,paymentIntent?.vaBank||bank);
     clearCheckoutIdempotencyKey();
     orders=[order,...orders.filter(existing=>existing.id!==order.id)]; cart=[]; persist(); event.target.reset(); setModal("checkoutModal",false);
     const paymentNote=result.reused
@@ -489,7 +575,7 @@ async function submitOrder(event) {
         :paymentIntent
           ?(paymentIntent.message||"Pembayaran berhasil disiapkan dan menunggu instruksi gateway.")
           :"Pesanan berhasil dibuat, tetapi pembayaran belum dapat disiapkan. Jangan membuat pesanan baru; buka menu Pesanan untuk mencoba membayar lagi.";
-    $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(payment)}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(order.paymentStatus)}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa. QR dapat dibuka kembali dari menu Pesanan.</small></div>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
+    $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(payment==="Transfer Bank"?`Transfer Bank · ${vaBankName(paymentIntent?.vaBank||bank)}`:payment)}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(paymentStatusLabel(order.paymentStatus))}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa. QR dapat dibuka kembali dari menu Pesanan.</small></div>`:""}${payment==="Transfer Bank"&&paymentIntent?.vaNumber?`${vaInstructionsHTML(paymentIntent,order.total)}<small>Nomor ini dapat dibuka kembali dari menu Pesanan.</small>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
     history.replaceState(null,"",routeHash("pesanan")); setModal("successModal",true); loadProducts();
   } catch(error) { checkoutSubmitting=false; button.disabled=false; $("checkoutBack").disabled=false; button.textContent="Konfirmasi & Buat Pesanan"; $("checkoutError").textContent=checkoutErrorMessage(error.message,error.status); $("checkoutError").classList.remove("hidden"); }
 }
@@ -508,17 +594,20 @@ function paymentStatusLabel(status){
 function orderAccessRecord(orderNumber){return orderAccessRecords.find(entry=>entry?.orderNumber===orderNumber)||null;}
 // Whether this browser can still (re)open a QRIS for the order. The server enforces
 // the same rules; this only decides what to show.
-function qrisPaymentOption(order){
-  if(order.payment!=="QRIS")return null;
+function gatewayPaymentOption(order){
+  if(!["QRIS","Transfer Bank"].includes(order.payment))return null;
   const paymentStatus=String(order.paymentStatus||"unpaid").toLowerCase();
   if(!["unpaid","pending","expired","failed"].includes(paymentStatus)||["cancelled","completed"].includes(String(order.status||"").toLowerCase()))return null;
-  if(!orderAccessRecord(order.id)?.paymentToken)return {note:"Pembayaran QRIS hanya dapat dilanjutkan dari browser yang membuat pesanan ini. Hubungi toko bila perlu bantuan."};
+  if(!orderAccessRecord(order.id)?.paymentToken)return {note:"Pembayaran hanya dapat dilanjutkan dari browser yang membuat pesanan ini. Hubungi toko bila perlu bantuan."};
   const deadline=Date.parse(order.paymentDeadline||"");
   if(Number.isFinite(deadline)&&deadline<=Date.now())return {note:"Batas waktu pembayaran sudah lewat. Hubungi toko untuk bantuan."};
-  return {canPay:true,label:paymentStatus==="pending"?"Tampilkan QRIS":"Bayar dengan QRIS",deadline:Number.isFinite(deadline)?deadline:null};
+  const label=order.payment==="Transfer Bank"
+    ?(paymentStatus==="pending"?"Lihat Nomor Virtual Account":"Bayar via Transfer Bank")
+    :(paymentStatus==="pending"?"Tampilkan QRIS":"Bayar dengan QRIS");
+  return {canPay:true,label,deadline:Number.isFinite(deadline)?deadline:null};
 }
 function customerOrderActions(order){
-  const option=qrisPaymentOption(order);
+  const option=gatewayPaymentOption(order);
   const pay=option?.canPay
     ?`<button class="primary" type="button" data-pay-order="${escapeHTML(order.id)}">${escapeHTML(option.label)}</button>${option.deadline?`<small>Bayar sebelum ${escapeHTML(new Date(option.deadline).toLocaleString("id-ID",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}))}</small>`:""}`
     :option?.note?`<small class="payment-note">${escapeHTML(option.note)}</small>`:"";
@@ -566,12 +655,12 @@ function handleAction(action) {
     case "reset-filter": resetFilters(); break;
     case "close-payment": closePaymentModal(); break;
     case "check-payment": refreshPaymentStatus({manual:true}); break;
-    case "renew-payment": if(paymentSession)openQrisPayment(paymentSession.orderNumber); break;
+    case "renew-payment": if(paymentSession)openGatewayPayment(paymentSession.orderNumber); break;
     case "reset-product": $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; break;
   }
 }
-document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openQrisPayment(payOrder);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
-document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment']"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
+document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openGatewayPayment(payOrder);const vaBank=event.target.closest("[data-va-bank]")?.dataset.vaBank;if(vaBank&&paymentSession)openGatewayPayment(paymentSession.orderNumber,{bank:vaBank});const copyValue=event.target.closest("[data-copy]")?.dataset.copy;if(copyValue)copyToClipboard(copyValue);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
+document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment'],#vaBank"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
 document.addEventListener("keydown", event => { if(event.key === "Escape"&&!$("paymentModal")?.classList.contains("hidden")){closePaymentModal();return;} if(event.key === "Escape"){const root=routeParts()[0];if(root==="checkout")navigateRoute("keranjang");else if(root==="produk"&&routeParts()[1])navigateRoute("produk");else if(["keranjang","bantu-pilih"].includes(root))navigateRoute("beranda");else ["cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
 function bindElementEvent(id, type, handler) { const element=$(id); if (!element) { console.warn(`Optional UI element #${id} is unavailable.`); return; } element.addEventListener(type, handler); }
 bindElementEvent("searchForm", "submit", event => { event.preventDefault(); recommendation=null;activeCategory="Semua";buildNavigation();navigateRoute("produk"); });
@@ -600,3 +689,4 @@ async function initializeApp() {
   applyRoute(true);
 }
 initializeApp().catch(error => console.error("Storefront product initialization failed", error));
+loadCheckoutConfig();
