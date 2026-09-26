@@ -223,6 +223,7 @@ Jika secret tidak ada atau tidak valid, checkout dan endpoint publik mengembalik
 
 - `MIDTRANS_ENV=sandbox` wajib memakai key berawalan `SB-Mid-server-`; `MIDTRANS_ENV=production` wajib `Mid-server-`. Salah pasang menghasilkan `503 Gateway pembayaran belum dikonfigurasi` sebelum ada charge, bukan 401 samar dari Midtrans.
 - `MIDTRANS_ENV=production` ditolak pada `VERCEL_ENV=preview`/`development`, sehingga deploy preview tidak pernah menagih uang sungguhan.
+- `MIDTRANS_QRIS_ACQUIRER` (opsional, Config): `gopay` (default) atau `airpay shopee`. Pilih acquirer QRIS yang channel-nya aktif di akun Midtrans. Channel yang belum aktif — Midtrans membalas 402 "payment channel is not activated" atau 404 "Merchant pop id is not found" — dikembalikan sebagai `503 QRIS Midtrans belum aktif untuk merchant ini.`, bukan 500.
 
 ### Siklus QRIS per attempt
 
