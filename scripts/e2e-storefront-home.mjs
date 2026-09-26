@@ -20,7 +20,7 @@ await new Promise(r=>server.listen(0,"127.0.0.1",r));
 const origin=`http://127.0.0.1:${server.address().port}`;
 const categories=["Smartphone","Laptop","Tablet","Smartwatch","Audio","Accessories"];
 const products=categories.flatMap((category,c)=>[0,1].map(n=>({id:`00000000-0000-4000-8000-0000000001${c}${n}`,name:`${category} ${n+1}`,brand:"Brand",category,
-  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:null,stock:5+n,image_url:null,rating:4.8,is_active:true})));
+  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:null,stock:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true})));
 const errors=[];
 const browser=await chromium.launch();
 const luminance=rgb=>{const [r,g,b]=rgb.match(/\d+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4;});return .2126*r+.7152*g+.0722*b;};
@@ -67,12 +67,38 @@ for(const width of [1440,834,390]){
     assert.equal(carousel.flow,"column");
     assert.equal(carousel.scrolls,true,"showcases scroll sideways on phones");
   }
+  // Hero motion: floating gadgets and a moving strip of real, in-stock products.
+  assert.ok(await page.locator(".hero-art .hero-gadget").count()>=4,"animated gadget line-art in the hero");
+  const track=page.locator("#heroMarquee");
+  const items=await track.locator(".marquee-item").count();
+  const visibleItems=await track.locator('.marquee-item:not([aria-hidden="true"])').count();
+  assert.equal(items,visibleItems*2,"the strip is duplicated for a seamless loop");
+  assert.equal(visibleItems,products.filter(p=>p.stock>0).length<=10?products.filter(p=>p.stock>0&&p.image_url).length:10);
+  const x0=await track.evaluate(el=>new DOMMatrix(getComputedStyle(el).transform).m41);
+  await page.waitForTimeout(600);
+  const x1=await track.evaluate(el=>new DOMMatrix(getComputedStyle(el).transform).m41);
+  assert.ok(x1<x0,"the product strip moves");
+  await track.locator('.marquee-item:not([aria-hidden="true"])').first().click({force:true});
+  await page.waitForSelector("#productModal:not(.hidden)");
+  await page.keyboard.press("Escape");
+  await page.locator('#productModal [data-action="close-product"]').click().catch(()=>{});
   // Header actions still work.
   await page.locator('.header-actions [data-action="open-cart"]').click();
   await page.waitForSelector("#cartDrawer:not(.hidden)");
   await page.close();
 }
 
+// Reduced motion: nothing animates.
+{
+  const page=await browser.newPage({viewport:{width:390,height:900},reducedMotion:"reduce"});
+  await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
+  await page.goto(origin);
+  await page.waitForSelector("#heroMarquee .marquee-item");
+  const names=await page.evaluate(()=>[...document.querySelectorAll(".hero-gadget,.marquee-track")].map(el=>getComputedStyle(el).animationName));
+  assert.ok(names.every(name=>name==="none"),"no hero animation with reduced motion");
+  await page.close();
+}
 assert.deepEqual(errors,[],"no page errors");
 await browser.close(); server.close();
 console.log("Storefront home layout browser test passed.");

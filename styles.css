@@ -275,3 +275,23 @@ footer{background:var(--navy);color:#c9d6f5;border-top:0}
 .footer-brand,.footer-brand>span:last-child{color:#fff}
 .footer-brand>span:last-child>span{color:var(--yellow)}
 .copyright{border-top-color:rgba(255,255,255,.14);color:#9fb3e0}
+/* Hero motion: floating line-art gadgets + a slow strip of real products */
+.premium-hero.store-hero{position:relative;overflow:hidden}
+.hero-art{position:absolute;inset:0;pointer-events:none;z-index:0}
+.store-hero .hero-grid,.hero-marquee{position:relative;z-index:1}
+.hero-gadget{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);fill:none;stroke:rgba(255,255,255,.22);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;animation:gadget-float 12s ease-in-out infinite;animation-delay:var(--d)}
+.hero-gadget.is-accent{stroke:rgba(255,198,41,.45)}
+@keyframes gadget-float{0%,100%{transform:translate3d(0,0,0) rotate(-4deg)}50%{transform:translate3d(0,-18px,0) rotate(4deg)}}
+.hero-marquee{overflow:hidden;padding:0 0 34px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+.marquee-track{display:flex;gap:14px;width:max-content;animation:marquee var(--marquee-duration,48s) linear infinite}
+.hero-marquee:hover .marquee-track,.hero-marquee:focus-within .marquee-track{animation-play-state:paused}
+@keyframes marquee{to{transform:translateX(-50%)}}
+.marquee-item{display:flex;align-items:center;gap:12px;min-width:240px;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:rgba(255,255,255,.1);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:10px 16px 10px 10px;color:#fff;text-align:left;cursor:pointer}
+.marquee-item:hover{background:rgba(255,255,255,.18)}
+.marquee-item img{width:56px;height:56px;border-radius:12px;object-fit:cover;background:#fff}
+.marquee-item strong,.marquee-item small{display:block}
+.marquee-item strong{font-size:14px;font-weight:600}
+.marquee-item small{margin-top:2px;color:var(--yellow);font-size:13px;font-weight:600}
+@media(max-width:680px){.hero-gadget{--s:56px!important;opacity:.8}.g-tablet,.g-buds{display:none}.marquee-item{min-width:200px}.marquee-item img{width:46px;height:46px}.hero-marquee{padding-bottom:26px}}
+@media(prefers-reduced-motion:reduce){.hero-gadget,.marquee-track{animation:none}.hero-marquee{overflow-x:auto}}
+@media(max-width:680px){.hero-gadget{opacity:.45}}

@@ -250,7 +250,19 @@ function storyCard(product, index = 0) {
   const out = product.stock <= 0;
   return `<article class="story-card story-card-${index + 1}" data-product="${escapeHTML(product.id)}" tabindex="0" aria-label="Lihat detail ${escapeHTML(product.name)}"><div class="story-image"><img src="${safeImage(product.image)}" alt="${escapeHTML(product.name)}" width="900" height="900" loading="lazy"></div><div class="story-card-copy"><span>${escapeHTML(product.brand || product.category)}</span><h3>${escapeHTML(product.name)}</h3><p>${escapeHTML(product.spec || product.description)}</p><strong>${money(product.price)}</strong><div class="story-actions"><button class="story-buy" type="button" data-buy="${escapeHTML(product.id)}" ${out ? "disabled" : ""}>Beli Sekarang</button><button class="story-cart" type="button" data-add="${escapeHTML(product.id)}" ${out ? "disabled" : ""} aria-label="Tambahkan ${escapeHTML(product.name)} ke keranjang">+</button></div></div></article>`;
 }
+// Slowly scrolling strip of in-stock products under the hero. The list is rendered twice
+// so the CSS loop (translateX -50%) is seamless; the copy is hidden from assistive tech.
+function renderHeroMarquee() {
+  const track = $("heroMarquee");
+  if (!track) return;
+  const items = products.filter(product => product.stock > 0 && product.image).slice(0, 10);
+  if (items.length < 3) { track.closest(".hero-marquee")?.classList.add("hidden"); return; }
+  const card = (product, hidden) => `<button type="button" class="marquee-item" data-view-product="${escapeHTML(product.id)}" ${hidden ? 'tabindex="-1" aria-hidden="true"' : ""}><img src="${safeImage(product.image)}" alt="" width="96" height="96" loading="lazy"><span><strong>${escapeHTML(product.name)}</strong><small>${money(product.price)}</small></span></button>`;
+  track.innerHTML = items.map(product => card(product, false)).join("") + items.map(product => card(product, true)).join("");
+  track.style.setProperty("--marquee-duration", `${Math.max(24, items.length * 6)}s`);
+}
 function renderShowcases() {
+  renderHeroMarquee();
   const phones = products.filter(product => product.category === "Smartphone").slice(0, 4);
   const popular = [...products].filter(product => product.stock > 0).sort((a,b) => (b.rating || 4.7) - (a.rating || 4.7)).slice(0, 4);
   $("smartphoneShowcase").innerHTML = phones.map((product,index) => storyCard(product,index)).join("");
