@@ -356,3 +356,4 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
 .brand-tile-store{border-style:dashed;color:var(--muted);font-size:13px;font-weight:600}
 .assurance-note{margin:12px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
 @media(max-width:600px){.brand-tile{min-width:0;flex:1 1 calc(33.333% - 8px);height:44px;padding:0 10px}.brand-tile img{max-width:100%;height:18px}.brand-tile-text{font-size:13px}.brand-tile-store{flex-basis:100%}}
+.brand-tile-tall img{height:32px}@media(max-width:600px){.brand-tile-tall img{height:28px}}
