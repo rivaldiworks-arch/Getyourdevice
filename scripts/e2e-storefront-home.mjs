@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const root=fileURLToPath(new URL("..",import.meta.url));
-const types={".html":"text/html",".js":"text/javascript",".css":"text/css"};
+const types={".html":"text/html",".js":"text/javascript",".css":"text/css",".png":"image/png",".svg":"image/svg+xml",".ico":"image/x-icon",".webmanifest":"application/manifest+json"};
 const server=createServer(async (req,res)=>{
   const path=new URL(req.url,"http://x").pathname;
   try{const body=await readFile(join(root,path==="/"?"index.html":path));res.writeHead(200,{"Content-Type":types[extname(path)]||"text/html"});res.end(body);}
@@ -94,7 +94,12 @@ for(const width of [1440,834,390]){
   assert.equal(await page.evaluate(()=>document.body.innerText.includes("GETYOURDEVICE")),false,"no uppercase brand text left on the page");
   assert.equal(await page.locator(".brand .brand-mark").first().innerText(),"gyd");
   assert.equal(await page.locator(".hero-kicker .logo-inline, #whyTitle .logo-inline, .copyright .logo-inline").count(),3,"inline wordmarks in hero, why-us and footer");
-  assert.equal(await page.evaluate(()=>document.querySelector('link[rel="icon"]')?.getAttribute("href")),"./favicon.svg");
+  const icons=await page.evaluate(()=>[...document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"],link[rel="manifest"]')].map(link=>link.getAttribute("href")));
+  assert.deepEqual(icons,["./favicon.ico","./favicon-32.png","./favicon.svg","./apple-touch-icon.png","./site.webmanifest"],"PNG/ICO icons for Safari, SVG for modern browsers, Apple touch icon, manifest");
+  for(const href of icons){
+    const response=await page.request.get(new URL(href,origin).href);
+    assert.equal(response.status(),200,`${href} is served`);
+  }
   // A broken product photo falls back to a local placeholder once; it never loops.
   await page.waitForTimeout(400);
   assert.equal([...imageRequests.keys()].some(url=>url.includes("placehold")),false,"no third-party placeholder requests");
