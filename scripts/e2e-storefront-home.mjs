@@ -90,6 +90,11 @@ for(const width of [1440,834,390]){
   assert.equal(logo.text,"getyourdevice");
   assert.deepEqual([logo.aWeight,logo.bWeight,logo.bColor],["300","700","rgb(47, 111, 219)"]);
   assert.match(logo.family,/^"?Outfit/);
+  // One brand treatment everywhere: no leftover uppercase GETYOURDEVICE text, and the gyd mark.
+  assert.equal(await page.evaluate(()=>document.body.innerText.includes("GETYOURDEVICE")),false,"no uppercase brand text left on the page");
+  assert.equal(await page.locator(".brand .brand-mark").first().innerText(),"gyd");
+  assert.equal(await page.locator(".hero-kicker .logo-inline, #whyTitle .logo-inline, .copyright .logo-inline").count(),3,"inline wordmarks in hero, why-us and footer");
+  assert.equal(await page.evaluate(()=>document.querySelector('link[rel="icon"]')?.getAttribute("href")),"./favicon.svg");
   // A broken product photo falls back to a local placeholder once; it never loops.
   await page.waitForTimeout(400);
   assert.equal([...imageRequests.keys()].some(url=>url.includes("placehold")),false,"no third-party placeholder requests");

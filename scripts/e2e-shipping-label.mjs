@@ -85,7 +85,7 @@ async function run(width){
   assert.deepEqual(calls[0],{orderId:order.id});
   const text=await page.locator("#printArea").innerText();
   for(const expected of [/JNE/,/REG/,/No\. Resi/,/Oslo/,/6281288451500/,/Jakarta Timur 13220/,/GETYOURDEVICE/,/081234567890/,/GYD-20260926-0200/,/690 g/,/3 barang/,/Mouse Wireless × 2/,/Titip satpam/])assert.match(text,expected);
-  assert.equal(await page.title(),"Admin — GETYOURDEVICE","title restored after printing");
+  assert.equal(await page.title(),"Admin — getyourdevice","title restored after printing");
   assert.equal(await page.locator("#dashboardView").isVisible(),true);
   assert.equal(await page.locator("#printArea").isVisible(),false,"the label is only visible when printing");
 

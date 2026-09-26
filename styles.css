@@ -309,3 +309,24 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
 .brand .logo .b{color:#2F6FDB}
 .footer-brand .logo .a{color:#fff}
 .footer-brand .logo .b{color:var(--yellow)}
+/* gyd monogram */
+.brand-mark{position:relative;display:inline-grid!important;place-items:center;width:36px!important;height:36px!important;flex:0 0 auto;border-radius:11px!important;background:linear-gradient(145deg,#2F6FDB 0%,#1446a0 55%,#0b2559 100%)!important;color:#fff!important;font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px!important;font-weight:700;letter-spacing:-.04em;line-height:1;padding-bottom:3px;box-shadow:0 4px 12px rgba(20,70,160,.28),inset 0 1px 0 rgba(255,255,255,.25)}
+.brand-mark::after{content:"";position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--yellow);box-shadow:0 0 0 2px rgba(255,198,41,.25)}
+.brand{gap:10px;align-items:center}
+.footer-brand .brand-mark{background:linear-gradient(145deg,#ffd35c,#ffc629)!important;color:var(--navy)!important;box-shadow:none}
+.footer-brand .brand-mark::after{background:#fff;box-shadow:none}
+/* Inline wordmark inside running text and headings */
+.logo-inline{font-size:inherit;letter-spacing:-.01em}
+.hero-kicker .logo-inline{font-size:18px}
+.hero-kicker .logo-inline .a{color:#fff}
+.hero-kicker .logo-inline .b{color:var(--yellow)}
+#whyTitle .logo-inline .a{font-weight:300;color:var(--ink)}
+#whyTitle .logo-inline .b{font-weight:700;color:#2F6FDB}
+.copyright .logo-inline{font-size:13px}
+.copyright .logo-inline .a{color:#c9d6f5}
+.copyright .logo-inline .b{color:var(--yellow)}
+@media(max-width:680px){.brand-mark{width:32px!important;height:32px!important;font-size:12.5px!important;border-radius:10px!important}.brand-mark::after{top:5px;right:5px;width:5px;height:5px}}
+.brand-mark{padding:0 0 2px!important}
+.brand-mark::after{top:-3px!important;right:-3px!important;width:9px!important;height:9px!important;box-shadow:0 0 0 2px #fff!important}
+.footer-brand .brand-mark::after{background:#fff!important;box-shadow:0 0 0 2px var(--navy)!important}
+@media(max-width:680px){.brand-mark::after{width:8px!important;height:8px!important}}
