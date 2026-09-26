@@ -20,5 +20,5 @@ logos, supplied by the store owner. They were trimmed, given a transparent backg
 the "Logistik Indonesia" line (POS) and the website line (TIKI) cropped off. Ninja Xpress's white
 wordmark was darkened so it shows on the white tile.
 
-SiCepat is still a text tile. To add it, drop `sicepat.png` here and swap its text tile in
-`index.html` for an `<img>` tile.
+`sicepat.png` is the SiCepat Ekspres wordmark cropped from the logo the store owner supplied
+(the square icon above it is left out so it fits the tile).
