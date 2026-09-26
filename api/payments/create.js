@@ -7,6 +7,7 @@ const { canTransition, customerSafePayment, providerFor } = require("./_provider
 const {
   createQrisCharge,
   getTransactionStatus,
+  isChannelNotActive,
   isMidtransNotFound,
   midtransConfig,
   midtransOrderId,
@@ -213,7 +214,7 @@ module.exports=async function handler(req,res) {
     if(isServerConfigError(error) || error.message==="SUPABASE_SERVICE_ROLE_KEY is not configured") {
       return res.status(503).json({error:"Gateway pembayaran belum dikonfigurasi."});
     }
-    if(String(error.midtrans?.status_code||"")==="402" || /payment channel is not activated/i.test(error.message||"")) {
+    if(isChannelNotActive(error)) {
       return res.status(503).json({error:"QRIS Midtrans belum aktif untuk merchant ini."});
     }
     return res.status(500).json({error:"Pembayaran belum dapat disiapkan."});

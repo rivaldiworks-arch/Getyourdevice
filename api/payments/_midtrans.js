@@ -30,6 +30,9 @@ const MIDTRANS_STATUS_MAP = Object.freeze({
 // Midtrans issues sandbox server keys as "SB-Mid-server-..." and production keys as
 // "Mid-server-...". A mismatch otherwise surfaces only as an opaque 401 at charge time.
 const SERVER_KEY_PREFIX=Object.freeze({sandbox:"SB-Mid-server-",production:"Mid-server-"});
+// QRIS can be issued through GoPay or ShopeePay, depending on which channel Midtrans
+// activated for the merchant. Configurable so switching needs no code change.
+const QRIS_ACQUIRERS=Object.freeze(["gopay","airpay shopee"]);
 
 function midtransConfig() {
   const serverKey=String(process.env.MIDTRANS_SERVER_KEY||"").trim();
@@ -40,9 +43,12 @@ function midtransConfig() {
   // Vercel Preview deployments run unreviewed branch code; they must never charge real money.
   const vercelEnv=String(process.env.VERCEL_ENV||"").trim().toLowerCase();
   if(env==="production" && vercelEnv && vercelEnv!=="production") throw new ServerConfigError(`MIDTRANS_ENV=production is not allowed on VERCEL_ENV=${vercelEnv}`);
+  const qrisAcquirer=String(process.env.MIDTRANS_QRIS_ACQUIRER||"gopay").trim().toLowerCase();
+  if(!QRIS_ACQUIRERS.includes(qrisAcquirer)) throw new ServerConfigError(`MIDTRANS_QRIS_ACQUIRER must be one of: ${QRIS_ACQUIRERS.join(", ")}`);
   return {
     serverKey,
     env,
+    qrisAcquirer,
     baseUrl:env==="production"?"https://api.midtrans.com":"https://api.sandbox.midtrans.com"
   };
 }
@@ -55,6 +61,16 @@ function midtransOrderId(orderNumber,paymentId) {
   const suffix=String(paymentId||"").replace(/-/g,"").slice(0,12).toLowerCase();
   if(!/^GYD-\d{8}-\d{4}$/.test(String(orderNumber||"")) || !/^[0-9a-f]{12}$/.test(suffix)) throw new Error("Invalid Midtrans order reference");
   return `${orderNumber}-${suffix}`;
+}
+
+// The merchant's QRIS channel is not usable yet. Midtrans reports this as 402 "payment
+// channel is not activated", or as 404 "Merchant pop id is not found" when the chosen
+// acquirer (e.g. GoPay) has no activated merchant on the account.
+function isChannelNotActive(error) {
+  const message=String(error?.message||"");
+  return String(error?.midtrans?.status_code||"")==="402"
+    || /payment channel is not activated/i.test(message)
+    || /merchant pop id is not found/i.test(message);
 }
 
 function isMidtransNotFound(error) {
@@ -138,7 +154,7 @@ async function createQrisCharge({orderId,amount}) {
   const body={
     payment_type:"qris",
     transaction_details:{order_id:orderId,gross_amount:Math.round(Number(amount))},
-    qris:{acquirer:"gopay"},
+    qris:{acquirer:midtransConfig().qrisAcquirer},
     custom_expiry:{expiry_duration:30,unit:"minute"}
   };
   const {response,data}=await midtransFetch("/v2/charge",{method:"POST",body:JSON.stringify(body)});
@@ -186,6 +202,7 @@ function paymentFieldsFromTransaction(transaction,{expiresAt=null,defaultPending
 module.exports={
   createQrisCharge,
   getTransactionStatus,
+  isChannelNotActive,
   isMidtransNotFound,
   midtransConfig,
   midtransOrderId,

@@ -10,7 +10,7 @@ const PRODUCTION_KEY="Mid-server-test-production-key";
 const SERVICE_ROLE="service-role-test-key-0123456789abcdef";
 
 function resetEnv(overrides={}) {
-  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","VERCEL_ENV","SERVER_HMAC_SECRET"]) delete process.env[key];
+  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","MIDTRANS_QRIS_ACQUIRER","VERCEL_ENV","SERVER_HMAC_SECRET"]) delete process.env[key];
   Object.assign(process.env,{
     SUPABASE_URL:"https://db.test",
     SUPABASE_ANON_KEY:"anon-test-key",
@@ -82,7 +82,8 @@ function midtransFetch(url,init) {
   if(pathname==="/v2/charge") {
     const body=JSON.parse(init.body);
     const orderId=body.transaction_details.order_id;
-    midtrans.charges.push({orderId,host:new URL(url).host});
+    midtrans.charges.push({orderId,host:new URL(url).host,acquirer:body.qris?.acquirer});
+    if(midtrans.chargeError) return json(200,midtrans.chargeError);
     if(midtrans.transactions.has(orderId)) return json(200,{status_code:"406",status_message:"The request could not be completed due to a conflict with the current state"});
     const transaction={order_id:orderId,transaction_id:randomUUID(),transaction_status:"pending",gross_amount:`${body.transaction_details.gross_amount}.00`,
       actions:[{name:"generate-qr-code",url:`https://qr.test/${orderId}.png`}]};
@@ -107,7 +108,7 @@ globalThis.fetch=async (url,init={})=>{
 
 function resetBackend() {
   db.orders.clear(); db.payments.length=0;
-  midtrans.transactions.clear(); midtrans.charges.length=0; midtrans.statusCalls=0;
+  midtrans.transactions.clear(); midtrans.charges.length=0; midtrans.statusCalls=0; midtrans.chargeError=null;
   calls.paymentPatches.length=0;
 }
 
@@ -324,6 +325,33 @@ resetEnv();
   assert.equal(res.statusCode,503,"checkout must fail closed when the HMAC secret is invalid");
   const detail=await invoke(require("../api/orders/detail.js"),{body:{orderNumber:"GYD-20260925-0001",orderAccessToken:"c".repeat(64)}});
   assert.equal(detail.statusCode,503,"a misconfigured limiter must not be silently disabled");
+}
+
+// ------------------------------------------------ 11. QRIS acquirer and inactive channel
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  await pay(order);
+  assert.equal(midtrans.charges[0].acquirer,"gopay","GoPay stays the default QRIS acquirer");
+}
+resetEnv({MIDTRANS_QRIS_ACQUIRER:"airpay shopee"}); resetBackend();
+{
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.equal(midtrans.charges[0].acquirer,"airpay shopee","ShopeePay QRIS is selectable without a code change");
+}
+resetEnv({MIDTRANS_QRIS_ACQUIRER:"ovo"});
+assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&/MIDTRANS_QRIS_ACQUIRER/.test(error.message));
+resetEnv(); resetBackend();
+{
+  // Exact production response seen when GoPay QRIS is not activated for the merchant.
+  midtrans.chargeError={status_code:"404",status_message:"Merchant pop id is not found"};
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,503,"an inactive QRIS channel is a merchant setup problem, not a server error");
+  assert.equal(res.body.error,"QRIS Midtrans belum aktif untuk merchant ini.");
+  assert.equal(db.payments[0].provider,"manual","the payment row stays untouched");
 }
 
 console.warn=originalConsole.warn; console.error=originalConsole.error;

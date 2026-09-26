@@ -53,7 +53,7 @@ assert.match(storefront,/fetch\("\/api\/payments\/create"/);
 assert.match(storefront,/payment!=="COD"/);
 assert.match(storefront,/result\.paymentToken/);
 assert.match(storefront,/paymentIntentReady/);
-assert.match(storefront,/Pesanan berhasil dibuat, tetapi instruksi pembayaran belum dapat disiapkan/);
+assert.match(storefront,/Pesanan berhasil dibuat, tetapi pembayaran belum dapat disiapkan[^"]*buka menu Pesanan/);
 assert.match(storefront,/paymentUrl/);
 assert.match(storefront,/Scan QRIS/);
 assert.match(midtrans,/api\.sandbox\.midtrans\.com/);
