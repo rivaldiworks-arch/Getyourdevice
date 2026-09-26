@@ -75,3 +75,5 @@ body{background:#fff;color:#171717;font-family:Arial,"Helvetica Neue",sans-serif
 .va-bank-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:12px 0}
 .va-bank-choices button{min-height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;font-weight:700;color:var(--navy)}
 
+a.primary,a.secondary{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.payment-checkout-link{margin:14px 0 6px}

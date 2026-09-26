@@ -1,6 +1,6 @@
 "use strict";
 const { checkoutPaymentMethods } = require("./_checkout");
-const { VA_BANKS, enabledVaBanks, QRIS_MAX_AMOUNT } = require("./payments/_midtrans");
+const { VA_BANKS, enabledVaBanks, midtransIntegration, QRIS_MAX_AMOUNT } = require("./payments/_midtrans");
 
 module.exports = function handler(req, res) {
   if (req.method !== "GET") return res.status(405).setHeader("Allow", "GET").json({ error:"Method not allowed" });
@@ -14,7 +14,8 @@ module.exports = function handler(req, res) {
     checkout={
       paymentMethods:checkoutPaymentMethods(),
       vaBanks:enabledVaBanks().map(code=>({code,name:VA_BANKS[code]})),
-      qrisMaxAmount:QRIS_MAX_AMOUNT
+      qrisMaxAmount:QRIS_MAX_AMOUNT,
+      integration:midtransIntegration()
     };
   } catch(error) {
     console.error("Checkout configuration invalid",{message:error.message});

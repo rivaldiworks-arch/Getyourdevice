@@ -8,11 +8,14 @@ const {
   QRIS_MAX_AMOUNT,
   createBankTransferCharge,
   createQrisCharge,
+  createSnapTransaction,
   enabledVaBanks,
   getTransactionStatus,
   isChannelNotActive,
   isMidtransNotFound,
+  isSnapUrl,
   midtransConfig,
+  midtransIntegration,
   midtransOrderId,
   normalizeTransactionStatus,
   paymentFieldsFromTransaction,
@@ -20,11 +23,17 @@ const {
   vaFieldsFromTransaction
 } = require("./_midtrans");
 
-// Payment methods charged through Midtrans, and what "ready to pay" means for each.
+// Payment methods charged through Midtrans, and what "ready to pay" means for each. A
+// Snap checkout link counts for both, so rows from either integration keep working.
 const GATEWAY_METHODS=Object.freeze({
   "QRIS":{hasInstructions:payment=>Boolean(payment.payment_url),ready:"QRIS siap dipindai."},
-  "Transfer Bank":{hasInstructions:payment=>Boolean(payment.va_number),ready:"Nomor Virtual Account siap digunakan."}
+  "Transfer Bank":{hasInstructions:payment=>Boolean(payment.va_number)||isSnapUrl(payment.payment_url),ready:"Nomor Virtual Account siap digunakan."}
 });
+const SNAP_READY="Halaman pembayaran Midtrans siap. Lanjutkan untuk memilih cara bayar.";
+
+function readyMessage(method,payment) {
+  return isSnapUrl(payment.payment_url)?SNAP_READY:GATEWAY_METHODS[method].ready;
+}
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORDER_NUMBER=/^GYD-\d{8}-\d{4}$/;
@@ -44,7 +53,7 @@ async function paymentRow(id) {
 }
 
 async function orderRow(id) {
-  const rows=await adminRows(`orders?select=id,order_number,total&id=eq.${encodeURIComponent(id)}&limit=1`);
+  const rows=await adminRows(`orders?select=id,order_number,total,customer_name,customer_email,customer_phone&id=eq.${encodeURIComponent(id)}&limit=1`);
   if(!rows?.[0]) throw new Error("Order row not found");
   return rows[0];
 }
@@ -124,7 +133,7 @@ async function syncMidtransPayment(payment,requestId) {
 // Decides what to do with the active payment row returned by the intent RPC:
 // reuse its QR/VA, report that it is already paid, charge it, or retire it and renew.
 async function reconcileGatewayPayment(payment,env,method,requestId) {
-  const {hasInstructions,ready}=GATEWAY_METHODS[method];
+  const {hasInstructions}=GATEWAY_METHODS[method];
   const isMidtransAttempt=payment.provider==="midtrans" && Boolean(payment.provider_reference);
   if(!isMidtransAttempt) return {action:"charge",payment};
 
@@ -134,13 +143,13 @@ async function reconcileGatewayPayment(payment,env,method,requestId) {
     await updatePayment(payment.id,{status:"expired"});
     return {action:"renew"};
   }
-  if(hasInstructions(payment) && !instructionsExpired(payment)) return {action:"respond",payment,message:ready};
+  if(hasInstructions(payment) && !instructionsExpired(payment)) return {action:"respond",payment,message:readyMessage(method,payment)};
 
   const synced=await syncMidtransPayment(payment,requestId);
   if(synced.status==="paid") return {action:"respond",payment:synced,message:"Pembayaran sudah diterima."};
   if(["expired","failed"].includes(synced.status)) return {action:"renew"};
   // Midtrans still accepts these instructions even though our clock says they expired.
-  if(hasInstructions(synced)) return {action:"respond",payment:synced,message:ready};
+  if(hasInstructions(synced)) return {action:"respond",payment:synced,message:readyMessage(method,synced)};
   return {action:"charge",payment:synced};
 }
 
@@ -176,10 +185,30 @@ async function chargeBankTransfer(payment,bank,reference) {
   return fields;
 }
 
-async function chargeGateway(payment,env,method,bank,requestId) {
+function snapFinishUrl() {
+  const site=String(process.env.SITE_URL||"https://getyourdevice.vercel.app").trim().replace(/\/$/,"");
+  return /^https:\/\//.test(site)?`${site}/#pesanan`:null;
+}
+
+// Snap only creates a checkout link; the transaction starts once the customer picks a
+// channel there, so the attempt stays 'unpaid' until Midtrans notifies us.
+async function chargeSnap(payment,order,method,reference) {
+  const snap=await createSnapTransaction({orderId:reference,amount:Number(payment.amount),method,order,finishUrl:snapFinishUrl()});
+  return {
+    provider:"midtrans",
+    provider_reference:reference,
+    payment_url:snap.redirect_url,
+    expires_at:new Date(Date.now()+24*60*60*1000).toISOString(),
+    provider_payload:{snap_token:snap.token}
+  };
+}
+
+async function chargeGateway(payment,env,integration,method,bank,requestId) {
   const order=await orderRow(payment.order_id);
   const reference=midtransOrderId(order.order_number,payment.id);
-  const fields=method==="QRIS"
+  const fields=integration==="snap"
+    ? await chargeSnap(payment,order,method,reference).catch(error=>{error.reference=reference;throw error;})
+    : method==="QRIS"
     ? await chargeQris(payment,order,reference,requestId)
     : await chargeBankTransfer(payment,bank,reference);
   // The webhook looks payments up by the Midtrans order_id, so pin it to what we sent.
@@ -201,7 +230,9 @@ module.exports=async function handler(req,res) {
       return res.status(400).json({error:"Identitas pembayaran tidak valid."});
     }
     const bank=body.bank==null||body.bank===""?null:String(body.bank).trim().toLowerCase();
-    if(bank && !enabledVaBanks().includes(bank)) return res.status(400).json({error:"Bank Virtual Account tidak tersedia.",code:"BANK_UNAVAILABLE"});
+    const integration=midtransIntegration();
+    // Snap lets the customer choose the bank on the Midtrans page, so a bank is ignored there.
+    if(bank && integration==="core" && !enabledVaBanks().includes(bank)) return res.status(400).json({error:"Bank Virtual Account tidak tersedia.",code:"BANK_UNAVAILABLE"});
     const identity={orderId,orderNumber,paymentToken};
 
     let data=await requestIntent(identity,requestId);
@@ -235,15 +266,26 @@ module.exports=async function handler(req,res) {
     if(method==="QRIS" && Number(outcome.payment.amount)>QRIS_MAX_AMOUNT) {
       throw new IntentError(409,"Total pesanan melebihi batas QRIS Rp10.000.000. Gunakan Transfer Bank untuk pesanan ini.","QRIS_LIMIT");
     }
-    if(method==="Transfer Bank" && !bank) {
+    if(integration==="core" && method==="Transfer Bank" && !bank) {
       throw new IntentError(400,"Pilih bank untuk mendapatkan nomor Virtual Account.","BANK_REQUIRED");
     }
 
-    payment=await chargeGateway(outcome.payment,env,method,bank,requestId);
+    try {
+      payment=await chargeGateway(outcome.payment,env,integration,method,bank,requestId);
+    } catch(error) {
+      if(!error.orderIdUsed) throw error;
+      // Midtrans accepted this attempt's Snap transaction but we never stored the link.
+      // Retire the attempt (or pick up a payment made on it) and start a fresh one.
+      const synced=await syncMidtransPayment({...outcome.payment,provider_reference:error.reference},requestId);
+      if(synced.status==="paid") return res.status(200).json({...customerSafePayment(synced),reused:true,message:"Pembayaran sudah diterima."});
+      if(!["expired","failed"].includes(synced.status)) await updatePayment(synced.id,{status:"expired"});
+      data=await requestIntent(identity,requestId);
+      payment=await chargeGateway(await paymentRow(data.id),env,integration,method,bank,requestId);
+    }
     return res.status(data.reused?200:201).json({
       ...customerSafePayment(payment),
       reused:Boolean(data.reused),
-      message:GATEWAY_METHODS[method].ready
+      message:readyMessage(method,payment)
     });
   } catch(error) {
     if(error instanceof IntentError) return res.status(error.httpStatus).json({error:error.message,...(error.code?{code:error.code}:{})});

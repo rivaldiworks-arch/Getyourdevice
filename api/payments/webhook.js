@@ -3,7 +3,7 @@ const { supabaseAdmin } = require("../_supabase");
 const { isServerConfigError } = require("../_secrets");
 const { notifyOrderPaid } = require("../_notify");
 const { canTransition } = require("./_provider");
-const { getTransactionStatus, normalizeMidtransStatus, verifyNotificationSignature } = require("./_midtrans");
+const { getTransactionStatus, isStoreReference, normalizeMidtransStatus, verifyNotificationSignature } = require("./_midtrans");
 
 async function adminRows(path,options={}) {
   const response=await supabaseAdmin(path,options);
@@ -23,6 +23,12 @@ module.exports=async function handler(req,res) {
   try {
     const payload=typeof req.body==="string"?JSON.parse(req.body):req.body||{};
     if(!verifyNotificationSignature(payload)) return res.status(401).json({error:"Invalid webhook signature"});
+    // The Midtrans account also receives Payment Link and dashboard transactions. They are
+    // not store orders; acknowledge them so Midtrans stops retrying.
+    if(!isStoreReference(payload.order_id)) {
+      console.warn("Ignoring Midtrans notification for a non-store order",{orderId:String(payload.order_id).slice(0,64)});
+      return res.status(200).json({ok:true,ignored:true});
+    }
 
     // Challenge Midtrans after signature verification and use the GET Status result as
     // the authoritative state instead of trusting the incoming body alone.

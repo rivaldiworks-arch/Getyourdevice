@@ -40,6 +40,18 @@ const QRIS_MAX_AMOUNT=10000000;
 const VA_BANKS=Object.freeze({bni:"BNI",bri:"BRI",mandiri:"Mandiri",permata:"Permata",cimb:"CIMB Niaga"});
 const DEFAULT_VA_BANKS="bni,bri,mandiri,permata,cimb";
 const VA_EXPIRY_HOURS=24;
+// How the store charges Midtrans. "snap" (default) sends the customer to the Midtrans
+// hosted payment page, which works for every channel activated on the account. "core"
+// issues QR/VA numbers directly through Core API, which Midtrans enables per channel.
+const INTEGRATIONS=Object.freeze(["snap","core"]);
+const SNAP_EXPIRY_HOURS=24;
+// Snap channel names per store payment method. A channel the merchant has not activated
+// is simply left off the Snap page by Midtrans.
+const SNAP_VA_CHANNELS=Object.freeze({bni:"bni_va",bri:"bri_va",mandiri:"echannel",permata:"permata_va",cimb:"cimb_va"});
+const SNAP_QRIS_CHANNELS=Object.freeze(["other_qris","gopay","shopeepay"]);
+// Store order_ids sent to Midtrans. Anything else (Payment Links, manual dashboard
+// transactions) belongs to the same merchant account but not to this store.
+const STORE_REFERENCE=/^GYD-\d{8}-\d{4}-[0-9a-f]{12}$/;
 
 // Banks offered to customers, in display order. MIDTRANS_VA_BANKS lets the store drop a
 // bank whose channel is not active without a code change.
@@ -61,12 +73,33 @@ function midtransConfig() {
   if(env==="production" && vercelEnv && vercelEnv!=="production") throw new ServerConfigError(`MIDTRANS_ENV=production is not allowed on VERCEL_ENV=${vercelEnv}`);
   const qrisAcquirer=String(process.env.MIDTRANS_QRIS_ACQUIRER||"gopay").trim().toLowerCase();
   if(!QRIS_ACQUIRERS.includes(qrisAcquirer)) throw new ServerConfigError(`MIDTRANS_QRIS_ACQUIRER must be one of: ${QRIS_ACQUIRERS.join(", ")}`);
+  const integration=midtransIntegration();
   return {
     serverKey,
     env,
     qrisAcquirer,
-    baseUrl:env==="production"?"https://api.midtrans.com":"https://api.sandbox.midtrans.com"
+    integration,
+    baseUrl:env==="production"?"https://api.midtrans.com":"https://api.sandbox.midtrans.com",
+    snapUrl:env==="production"?"https://app.midtrans.com":"https://app.sandbox.midtrans.com"
   };
+}
+
+function midtransIntegration() {
+  const integration=String(process.env.MIDTRANS_INTEGRATION||"snap").trim().toLowerCase();
+  if(!INTEGRATIONS.includes(integration)) throw new ServerConfigError(`MIDTRANS_INTEGRATION must be one of: ${INTEGRATIONS.join(", ")}`);
+  return integration;
+}
+
+function isStoreReference(orderId) {
+  return STORE_REFERENCE.test(String(orderId||""));
+}
+
+// A Snap redirect_url, as opposed to a Core API QR image URL.
+function isSnapUrl(value) {
+  try {
+    const url=new URL(String(value||""));
+    return url.protocol==="https:" && ["app.midtrans.com","app.sandbox.midtrans.com"].includes(url.hostname) && url.pathname.startsWith("/snap/");
+  } catch { return false; }
 }
 
 // Midtrans order_id must be unique per charge and cannot be reused after a QR expires.
@@ -202,6 +235,53 @@ async function createBankTransferCharge({orderId,amount,bank}) {
   return midtransCharge(body,"Virtual Account");
 }
 
+function snapChannels(method) {
+  if(method==="QRIS") return [...SNAP_QRIS_CHANNELS];
+  if(method==="Transfer Bank") return enabledVaBanks().map(bank=>SNAP_VA_CHANNELS[bank]).concat("other_va");
+  throw new Error("Unsupported Snap payment method");
+}
+
+function snapCustomer(order={}) {
+  const customer={};
+  const name=String(order.customer_name||"").trim().slice(0,255);
+  const email=String(order.customer_email||"").trim();
+  const phone=String(order.customer_phone||"").trim().slice(0,19);
+  if(name) customer.first_name=name;
+  if(email) customer.email=email;
+  if(phone) customer.phone=phone;
+  return customer;
+}
+
+// Creates a Snap transaction and returns {token, redirect_url}. Nothing is charged
+// until the customer picks a channel on the Snap page; that sends a "pending"
+// notification carrying this order_id.
+async function createSnapTransaction({orderId,amount,method,order,finishUrl=null}) {
+  const {serverKey,snapUrl}=midtransConfig();
+  const body={
+    transaction_details:{order_id:orderId,gross_amount:Math.round(Number(amount))},
+    enabled_payments:snapChannels(method),
+    customer_details:snapCustomer(order),
+    expiry:{unit:"hour",duration:SNAP_EXPIRY_HOURS}
+  };
+  if(finishUrl) body.callbacks={finish:finishUrl};
+  const response=await fetch(`${snapUrl}/snap/v1/transactions`,{
+    method:"POST",
+    headers:{Accept:"application/json",Authorization:authHeader(serverKey),"Content-Type":"application/json"},
+    body:JSON.stringify(body)
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok || !data.redirect_url) {
+    const messages=Array.isArray(data.error_messages)?data.error_messages.join("; "):"";
+    const error=new Error(messages||data.status_message||"Midtrans Snap transaction failed");
+    error.status=response.status;
+    error.midtrans={status_code:String(response.status),error_messages:data.error_messages||null};
+    // Retrying an attempt whose Snap transaction was already created.
+    error.orderIdUsed=/order_id.*(sudah digunakan|already (been )?(used|taken))/i.test(messages);
+    throw error;
+  }
+  return data;
+}
+
 // Midtrans reports expiry_time as "YYYY-MM-DD HH:mm:ss" in Western Indonesia Time.
 function parseMidtransTime(value) {
   const match=String(value||"").match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})$/);
@@ -263,11 +343,15 @@ module.exports={
   VA_BANKS,
   createBankTransferCharge,
   createQrisCharge,
+  createSnapTransaction,
   enabledVaBanks,
   getTransactionStatus,
   isChannelNotActive,
   isMidtransNotFound,
+  isSnapUrl,
+  isStoreReference,
   midtransConfig,
+  midtransIntegration,
   midtransOrderId,
   normalizeMidtransStatus,
   normalizeTransactionStatus,
