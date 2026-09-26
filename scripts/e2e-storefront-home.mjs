@@ -96,7 +96,7 @@ for(const width of [1440,834,390]){
   assert.deepEqual(order,["heroTitle","categoryTitle","productsSection","dealTitle","latestPhonesTitle","laptopTitle","popularTitle","whyTitle"]);
   assert.equal(await page.locator(".benefits").count(),0,"service promises are not repeated above the fold");
   assert.equal(await page.locator(".trust-section .why-grid article").count(),4);
-  assert.ok(await page.locator(".trust-section .chip-list li").count()>=8,"payment and courier options are listed");
+  assert.ok(await page.locator(".trust-section .brand-tile").count()>=15,"payment and courier options are listed");
   // Featured order puts buyable products first.
   const stocks=await page.evaluate(()=>[...document.querySelectorAll("#productGrid .product-card")].map(card=>!card.querySelector("button[data-add]")?.disabled));
   assert.deepEqual(stocks,[...stocks].sort((x,y)=>Number(y)-Number(x)),"out-of-stock products come after the ones in stock");
@@ -116,6 +116,16 @@ for(const width of [1440,834,390]){
   await page.waitForTimeout(400);
   assert.equal([...imageRequests.keys()].some(url=>url.includes("placehold")),false,"no third-party placeholder requests");
   assert.ok([...imageRequests.values()].every(count=>count<=4),`broken images are not retried in a loop: ${JSON.stringify([...imageRequests.values()])}`);
+  // Every payment and courier logo is served and decodes; a broken logo would show as an empty tile.
+  const logos=page.locator(".trust-section .brand-tile img");
+  assert.ok(await logos.count()>=7,"bank, e-wallet and courier logos are shown");
+  for(const img of await logos.all()){
+    await img.scrollIntoViewIfNeeded();
+    await page.waitForFunction(el=>el.complete,await img.elementHandle());
+    const {src,alt,width}=await img.evaluate(el=>({src:el.getAttribute("src"),alt:el.alt,width:el.naturalWidth}));
+    assert.ok(width>0,`${src} loads`);
+    assert.ok(alt.trim(),`${src} has alt text`);
+  }
   // Header actions still work.
   await page.locator('.header-actions [data-action="open-cart"]').click();
   await page.waitForSelector("#cartDrawer:not(.hidden)");

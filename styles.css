@@ -348,3 +348,11 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
 .product-heading{align-items:end}
 @media(max-width:900px){.assurance-strip{grid-template-columns:1fr}}
 @media(max-width:680px){.category-section,.products-section,.showcase-section,.trust-section{padding-block:40px}.weekly-deal,.feature-story{margin-block:36px}.trust-section .why-grid article{padding:18px}}
+/* Payment and courier logos: one tile size so mixed logo and text tiles read as one row */
+.brand-tiles{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.brand-tile{display:flex;align-items:center;justify-content:center;min-width:96px;height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:0 14px}
+.brand-tile img{display:block;width:auto;max-width:92px;height:22px;object-fit:contain}
+.brand-tile-text{color:var(--ink);font-size:14px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.brand-tile-store{border-style:dashed;color:var(--muted);font-size:13px;font-weight:600}
+.assurance-note{margin:12px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+@media(max-width:600px){.brand-tile{min-width:0;flex:1 1 calc(33.333% - 8px);height:44px;padding:0 10px}.brand-tile img{max-width:100%;height:18px}.brand-tile-text{font-size:13px}.brand-tile-store{flex-basis:100%}}
