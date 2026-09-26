@@ -32,6 +32,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 17. `supabase/migrations/017_revoke_legacy_checkout_rpcs.sql` — mencabut akses `anon`/`authenticated` ke RPC checkout lama (`create_storefront_order`, `create_storefront_order_v2`) dan `next_order_number()`. Sebelumnya siapa pun dengan anon key publik dapat membuat order langsung ke database, melewati rate limit, validasi ongkir, idempotency, dan allow-list metode pembayaran, sekaligus mengurangi stok. Tidak dipakai kode sejak Phase 7C.
 18. `supabase/migrations/018_restore_stock_on_cancel.sql` — mengembalikan stok saat order dibatalkan dari `pending`/`confirmed`/`processing` (tepat sekali, ditandai `orders.stock_restored_at`). Order yang sudah dikirim/selesai tidak di-restock. Membuka kembali order yang dibatalkan memotong stok lagi dan ditolak bila stok tidak cukup. Termasuk perbaikan satu kali untuk order yang sudah dibatalkan sebelum trigger ada.
 19. `supabase/migrations/019_virtual_account_payments.sql` — menambah `payments.va_bank`, `va_number`, dan `biller_code` untuk instruksi Transfer Bank via Midtrans Virtual Account. Additive. **Jalankan 019 sebelum deploy kode Phase 8A.**
+20. `supabase/migrations/020_order_status_flow.sql` — status pesanan mengikuti alur (transisi di luar alur ditolak database), COD hanya untuk Ambil di Toko, dan pembatalan otomatis pesanan QRIS/Transfer Bank yang tidak dibayar (pg_cron tiap 15 menit, stok dikembalikan). **Jalankan 020 sebelum deploy kode Phase 8C.**
 
 ## Payment infrastructure (Phase 5)
 
@@ -187,6 +188,25 @@ Storefront sekarang membuat idempotency key acak 256-bit untuk satu logical chec
 Payment capability dan customer order-access capability diturunkan secara deterministik dengan HMAC server-side dari idempotency key. Karena itu retry terhadap order yang sama menghasilkan capability token yang sama tanpa menyimpan raw token di database. Existing payment intent flow sudah bersifat reuse-per-order, sehingga replay checkout tidak membuat payment intent aktif kedua.
 
 Setelah response order diterima dengan sukses, browser menghapus idempotency key checkout agar transaksi berikutnya memakai key baru.
+
+## Alur status pesanan (Phase 8C)
+
+Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status bebas:
+
+| Dari | Ke | Pemicu |
+|---|---|---|
+| pending | confirmed | Pembayaran Midtrans lunas (webhook), atau admin **Konfirmasi Pesanan** untuk COD |
+| pending | cancelled | Otomatis bila tidak dibayar sampai batas 24 jam dan tidak ada link Snap/VA yang masih berlaku; atau admin |
+| confirmed | processing | Admin klik **Buat Pengiriman Biteship**, kurir dialokasikan (webhook Biteship) |
+| processing | shipped | Paket diambil kurir (webhook Biteship) |
+| shipped | completed | Paket diterima (webhook Biteship) |
+| confirmed / pending COD | completed | Pesanan **Ambil di Toko**: admin **Tandai Sudah Diambil** |
+| confirmed | shipped | Pesanan dengan tarif cadangan (tanpa Biteship): admin **Tandai Sudah Dikirim** |
+
+- `completed` dan `cancelled` bersifat final. Trigger `orders_guard_status` menolak lompatan lain (`INVALID_ORDER_STATUS_TRANSITION`) untuk semua penulis: webhook, admin, maupun SQL lewat API. Webhook Biteship melewati event yang tidak memajukan alur, tanpa gagal. Pengiriman yang dibatalkan kurir hanya dicatat di `shipping_status`; pesanan (yang biasanya sudah dibayar) tidak ikut dibatalkan.
+- Panel admin **Alur pesanan** hanya menampilkan langkah yang sah untuk tahap pesanan itu, beserta penjelasan langkah berikutnya.
+- **COD hanya untuk Ambil di Toko** (bayar tunai saat mengambil). Kurir tidak bisa dibooking sebelum pesanan dibayar dan tidak diinstruksikan menagih tunai, sehingga COD via kurir tidak dapat dipenuhi. Checkout menonaktifkan COD untuk opsi kurir; database menolaknya (`COD_REQUIRES_PICKUP`).
+- Pesanan yang dibatalkan otomatis diberi `orders.auto_cancelled_at`. Pembayaran yang tetap masuk setelahnya tetap dicatat dan email penjual menandainya **PERLU REFUND**.
 
 ## Verifikasi & CI
 

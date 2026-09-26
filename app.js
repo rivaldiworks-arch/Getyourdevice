@@ -419,9 +419,12 @@ function applyPaymentAvailability(){
   const limit=Number(checkoutConfig?.qrisMaxAmount)||QRIS_MAX_AMOUNT;
   const total=cart.length?checkoutTotals().total:0;
   const overLimit=total>limit;
+  // COD is cash on pickup only: a courier cannot be booked before payment, nor asked to collect cash.
+  const shipping=selectedShipping();
+  const codBlocked=Boolean(shipping)&&shipping.method!=="pickup";
   document.querySelectorAll("[data-payment-option]").forEach(option=>{
     const method=option.dataset.paymentOption,input=option.querySelector("input");
-    const offered=methods.includes(method),blocked=method==="QRIS"&&overLimit;
+    const offered=methods.includes(method),blocked=(method==="QRIS"&&overLimit)||(method==="COD"&&codBlocked);
     option.classList.toggle("hidden",!offered);
     option.classList.toggle("is-disabled",blocked);
     if(input)input.disabled=!offered||blocked;
@@ -429,6 +432,7 @@ function applyPaymentAvailability(){
   const snap=snapCheckout();
   const note=$("qrisOptionNote");
   if(note)note.textContent=overLimit?`Tidak tersedia untuk total di atas ${money(limit)} (batas QRIS). Gunakan Transfer Bank.`:snap?"Bayar dengan QRIS, GoPay, atau ShopeePay di halaman pembayaran Midtrans.":"Bayar instan dengan e-wallet atau mobile banking. QR tampil setelah pesanan dibuat.";
+  const codNote=$("codOptionNote");if(codNote)codNote.textContent=codBlocked?"Hanya untuk pengiriman Ambil di Toko. Kembali ke langkah pengiriman untuk memilihnya.":"Bayar tunai saat mengambil pesanan di toko.";
   const qrisLabel=$("qrisOptionLabel");if(qrisLabel)qrisLabel.textContent=snap?"QRIS / E-Wallet":"QRIS";
   const vaNote=$("vaOptionNote");if(vaNote)vaNote.textContent=snap?"Pilih bank di halaman pembayaran Midtrans setelah pesanan dibuat. Pembayaran terkonfirmasi otomatis.":"Nomor Virtual Account muncul setelah pesanan dibuat. Pembayaran terkonfirmasi otomatis.";
   const checked=document.querySelector("input[name='payment']:checked");

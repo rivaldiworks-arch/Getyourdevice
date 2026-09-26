@@ -3,6 +3,7 @@
 const { supabaseAdmin } = require("../_supabase");
 const { requireAdmin } = require("../_adminAuth");
 const { retrieveTracking } = require("./_biteship");
+const { orderStatusForShipment } = require("../_orderStatus");
 
 async function rows(path){
   const response=await supabaseAdmin(path);
@@ -16,14 +17,6 @@ async function patchOrder(id,body){
   });
   if(!response.ok) throw new Error("Tracking update failed");
 }
-function orderStatusForShipping(shippingStatus,current){
-  const s=String(shippingStatus||"").toLowerCase();
-  if(s==="delivered") return "completed";
-  if(["picked","dropping_off","return_in_transit","returned","disposed"].includes(s)) return "shipped";
-  if(["confirmed","allocated","picking_up"].includes(s) && ["pending","confirmed"].includes(String(current||"").toLowerCase())) return "processing";
-  if(s==="cancelled") return "cancelled";
-  return current;
-}
 
 module.exports=async function handler(req,res){
   if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
@@ -32,7 +25,7 @@ module.exports=async function handler(req,res){
     const body=typeof req.body==="string"?JSON.parse(req.body):req.body||{};
     const orderId=String(body.orderId||"").trim();
     if(!orderId) return res.status(400).json({error:"Order ID wajib diisi."});
-    const order=(await rows(`orders?select=id,status,shipping_tracking_id,shipping_order_id&id=eq.${encodeURIComponent(orderId)}&limit=1`))[0];
+    const order=(await rows(`orders?select=id,status,payment_method,shipping_method,shipping_tracking_id,shipping_order_id&id=eq.${encodeURIComponent(orderId)}&limit=1`))[0];
     if(!order) return res.status(404).json({error:"Pesanan tidak ditemukan."});
     if(!order.shipping_tracking_id) return res.status(409).json({error:"Tracking ID Biteship belum tersedia."});
 
@@ -41,9 +34,10 @@ module.exports=async function handler(req,res){
       shipping_status:tracking.status||null,
       tracking_number:tracking.waybill_id||null,
       tracking_url:tracking.link||null,
-      shipping_last_event_at:new Date().toISOString(),
-      status:orderStatusForShipping(tracking.status,order.status)
+      shipping_last_event_at:new Date().toISOString()
     };
+    const status=orderStatusForShipment(tracking.status,order);
+    if(status!==order.status) patch.status=status;
     if(tracking.status==="delivered") patch.delivered_at=new Date().toISOString();
     if(["picked","dropping_off"].includes(String(tracking.status||"").toLowerCase())) patch.shipped_at=new Date().toISOString();
     await patchOrder(order.id,patch);
