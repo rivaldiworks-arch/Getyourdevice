@@ -89,7 +89,48 @@ async function applyAdminRoute(initial=false){
     await loadProducts();
   }finally{applyingAdminRoute=false;}
 }
-function showLogin(message=""){adminReady=false;$("dashboardView").classList.add("hidden");$("loginView").classList.remove("hidden");$("loginError").textContent=message;$("loginError").classList.toggle("hidden",!message);}
+// Login card views: sign in, request a reset link, and set a new password from it.
+const AUTH_VIEWS={
+  login:{form:"loginForm",title:"Masuk ke dashboard",subtitle:"Gunakan akun yang telah diberi role <strong>admin</strong>."},
+  forgot:{form:"forgotForm",title:"Lupa password",subtitle:"Masukkan email admin. Kami kirimkan link untuk membuat password baru."},
+  reset:{form:"resetForm",title:"Buat password baru",subtitle:"Minimal 12 karakter, dengan huruf besar, huruf kecil, angka, dan simbol."}
+};
+function setMessage(id,text){const element=$(id);if(!element)return;element.textContent=text||"";element.classList.toggle("hidden",!text);}
+function showAuthView(name){
+  adminReady=false;$("dashboardView").classList.add("hidden");$("loginView").classList.remove("hidden");
+  const view=AUTH_VIEWS[name];
+  Object.values(AUTH_VIEWS).forEach(entry=>$(entry.form).classList.toggle("hidden",entry!==view));
+  $("loginTitle").textContent=view.title;$("loginSubtitle").innerHTML=view.subtitle;
+  document.querySelectorAll("[data-toggle-password]").forEach(button=>setPasswordVisible(button,false));
+}
+function showLogin(message="",notice=""){showAuthView("login");setMessage("loginError",message);setMessage("loginNotice",notice);}
+function setPasswordVisible(button,visible){
+  const input=$(button.dataset.togglePassword);if(!input)return;
+  input.type=visible?"text":"password";
+  button.setAttribute("aria-pressed",String(visible));
+  button.setAttribute("aria-label",visible?"Sembunyikan password":"Tampilkan password");
+}
+// Supabase puts the recovery session (or an error) in the URL fragment of the reset link.
+function authRedirectFromHash(hash){
+  const params=new URLSearchParams(String(hash||"").replace(/^#/,""));
+  if(params.get("error")||params.get("error_code")) return {error:params.get("error_code")||params.get("error"),description:params.get("error_description")||""};
+  if(params.get("type")==="recovery"&&params.get("access_token")) return {recovery:{access_token:params.get("access_token"),refresh_token:params.get("refresh_token"),expires_in:Number(params.get("expires_in"))||3600}};
+  return null;
+}
+function passwordProblem(password){
+  if(password.length<12)return "Password minimal 12 karakter.";
+  if(!/[a-z]/.test(password)||!/[A-Z]/.test(password)||!/\d/.test(password)||!/[^A-Za-z0-9]/.test(password))return "Password harus berisi huruf besar, huruf kecil, angka, dan simbol.";
+  return "";
+}
+function authErrorMessage(error){
+  const text=String(error?.message||"");
+  if(/different from the old password/i.test(text))return "Password baru harus berbeda dari password lama.";
+  if(/weak|pwned|characters/i.test(text))return "Password terlalu lemah. Gunakan minimal 12 karakter dengan huruf besar, huruf kecil, angka, dan simbol.";
+  if(/rate limit|too many|seconds/i.test(text))return "Terlalu banyak permintaan. Tunggu beberapa menit lalu coba lagi.";
+  if(/expired|invalid.*jwt|jwt expired/i.test(text))return "Link reset sudah kedaluwarsa. Minta link baru.";
+  return text||"Permintaan gagal. Coba lagi.";
+}
+let recoverySession=null;
 async function authenticate(email,password){return request("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password})});}
 async function refreshSession(refreshToken){return request("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:refreshToken})});}
 function storeSession(value){session=value;if(value)localStorage.setItem("gyd_admin_session",JSON.stringify(value));else localStorage.removeItem("gyd_admin_session");}
@@ -266,6 +307,36 @@ async function refreshShipmentTracking(id){
 }
 
 $("loginForm").addEventListener("submit",async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;$("loginError").classList.add("hidden");try{const candidate=await authenticate($("email").value.trim(),$("password").value);const profile=await verifyAdmin(candidate);storeSession(candidate);await enterDashboard(profile);}catch(error){storeSession(null);showLogin(error.message);}finally{button.disabled=false;}});
+$("forgotPasswordLink").addEventListener("click",()=>{$("forgotEmail").value=$("email").value.trim();setMessage("forgotMessage","");setMessage("forgotError","");showAuthView("forgot");$("forgotEmail").focus();});
+document.querySelectorAll("[data-back-to-login]").forEach(button=>button.addEventListener("click",()=>showLogin()));
+document.querySelectorAll("[data-toggle-password]").forEach(button=>button.addEventListener("click",()=>{setPasswordVisible(button,button.getAttribute("aria-pressed")!=="true");$(button.dataset.togglePassword).focus();}));
+$("forgotForm").addEventListener("submit",async event=>{
+  event.preventDefault();const button=event.submitter;button.disabled=true;setMessage("forgotError","");setMessage("forgotMessage","");
+  try{
+    // The link returns to this page; add it to Supabase Auth > URL Configuration > Redirect URLs.
+    const redirect=`${location.origin}${location.pathname}`;
+    await request(`/auth/v1/recover?redirect_to=${encodeURIComponent(redirect)}`,{method:"POST",body:JSON.stringify({email:$("forgotEmail").value.trim()})});
+    // Same message whether or not the email exists, so the form does not reveal accounts.
+    setMessage("forgotMessage","Jika email terdaftar, link untuk membuat password baru sudah dikirim. Cek kotak masuk dan folder Spam. Link berlaku 1 jam.");
+  }catch(error){setMessage("forgotError",authErrorMessage(error));}
+  finally{button.disabled=false;}
+});
+$("resetForm").addEventListener("submit",async event=>{
+  event.preventDefault();const button=event.submitter;setMessage("resetError","");
+  const password=$("newPassword").value,confirmation=$("confirmPassword").value;
+  const problem=passwordProblem(password)||(password!==confirmation?"Konfirmasi password tidak sama.":"");
+  if(problem){setMessage("resetError",problem);return;}
+  if(!recoverySession){showAuthView("forgot");setMessage("forgotError","Link reset sudah tidak berlaku. Minta link baru.");return;}
+  button.disabled=true;
+  try{
+    const user=await request("/auth/v1/user",{method:"PUT",headers:{Authorization:`Bearer ${recoverySession.access_token}`},body:JSON.stringify({password})});
+    const candidate={...recoverySession,user};recoverySession=null;
+    $("newPassword").value="";$("confirmPassword").value="";
+    try{const profile=await verifyAdmin(candidate);storeSession(candidate);toast("Password baru tersimpan.");await enterDashboard(profile);}
+    catch{session=null;showLogin("","Password baru tersimpan. Silakan masuk.");$("email").value=user?.email||"";}
+  }catch(error){setMessage("resetError",authErrorMessage(error));}
+  finally{button.disabled=false;}
+});
 $("signOut").addEventListener("click",async()=>{try{await request("/auth/v1/logout",{method:"POST"});}catch{}storeSession(null);session=null;showLogin("Anda telah keluar.");});
 $("addProduct").addEventListener("click",()=>navigateAdminRoute("produk/baru"));$("closeDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("cancelDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("productDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("produk");});$("productForm").addEventListener("submit",saveProduct);$("productSearch").addEventListener("input",renderProducts);$("statusFilter").addEventListener("change",renderProducts);
 $("productTable").addEventListener("click",async event=>{const edit=event.target.dataset.edit,toggle=event.target.dataset.toggle,del=event.target.dataset.delete;if(edit)navigateAdminRoute(`produk/${edit}`);if(toggle){const p=products.find(item=>item.id===toggle);await updateProduct(toggle,{is_active:!p.is_active},p.is_active?"Produk dinonaktifkan.":"Produk diaktifkan.");}if(del&&confirm("Hapus produk ini secara permanen? Tindakan ini tidak dapat dibatalkan.")){try{const product=products.find(item=>item.id===del);await request(`/rest/v1/products?id=eq.${encodeURIComponent(del)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});let warning=false;try{if(product?.image_url)await removeStoredImage(product.image_url);}catch(error){console.error("Deleted product image cleanup failed",error);warning=true;}toast(warning?"Produk dihapus, tetapi file gambar belum dapat dihapus.":"Produk dihapus.");await loadProducts();}catch(error){toast(error.message);}}});
@@ -279,4 +350,13 @@ document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener(
 window.addEventListener("hashchange",queueAdminRouteApply);
 window.addEventListener("popstate",queueAdminRouteApply);
 
-(async()=>{try{config=await fetch("/api/config").then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);return data;});const saved=JSON.parse(localStorage.getItem("gyd_admin_session")||"null");if(!saved)return showLogin();const current=await refreshSession(saved.refresh_token);const profile=await verifyAdmin(current);storeSession(current);await enterDashboard(profile);}catch(error){storeSession(null);showLogin(error.message);}})();
+(async()=>{try{config=await fetch("/api/config").then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);return data;});
+  // A password reset link lands here with tokens in the fragment: strip them from the
+  // address bar and history right away, then ask for the new password.
+  const redirect=authRedirectFromHash(location.hash);
+  if(redirect){
+    history.replaceState(null,"",location.pathname+location.search);
+    if(redirect.recovery){recoverySession=redirect.recovery;showAuthView("reset");$("newPassword").focus();return;}
+    showAuthView("forgot");setMessage("forgotError",/expired/i.test(redirect.error+redirect.description)?"Link reset sudah kedaluwarsa atau sudah dipakai. Minta link baru.":"Link reset tidak valid. Minta link baru.");return;
+  }
+  const saved=JSON.parse(localStorage.getItem("gyd_admin_session")||"null");if(!saved)return showLogin();const current=await refreshSession(saved.refresh_token);const profile=await verifyAdmin(current);storeSession(current);await enterDashboard(profile);}catch(error){storeSession(null);showLogin(error.message);}})();
