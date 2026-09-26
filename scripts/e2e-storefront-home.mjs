@@ -20,7 +20,7 @@ await new Promise(r=>server.listen(0,"127.0.0.1",r));
 const origin=`http://127.0.0.1:${server.address().port}`;
 const categories=["Smartphone","Laptop","Tablet","Smartwatch","Audio","Accessories"];
 const products=categories.flatMap((category,c)=>[0,1].map(n=>({id:`00000000-0000-4000-8000-0000000001${c}${n}`,name:`${category} ${n+1}`,brand:"Brand",category,
-  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:null,stock:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true})));
+  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:null,stock:c===0&&n===0?0:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true})));
 const errors=[];
 const browser=await chromium.launch();
 const luminance=rgb=>{const [r,g,b]=rgb.match(/\d+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4;});return .2126*r+.7152*g+.0722*b;};
@@ -82,6 +82,7 @@ for(const width of [1440,834,390]){
   assert.ok(x1<x0,"the product strip moves");
   await track.locator('.marquee-item:not([aria-hidden="true"])').first().click({force:true});
   await page.waitForSelector("#productModal:not(.hidden)");
+  assert.doesNotMatch(await page.locator("#productDetail").innerText(),/ulasan|★/,"no invented rating in product detail");
   await page.keyboard.press("Escape");
   await page.locator('#productModal [data-action="close-product"]').click().catch(()=>{});
   // Wordmark: "getyour" light + "device" bold blue, in the brand font.
@@ -90,6 +91,17 @@ for(const width of [1440,834,390]){
   assert.equal(logo.text,"getyourdevice");
   assert.deepEqual([logo.aWeight,logo.bWeight,logo.bColor],["300","700","rgb(47, 111, 219)"]);
   assert.match(logo.family,/^"?Outfit/);
+  // Scroll order: products come right after categories; reassurance sits just above the footer.
+  const order=await page.evaluate(()=>[...document.querySelectorAll("#storeView > section")].map(section=>section.id||section.getAttribute("aria-labelledby")));
+  assert.deepEqual(order,["heroTitle","categoryTitle","productsSection","dealTitle","latestPhonesTitle","laptopTitle","popularTitle","whyTitle"]);
+  assert.equal(await page.locator(".benefits").count(),0,"service promises are not repeated above the fold");
+  assert.equal(await page.locator(".trust-section .why-grid article").count(),4);
+  assert.ok(await page.locator(".trust-section .chip-list li").count()>=8,"payment and courier options are listed");
+  // Featured order puts buyable products first.
+  const stocks=await page.evaluate(()=>[...document.querySelectorAll("#productGrid .product-card")].map(card=>!card.querySelector("button[data-add]")?.disabled));
+  assert.deepEqual(stocks,[...stocks].sort((x,y)=>Number(y)-Number(x)),"out-of-stock products come after the ones in stock");
+  // No invented social proof: ratings and review counts are not shown until real reviews exist.
+  assert.equal(await page.locator("#productGrid .rating, #productGrid .product-card :text('ulasan')").count(),0,"no rating or review count on product cards");
   // One brand treatment everywhere: no leftover uppercase GETYOURDEVICE text, and the gyd mark.
   assert.equal(await page.evaluate(()=>document.body.innerText.includes("GETYOURDEVICE")),false,"no uppercase brand text left on the page");
   assert.equal(await page.locator(".brand .brand-mark").first().innerText(),"gyd");
