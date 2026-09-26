@@ -18,7 +18,9 @@ assert.match(migration,/SHIPPING_QUOTE_CART_MISMATCH/);
 assert.match(migration,/'reused',true/);
 
 assert.match(orders,/Idempotency-Key|idempotency-key/i);
-assert.match(orders,/createHmac/);
+// Capabilities are derived with the dedicated server HMAC secret (Phase 7D).
+assert.match(orders,/serverHmac\(purpose,idempotencyKey\)/);
+assert.doesNotMatch(orders,/SUPABASE_SERVICE_ROLE_KEY/);
 assert.match(orders,/rpc\/create_storefront_order_v5/);
 assert.match(orders,/p_cart_fingerprint/);
 assert.match(orders,/Idempotency-Replayed/);

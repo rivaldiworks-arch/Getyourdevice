@@ -1,5 +1,7 @@
 "use strict";
 const { supabaseAdmin } = require("../_supabase");
+const { isServerConfigError } = require("../_secrets");
+const { notifyOrderPaid } = require("../_notify");
 const { canTransition } = require("./_provider");
 const { getTransactionStatus, normalizeMidtransStatus, verifyNotificationSignature } = require("./_midtrans");
 
@@ -42,6 +44,14 @@ module.exports=async function handler(req,res) {
     }
 
     const nextStatus=normalizeMidtransStatus(transaction.transaction_status);
+    if(nextStatus===payment.status) {
+      // Midtrans retries notifications. Re-writing the same status would re-fire the
+      // order snapshot trigger and could overwrite a newer attempt's status on the order.
+      // A retried 'paid' still re-attempts the seller email if an earlier send failed;
+      // notifyOrderPaid is idempotent per order.
+      if(nextStatus==="paid") await notifyOrderPaid(payment.order_id);
+      return res.status(200).json({ok:true,duplicate:true});
+    }
     if(!canTransition(payment.status,nextStatus)) {
       console.warn("Ignoring stale Midtrans status",{orderId,current:payment.status,next:nextStatus});
       return res.status(200).json({ok:true,ignored:true});
@@ -62,11 +72,12 @@ module.exports=async function handler(req,res) {
       throw new Error(data?.message||data?.error||`Payment update failed (${update.status})`);
     }
 
+    if(nextStatus==="paid") await notifyOrderPaid(payment.order_id);
     return res.status(200).json({ok:true,paymentStatus:nextStatus});
   } catch(error) {
     if(error instanceof SyntaxError) return res.status(400).json({error:"Invalid JSON"});
     console.error("Midtrans webhook processing failed",{message:error.message,status:error.status||null});
-    if(error.message==="MIDTRANS_SERVER_KEY is not configured" || error.message==="SUPABASE_SERVICE_ROLE_KEY is not configured") {
+    if(isServerConfigError(error) || error.message==="SUPABASE_SERVICE_ROLE_KEY is not configured") {
       return res.status(503).json({error:"Payment backend is not configured"});
     }
     return res.status(500).json({error:"Webhook processing failed"});

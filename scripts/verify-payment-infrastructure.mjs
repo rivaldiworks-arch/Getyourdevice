@@ -71,6 +71,7 @@ assert.match(createApi,/paymentFieldsFromTransaction\(transaction,\{expiresAt,de
 assert.match(createApi,/actions:charge\?\.actions\|\|authoritative\?\.actions/);
 assert.match(supabaseHelper,/SUPABASE_SERVICE_ROLE_KEY/);
 assert.doesNotMatch(storefront,/MIDTRANS_SERVER_KEY|SUPABASE_SERVICE_ROLE_KEY/);
-assert.doesNotMatch(midtrans,/Mid-server-|SB-Mid-server-/);
+// Key prefixes are used to validate MIDTRANS_ENV; an actual key must never be embedded.
+assert.doesNotMatch(midtrans,/Mid-server-[A-Za-z0-9_-]{8,}/);
 assert.deepEqual(customerSafePayment({status:"pending",payment_method:"QRIS",provider_payload:{secret:true}}),{paymentStatus:"pending",paymentMethod:"QRIS"});
 console.log("Payment infrastructure verification passed.");
