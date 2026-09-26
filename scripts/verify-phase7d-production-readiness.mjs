@@ -10,7 +10,7 @@ const PRODUCTION_KEY="Mid-server-test-production-key";
 const SERVICE_ROLE="service-role-test-key-0123456789abcdef";
 
 function resetEnv(overrides={}) {
-  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","MIDTRANS_QRIS_ACQUIRER","MIDTRANS_VA_BANKS","VERCEL_ENV","SERVER_HMAC_SECRET"]) delete process.env[key];
+  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","MIDTRANS_QRIS_ACQUIRER","MIDTRANS_VA_BANKS","MIDTRANS_INTEGRATION","VERCEL_ENV","SERVER_HMAC_SECRET","SITE_URL"]) delete process.env[key];
   Object.assign(process.env,{
     SUPABASE_URL:"https://db.test",
     SUPABASE_ANON_KEY:"anon-test-key",
@@ -19,6 +19,8 @@ function resetEnv(overrides={}) {
     MIDTRANS_SERVER_KEY:PRODUCTION_KEY,
     MIDTRANS_ENV:"production",
     VERCEL_ENV:"production",
+    // Most scenarios here exercise Core API; the Snap scenarios at the end opt in.
+    MIDTRANS_INTEGRATION:"core",
     ...overrides
   });
 }
@@ -26,7 +28,7 @@ function resetEnv(overrides={}) {
 // ---------------------------------------------------------------- fake backend
 const TRANSITIONS={unpaid:["pending","paid","failed","expired"],pending:["paid","failed","expired"],paid:["refunded"],failed:[],expired:[],refunded:[]};
 const db={orders:new Map(),payments:[]};
-const midtrans={transactions:new Map(),charges:[],statusCalls:0};
+const midtrans={transactions:new Map(),charges:[],statusCalls:0,snapRequests:[],snapFailures:[]};
 const calls={paymentPatches:[]};
 
 function addOrder({orderNumber="GYD-20260925-0001",total=150000,method="QRIS"}={}) {
@@ -103,9 +105,21 @@ function midtransFetch(url,init) {
   throw new Error(`Unexpected Midtrans call ${pathname}`);
 }
 
+function snapFetch(url,init) {
+  const {host,pathname}=new URL(url);
+  if(pathname!=="/snap/v1/transactions") throw new Error(`Unexpected Snap call ${pathname}`);
+  const body=JSON.parse(init.body);
+  midtrans.snapRequests.push({host,auth:init.headers.Authorization,body});
+  const failure=midtrans.snapFailures.shift();
+  if(failure) return json(failure.status,failure.body);
+  const token=randomUUID();
+  return json(201,{token,redirect_url:`https://${host}/snap/v4/redirection/${token}`});
+}
+
 globalThis.fetch=async (url,init={})=>{
   const {host}=new URL(url);
   if(host==="db.test") return supabaseFetch(url,init);
+  if(host==="app.midtrans.com"||host==="app.sandbox.midtrans.com") return snapFetch(url,init);
   if(host==="api.midtrans.com"||host==="api.sandbox.midtrans.com") return midtransFetch(url,init);
   throw new Error(`Unexpected network call to ${host}`);
 };
@@ -113,6 +127,7 @@ globalThis.fetch=async (url,init={})=>{
 function resetBackend() {
   db.orders.clear(); db.payments.length=0;
   midtrans.transactions.clear(); midtrans.charges.length=0; midtrans.statusCalls=0; midtrans.chargeError=null;
+  midtrans.snapRequests.length=0; midtrans.snapFailures.length=0;
   calls.paymentPatches.length=0;
 }
 
@@ -462,6 +477,139 @@ resetEnv(); resetBackend();
   assert.equal(res.statusCode,503,"an inactive QRIS channel is a merchant setup problem, not a server error");
   assert.equal(res.body.error,"QRIS Midtrans belum aktif untuk merchant ini.");
   assert.equal(db.payments[0].provider,"manual","the payment row stays untouched");
+}
+
+// ------------------------------------------------ Phase 8B: Midtrans Snap (default integration)
+const snapEnv=(overrides={})=>{resetEnv(overrides);if(!("MIDTRANS_INTEGRATION" in overrides))delete process.env.MIDTRANS_INTEGRATION;};
+const signedNotification=(orderId,grossAmount,statusCode="200")=>{
+  const signature=createHash("sha512").update(`${orderId}${statusCode}${grossAmount}${PRODUCTION_KEY}`).digest("hex");
+  return invoke(webhook,{body:{order_id:orderId,status_code:statusCode,gross_amount:grossAmount,signature_key:signature}});
+};
+snapEnv(); resetBackend();
+{
+  assert.equal(midtransConfig().integration,"snap","Snap is the default integration");
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.match(res.body.checkoutUrl,/^https:\/\/app\.midtrans\.com\/snap\/v4\/redirection\/[0-9a-f-]{36}$/);
+  assert.equal(res.body.paymentUrl,undefined,"a Snap link is not a QR image");
+  assert.equal(res.body.paymentStatus,"unpaid","nothing is charged until the customer picks a channel");
+  assert.equal(midtrans.charges.length,0,"Snap never calls Core API /v2/charge");
+  const [request]=midtrans.snapRequests;
+  assert.equal(request.host,"app.midtrans.com");
+  assert.equal(request.auth,`Basic ${Buffer.from(`${PRODUCTION_KEY}:`).toString("base64")}`);
+  assert.deepEqual(request.body.enabled_payments,["other_qris","gopay","shopeepay"]);
+  assert.equal(request.body.transaction_details.gross_amount,150000);
+  assert.deepEqual(request.body.expiry,{unit:"hour",duration:24});
+  assert.equal(request.body.callbacks.finish,"https://getyourdevice.vercel.app/#pesanan");
+  const payment=db.payments[0];
+  assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
+  assert.equal(request.body.transaction_details.order_id,payment.provider_reference);
+  assert.equal(payment.provider_environment,"production");
+  assert.equal(payment.status,"unpaid");
+  const again=await pay(order);
+  assert.equal(again.statusCode,200);
+  assert.equal(again.body.checkoutUrl,res.body.checkoutUrl,"the same Snap link is reused while valid");
+  assert.equal(midtrans.snapRequests.length,1);
+  // Customer picks a channel on Snap (pending), then pays (settlement).
+  const reference=payment.provider_reference;
+  midtrans.transactions.set(reference,{order_id:reference,transaction_id:randomUUID(),transaction_status:"pending",payment_type:"gopay",gross_amount:"150000.00"});
+  assert.equal((await signedNotification(reference,"150000.00","201")).body.paymentStatus,"pending");
+  midtrans.transactions.get(reference).transaction_status="settlement";
+  assert.equal((await signedNotification(reference,"150000.00")).body.paymentStatus,"paid");
+  assert.equal(payment.status,"paid");
+  assert.equal((await pay(order)).statusCode,409,"a paid order cannot open a new Snap page");
+}
+snapEnv({MIDTRANS_VA_BANKS:"bni,mandiri"}); resetBackend();
+{
+  // Transfer Bank on Snap: no bank needed up front; the customer chooses on the Snap page.
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"bca");
+  assert.equal(res.statusCode,201,"an unknown bank is ignored on Snap instead of refused");
+  assert.ok(res.body.checkoutUrl);
+  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","echannel","other_va"]);
+  assert.equal(res.body.message,"Halaman pembayaran Midtrans siap. Lanjutkan untuk memilih cara bayar.");
+}
+snapEnv({MIDTRANS_SERVER_KEY:SANDBOX_KEY,MIDTRANS_ENV:"sandbox",VERCEL_ENV:"preview",SITE_URL:"https://preview.example.test/"}); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order);
+  assert.equal(res.statusCode,201);
+  assert.match(res.body.checkoutUrl,/^https:\/\/app\.sandbox\.midtrans\.com\/snap\//);
+  assert.equal(midtrans.snapRequests[0].body.callbacks.finish,"https://preview.example.test/#pesanan");
+}
+snapEnv(); resetBackend();
+{
+  const order=addOrder({total:12999000});
+  const res=await pay(order);
+  assert.equal(res.statusCode,409);
+  assert.equal(res.body.code,"QRIS_LIMIT","the QRIS cap still applies on Snap");
+  assert.equal(midtrans.snapRequests.length,0);
+}
+snapEnv(); resetBackend();
+{
+  // An expired Snap link the customer never used is replaced with a fresh attempt.
+  const order=addOrder();
+  await pay(order);
+  const first=db.payments[0];
+  first.expires_at=new Date(Date.now()-1000).toISOString();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.equal(first.status,"expired","Midtrans has no transaction for it, so the attempt is retired");
+  assert.equal(db.payments.length,2);
+  assert.notEqual(db.payments[1].provider_reference,first.provider_reference,"every attempt gets a fresh Midtrans order_id");
+  assert.equal(midtrans.snapRequests.length,2);
+}
+snapEnv(); resetBackend();
+{
+  // Paid on Snap but the webhook was missed: the renew path finds the payment instead.
+  const order=addOrder();
+  await pay(order);
+  const payment=db.payments[0];
+  payment.expires_at=new Date(Date.now()-1000).toISOString();
+  midtrans.transactions.set(payment.provider_reference,{order_id:payment.provider_reference,transaction_id:randomUUID(),transaction_status:"settlement",gross_amount:"150000.00"});
+  const res=await pay(order);
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.paymentStatus,"paid");
+  assert.equal(midtrans.snapRequests.length,1,"no second Snap page for a paid order");
+}
+snapEnv(); resetBackend();
+{
+  // Midtrans created the Snap transaction but our DB write was lost: the order_id is taken.
+  const order=addOrder();
+  midtrans.snapFailures.push({status:400,body:{error_messages:["transaction_details.order_id sudah digunakan"]}});
+  const res=await pay(order);
+  assert.equal(res.statusCode,201,"the lost attempt is retired and a new one issued");
+  assert.equal(db.payments[0].status,"expired");
+  assert.ok(db.payments[1].payment_url);
+  assert.notEqual(midtrans.snapRequests[0].body.transaction_details.order_id,midtrans.snapRequests[1].body.transaction_details.order_id);
+}
+snapEnv(); resetBackend();
+{
+  midtrans.snapFailures.push({status:401,body:{error_messages:["Access denied due to unauthorized transaction, please check client or server key"]}});
+  const res=await pay(addOrder());
+  assert.equal(res.statusCode,500);
+  assert.equal(db.payments[0].payment_url,null,"a failed Snap call stores nothing");
+}
+snapEnv(); resetBackend();
+{
+  // Payment Link / dashboard transactions share the merchant account but are not store orders.
+  const res=await signedNotification("PL-20260926-8f3a","1000.00");
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.ignored,true);
+  assert.equal(midtrans.statusCalls,0,"foreign order_ids are acknowledged without a status call");
+  const forged=await invoke(webhook,{body:{order_id:"PL-20260926-8f3a",status_code:"200",gross_amount:"1000.00",signature_key:"0".repeat(128)}});
+  assert.equal(forged.statusCode,401,"the signature is still checked first");
+}
+snapEnv({MIDTRANS_INTEGRATION:"redirect"});
+assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&/MIDTRANS_INTEGRATION/.test(error.message));
+{
+  const config=require("../api/config.js");
+  const read=async ()=>{const res={statusCode:200,headers:{},setHeader(n,v){this.headers[n]=v;return this;},status(c){this.statusCode=c;return this;},json(p){this.body=p;return this;}};await config({method:"GET"},res);return res.body;};
+  snapEnv();
+  assert.equal((await read()).checkout.integration,"snap");
+  resetEnv();
+  assert.equal((await read()).checkout.integration,"core");
 }
 
 console.warn=originalConsole.warn; console.error=originalConsole.error;

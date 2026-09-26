@@ -136,7 +136,8 @@ function updateCartCount() { const count = cart.reduce((sum, item) => sum + item
 function setModal(id, open) { const element = $(id); element.classList.toggle("hidden", !open); element.setAttribute("aria-hidden", String(!open)); document.body.style.overflow = document.querySelector(".modal:not(.hidden), .overlay:not(.hidden)") ? "hidden" : ""; if (open) setTimeout(() => element.querySelector("button, input, select")?.focus(), 0); }
 
 function routeParts() {
-  const raw=String(location.hash||"").replace(/^#\/?/,"");
+  // Midtrans Snap may append "?order_id=...&transaction_status=..." to the finish URL.
+  const raw=String(location.hash||"").replace(/^#\/?/,"").replace(/\?.*$/,"");
   if(!raw)return ["beranda"];
   return raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
 }
@@ -387,7 +388,14 @@ function changeCheckoutStep(delta) {
 }
 function vaBankName(code){return VA_BANK_NAMES[code]||String(code||"").toUpperCase();}
 function selectedPayment(){return document.querySelector("input[name='payment']:checked")?.value||"Transfer Bank";}
-function selectedVaBank(){return selectedPayment()==="Transfer Bank"?($("vaBank")?.value||null):null;}
+// Snap: the customer picks the bank or e-wallet on the Midtrans page, not here.
+function snapCheckout(){return checkoutConfig?.integration==="snap";}
+function selectedVaBank(){return selectedPayment()==="Transfer Bank"&&!snapCheckout()?($("vaBank")?.value||null):null;}
+function paymentMethodLabel(payment,bank){
+  if(payment==="QRIS"&&snapCheckout())return "QRIS / E-Wallet";
+  if(payment!=="Transfer Bank")return payment;
+  return bank?`Transfer Bank · ${vaBankName(bank)}`:"Transfer Bank (Virtual Account)";
+}
 async function loadCheckoutConfig(){
   try{
     const response=await fetch("/api/config",{headers:{Accept:"application/json"}});
@@ -418,15 +426,18 @@ function applyPaymentAvailability(){
     option.classList.toggle("is-disabled",blocked);
     if(input)input.disabled=!offered||blocked;
   });
+  const snap=snapCheckout();
   const note=$("qrisOptionNote");
-  if(note)note.textContent=overLimit?`Tidak tersedia untuk total di atas ${money(limit)} (batas QRIS). Gunakan Transfer Bank.`:"Bayar instan dengan e-wallet atau mobile banking. QR tampil setelah pesanan dibuat.";
+  if(note)note.textContent=overLimit?`Tidak tersedia untuk total di atas ${money(limit)} (batas QRIS). Gunakan Transfer Bank.`:snap?"Bayar dengan QRIS, GoPay, atau ShopeePay di halaman pembayaran Midtrans.":"Bayar instan dengan e-wallet atau mobile banking. QR tampil setelah pesanan dibuat.";
+  const qrisLabel=$("qrisOptionLabel");if(qrisLabel)qrisLabel.textContent=snap?"QRIS / E-Wallet":"QRIS";
+  const vaNote=$("vaOptionNote");if(vaNote)vaNote.textContent=snap?"Pilih bank di halaman pembayaran Midtrans setelah pesanan dibuat. Pembayaran terkonfirmasi otomatis.":"Nomor Virtual Account muncul setelah pesanan dibuat. Pembayaran terkonfirmasi otomatis.";
   const checked=document.querySelector("input[name='payment']:checked");
   if(!checked||checked.disabled){const first=[...document.querySelectorAll("input[name='payment']")].find(input=>!input.disabled);if(first)first.checked=true;}
   const picker=$("vaBankPicker");
-  if(picker){const showPicker=selectedPayment()==="Transfer Bank"&&methods.includes("Transfer Bank");picker.classList.toggle("hidden",!showPicker);const select=$("vaBank");if(select)select.disabled=!showPicker;}
+  if(picker){const showPicker=!snap&&selectedPayment()==="Transfer Bank"&&methods.includes("Transfer Bank");picker.classList.toggle("hidden",!showPicker);const select=$("vaBank");if(select)select.disabled=!showPicker;}
 }
-function paymentGuidance(payment) { if(payment==="COD")return "Pesanan diterima dan menunggu konfirmasi toko"; if(payment==="QRIS")return "Pembayaran diproses setelah pesanan dibuat"; if(payment==="Transfer Bank")return `Nomor Virtual Account ${vaBankName(selectedVaBank())} muncul setelah pesanan dibuat`; return "Instruksi diberikan setelah pesanan dikonfirmasi"; }
-function renderFinalReview() { const shipping=selectedShipping(); const payment=selectedPayment(); const paymentLabel=payment==="Transfer Bank"?`Transfer Bank · ${vaBankName(selectedVaBank())}`:payment; $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping?.name||"-")}</strong><small>${escapeHTML(shipping?shippingEta(shipping):"-")} · ${shipping?(shipping.price?money(shipping.price):"Gratis"):"-"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(paymentLabel)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
+function paymentGuidance(payment) { if(payment==="COD")return "Pesanan diterima dan menunggu konfirmasi toko"; if(payment!=="COD"&&snapCheckout())return "Anda diarahkan ke halaman pembayaran Midtrans setelah pesanan dibuat"; if(payment==="QRIS")return "Pembayaran diproses setelah pesanan dibuat"; if(payment==="Transfer Bank")return `Nomor Virtual Account ${vaBankName(selectedVaBank())} muncul setelah pesanan dibuat`; return "Instruksi diberikan setelah pesanan dikonfirmasi"; }
+function renderFinalReview() { const shipping=selectedShipping(); const payment=selectedPayment(); const paymentLabel=paymentMethodLabel(payment,selectedVaBank()); $("finalReview").innerHTML=`<div><span>Penerima</span><strong>${escapeHTML($("custName").value.trim())}</strong><small>${escapeHTML($("custPhone").value.trim())} · ${escapeHTML($("custEmail").value.trim())}</small></div><div><span>Alamat</span><strong>${escapeHTML($("custCity").value.trim())}, ${escapeHTML($("custPostal").value.trim())}</strong><small>${escapeHTML($("custAddress").value.trim())}</small></div><div><span>Pengiriman</span><strong>${escapeHTML(shipping?.name||"-")}</strong><small>${escapeHTML(shipping?shippingEta(shipping):"-")} · ${shipping?(shipping.price?money(shipping.price):"Gratis"):"-"}</small></div><div><span>Pembayaran</span><strong>${escapeHTML(paymentLabel)}</strong><small>${escapeHTML(paymentGuidance(payment))}</small></div>`; }
 function startCheckout(updateRoute=true) { if (!cart.length) return showToast("Keranjang masih kosong."); ensureCheckoutIdempotencyKey(); if(updateRoute){navigateRoute("checkout");return;} setModal("cartDrawer", false); $("checkoutForm").reset(); renderCheckout(); setModal("checkoutModal", true); }
 function checkoutErrorMessage(message, status) { if(status===409)return message||"Stok atau opsi pengiriman sudah berubah. Silakan periksa checkout Anda."; if(status===400||status===422)return message||"Data checkout belum valid. Silakan periksa kembali."; if(!status)return "Koneksi bermasalah. Periksa jaringan Anda lalu coba kembali."; return message||"Pesanan belum dapat diproses. Silakan coba kembali."; }
 async function createPaymentIntent(orderNumber,paymentToken,bank=null) {
@@ -467,6 +478,11 @@ function renderPaymentState(state){
   const order=paymentSession.orderNumber;
   if(state.kind==="loading"){target.innerHTML=`<div class="payment-state"><span class="state-mark">…</span><p>Menyiapkan pembayaran untuk pesanan <strong>${escapeHTML(order)}</strong>.</p></div>`;return;}
   if(state.kind==="paid"){target.innerHTML=`<div class="payment-state paid"><span class="state-mark">✓</span><p>Pembayaran untuk pesanan <strong>${escapeHTML(order)}</strong> sudah kami terima. Terima kasih!</p></div><div class="payment-actions"><button class="primary full" type="button" data-action="close-payment">Tutup</button></div>`;return;}
+  if(state.kind==="snap"){
+    target.innerHTML=`<div class="payment-meta"><span>Pesanan ${escapeHTML(order)}</span>${paymentSession.total!=null?`<strong>${money(paymentSession.total)}</strong>`:""}</div><div class="payment-state"><p>Lanjutkan ke halaman pembayaran Midtrans untuk memilih Virtual Account, QRIS, atau e-wallet.</p></div><div class="payment-actions"><a class="primary full" href="${escapeHTML(state.url)}" rel="noopener">Bayar Sekarang</a><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div><p class="payment-note" id="paymentPollNote">Status diperbarui otomatis setelah pembayaran berhasil.</p>`;
+    return;
+  }
+  if(state.kind==="expired"&&paymentSession.snap){target.innerHTML=`<div class="payment-state error"><span class="state-mark">!</span><p>Link pembayaran sudah kedaluwarsa. Buat link baru untuk melanjutkan. Jika Anda sudah membayar, cek status terlebih dahulu.</p></div><div class="payment-actions"><button class="primary full" type="button" data-action="renew-payment">Buat Link Pembayaran Baru</button><button class="secondary full" type="button" data-action="check-payment">Saya Sudah Bayar, Cek Status</button></div>`;return;}
   if(state.kind==="expired"&&paymentSession.method==="Transfer Bank"){state={kind:"choose-bank",message:"Nomor Virtual Account sudah kedaluwarsa. Pilih bank untuk nomor baru. Jika Anda sudah membayar, cek status terlebih dahulu.",offerCheck:true};}
   if(state.kind==="choose-bank"){
     const banks=checkoutConfig?.vaBanks?.length?checkoutConfig.vaBanks:Object.entries(VA_BANK_NAMES).map(([code,name])=>({code,name}));
@@ -518,18 +534,27 @@ async function openGatewayPayment(orderNumber,{bank=null}={}){
   const known=customerOrderCache.get(orderNumber);
   const method=known?.payment==="Transfer Bank"?"Transfer Bank":"QRIS";
   if(bank&&record.bank!==bank){record.bank=bank;storage.set("gyd_order_access",orderAccessRecords);}
-  const session={orderNumber,method,total:known?.total??null,expiresAt:null,timer:null,checking:false};
+  const snap=snapCheckout();
+  const session={orderNumber,method,snap,total:known?.total??null,expiresAt:null,timer:null,checking:false};
   paymentSession=session;
-  const title=$("paymentTitle");if(title)title.textContent=method==="Transfer Bank"?"Bayar via Transfer Bank":"Bayar dengan QRIS";
+  const title=$("paymentTitle");if(title)title.textContent=snap?"Lanjutkan Pembayaran":method==="Transfer Bank"?"Bayar via Transfer Bank":"Bayar dengan QRIS";
   renderPaymentState({kind:"loading"});
   setModal("paymentModal",true);
   try{
-    const result=await createPaymentIntent(orderNumber,record.paymentToken,method==="Transfer Bank"?(bank||record.bank||null):null);
+    const result=await createPaymentIntent(orderNumber,record.paymentToken,method==="Transfer Bank"&&!snap?(bank||record.bank||null):null);
     if(paymentSession!==session)return;
     const status=String(result.paymentStatus||"").toLowerCase();
     if(status==="paid"){renderPaymentState({kind:"paid"});renderCustomerOrders();return;}
     const expiresAt=Date.parse(result.expiresAt||"");
     session.expiresAt=Number.isFinite(expiresAt)?expiresAt:null;
+    if(result.checkoutUrl){
+      session.snap=true;
+      renderPaymentState({kind:"snap",url:result.checkoutUrl});
+      startPaymentPolling();
+      // Straight to Midtrans: the modal stays as the fallback if navigation is blocked.
+      location.assign(result.checkoutUrl);
+      return;
+    }
     if(result.vaNumber){
       if(result.vaBank&&record.bank!==result.vaBank){record.bank=result.vaBank;storage.set("gyd_order_access",orderAccessRecords);}
       renderPaymentState({kind:"va",payment:result});
@@ -575,7 +600,7 @@ async function submitOrder(event) {
         :paymentIntent
           ?(paymentIntent.message||"Pembayaran berhasil disiapkan dan menunggu instruksi gateway.")
           :"Pesanan berhasil dibuat, tetapi pembayaran belum dapat disiapkan. Jangan membuat pesanan baru; buka menu Pesanan untuk mencoba membayar lagi.";
-    $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(payment==="Transfer Bank"?`Transfer Bank · ${vaBankName(paymentIntent?.vaBank||bank)}`:payment)}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(paymentStatusLabel(order.paymentStatus))}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa. QR dapat dibuka kembali dari menu Pesanan.</small></div>`:""}${payment==="Transfer Bank"&&paymentIntent?.vaNumber?`${vaInstructionsHTML(paymentIntent,order.total)}<small>Nomor ini dapat dibuka kembali dari menu Pesanan.</small>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
+    $("successMessage").innerHTML=`<span class="success-detail"><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></span><span class="success-detail"><span>Nama pelanggan</span><strong>${escapeHTML(customer.full_name)}</strong></span><span class="success-detail"><span>Total</span><strong>${money(order.total)}</strong></span><span class="success-detail"><span>Pembayaran</span><strong>${escapeHTML(paymentMethodLabel(payment,paymentIntent?.vaBank||bank))}</strong></span><span class="success-detail"><span>Status pembayaran</span><strong>${escapeHTML(paymentStatusLabel(order.paymentStatus))}</strong></span><span class="success-detail"><span>Pengiriman</span><strong>${escapeHTML(shipping.name)}</strong></span>${payment==="QRIS"&&order.paymentUrl?`<div class="payment-qr"><strong>Scan QRIS</strong><img src="${escapeHTML(order.paymentUrl)}" alt="QRIS untuk pesanan ${escapeHTML(order.id)}"><small>Selesaikan pembayaran sebelum QR kedaluwarsa. QR dapat dibuka kembali dari menu Pesanan.</small></div>`:""}${payment==="Transfer Bank"&&paymentIntent?.vaNumber?`${vaInstructionsHTML(paymentIntent,order.total)}<small>Nomor ini dapat dibuka kembali dari menu Pesanan.</small>`:""}${paymentIntent?.checkoutUrl?`<a class="primary full payment-checkout-link" href="${escapeHTML(paymentIntent.checkoutUrl)}" rel="noopener">Bayar Sekarang</a><small>Pilih Virtual Account, QRIS, atau e-wallet di halaman Midtrans. Link pembayaran berlaku 24 jam dan dapat dibuka kembali dari menu Pesanan.</small>`:""}<small>${escapeHTML(paymentNote)}</small>${paymentIntentError?`<small>${escapeHTML(paymentIntentError)}</small>`:""}`;
     history.replaceState(null,"",routeHash("pesanan")); setModal("successModal",true); loadProducts();
   } catch(error) { checkoutSubmitting=false; button.disabled=false; $("checkoutBack").disabled=false; button.textContent="Konfirmasi & Buat Pesanan"; $("checkoutError").textContent=checkoutErrorMessage(error.message,error.status); $("checkoutError").classList.remove("hidden"); }
 }
@@ -601,7 +626,9 @@ function gatewayPaymentOption(order){
   if(!orderAccessRecord(order.id)?.paymentToken)return {note:"Pembayaran hanya dapat dilanjutkan dari browser yang membuat pesanan ini. Hubungi toko bila perlu bantuan."};
   const deadline=Date.parse(order.paymentDeadline||"");
   if(Number.isFinite(deadline)&&deadline<=Date.now())return {note:"Batas waktu pembayaran sudah lewat. Hubungi toko untuk bantuan."};
-  const label=order.payment==="Transfer Bank"
+  const label=snapCheckout()
+    ?(paymentStatus==="pending"?"Lanjutkan Pembayaran":"Bayar Sekarang")
+    :order.payment==="Transfer Bank"
     ?(paymentStatus==="pending"?"Lihat Nomor Virtual Account":"Bayar via Transfer Bank")
     :(paymentStatus==="pending"?"Tampilkan QRIS":"Bayar dengan QRIS");
   return {canPay:true,label,deadline:Number.isFinite(deadline)?deadline:null};

@@ -201,7 +201,7 @@ Test browser (`scripts/e2e-*.mjs`) menjalankan storefront di Chromium dengan API
 ```bash
 npm install --no-save playwright@1.56.1
 npx playwright install chromium
-node scripts/e2e-payment-button.mjs
+for test in scripts/e2e-*.mjs; do node "$test"; done
 ```
 
 Script verifikasi adalah contract check statis; bila sebuah phase sengaja mengubah contract (misalnya versi RPC checkout), perbarui assertion di PR yang sama agar CI tetap hijau.
@@ -304,6 +304,24 @@ MIDTRANS_VA_BANKS=bni,bri,mandiri,permata,cimb
 ```
 
 Storefront membaca daftar ini dari `GET /api/config` (`checkout.paymentMethods`, `checkout.vaBanks`) sehingga hanya menampilkan metode yang aktif; `POST /api/orders` dan `POST /api/payments/create` menegakkan aturan yang sama di server.
+
+## Midtrans Snap checkout (Phase 8B)
+
+Akun Midtrans production toko ini menolak semua channel lewat Core API (`402 Payment channel is not activated` untuk VA, `Merchant pop id is not found` untuk QRIS), sementara channel yang sama berjalan normal lewat **Snap** (halaman pembayaran Midtrans). Karena itu integrasi default sekarang Snap:
+
+- `POST /api/payments/create` membuat transaksi Snap (`/snap/v1/transactions`) dan mengembalikan `checkoutUrl`. Customer memilih bank VA, QRIS, atau e-wallet di halaman Midtrans. Tidak ada migrasi database: link disimpan di `payments.payment_url`.
+- `enabled_payments` dibatasi per metode toko: **Transfer Bank** → VA dari `MIDTRANS_VA_BANKS` (`bni_va`, `bri_va`, `echannel`, `permata_va`, `cimb_va`) + `other_va`; **QRIS** → `other_qris`, `gopay`, `shopeepay`. Channel yang belum aktif otomatis tidak ditampilkan oleh Midtrans.
+- Link berlaku 24 jam dan dipakai ulang selama masih berlaku. Link kedaluwarsa yang belum dipakai diganti attempt baru (`order_id` baru); bila ternyata sudah dibayar, API melaporkan `paid` tanpa membuat link baru. Batas QRIS Rp10.000.000 tetap berlaku.
+- Setelah bayar, Midtrans mengarahkan customer ke `SITE_URL/#pesanan` (default `https://getyourdevice.vercel.app`). Status tetap ditentukan webhook, bukan redirect.
+- Webhook menjawab `200 ignored` untuk notifikasi yang `order_id`-nya bukan milik toko (Payment Link, transaksi dashboard), setelah signature diverifikasi, sehingga Midtrans berhenti mengirim ulang.
+- Order VA Core API lama tetap tampil dengan nomor VA-nya.
+
+Environment (**Config**, opsional):
+
+```text
+# snap (default) atau core. Pakai core hanya bila Midtrans sudah mengaktifkan channel Core API.
+MIDTRANS_INTEGRATION=snap
+```
 
 ## Product schema final
 
