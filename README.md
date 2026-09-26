@@ -30,6 +30,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 15. `supabase/migrations/015_payment_provider_environment.sql` — menambah `payments.provider_environment` (`sandbox`/`production`) agar QR dari environment Midtrans lain tidak pernah ditampilkan ke customer. Additive, tanpa backfill. **Jalankan 015 sebelum deploy kode Phase 7D.**
 16. `supabase/migrations/016_paid_order_confirmation.sql` — order `pending` otomatis menjadi `confirmed` saat payment `paid`, dan menambah `orders.paid_notified_at` agar email pembayaran ke penjual terkirim tepat sekali. **Jalankan 016 sebelum deploy kode Phase 7E.**
 17. `supabase/migrations/017_revoke_legacy_checkout_rpcs.sql` — mencabut akses `anon`/`authenticated` ke RPC checkout lama (`create_storefront_order`, `create_storefront_order_v2`) dan `next_order_number()`. Sebelumnya siapa pun dengan anon key publik dapat membuat order langsung ke database, melewati rate limit, validasi ongkir, idempotency, dan allow-list metode pembayaran, sekaligus mengurangi stok. Tidak dipakai kode sejak Phase 7C.
+18. `supabase/migrations/018_restore_stock_on_cancel.sql` — mengembalikan stok saat order dibatalkan dari `pending`/`confirmed`/`processing` (tepat sekali, ditandai `orders.stock_restored_at`). Order yang sudah dikirim/selesai tidak di-restock. Membuka kembali order yang dibatalkan memotong stok lagi dan ditolak bila stok tidak cukup. Termasuk perbaikan satu kali untuk order yang sudah dibatalkan sebelum trigger ada.
 
 ## Payment infrastructure (Phase 5)
 
