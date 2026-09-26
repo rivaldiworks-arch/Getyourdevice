@@ -295,3 +295,17 @@ footer{background:var(--navy);color:#c9d6f5;border-top:0}
 @media(max-width:680px){.hero-gadget{--s:56px!important;opacity:.8}.g-tablet,.g-buds{display:none}.marquee-item{min-width:200px}.marquee-item img{width:46px;height:46px}.hero-marquee{padding-bottom:26px}}
 @media(prefers-reduced-motion:reduce){.hero-gadget,.marquee-track{animation:none}.hero-marquee{overflow-x:auto}}
 @media(max-width:680px){.hero-gadget{opacity:.45}}
+/* Wordmark and headings: Outfit */
+.logo{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:28px;line-height:1;letter-spacing:-.3px;color:var(--ink);white-space:nowrap}
+.logo .a{font-weight:300}
+.logo .b{font-weight:700;color:#2F6FDB}
+.brand .logo{font-size:26px}
+.footer-brand .logo,.footer-brand .logo .a{color:#fff}
+.footer-brand .logo .b{color:var(--yellow)}
+h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-weight:600;letter-spacing:-.01em}
+.premium-hero.store-hero h1{font-weight:600;letter-spacing:-.02em}
+@media(max-width:680px){.brand .logo{font-size:22px}}
+.brand .logo .a{color:var(--ink)}
+.brand .logo .b{color:#2F6FDB}
+.footer-brand .logo .a{color:#fff}
+.footer-brand .logo .b{color:var(--yellow)}
