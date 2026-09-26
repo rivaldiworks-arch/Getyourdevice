@@ -15,6 +15,10 @@ the store accepts.
 | cimb.svg | File:CIMB Niaga logo.svg |
 | jnt.svg | File:J&T Express logo.svg |
 
-JNE, SiCepat, AnterAja, Ninja Xpress, POS Indonesia and TIKI have no usable file on
-Commons yet and are shown as text tiles. To add one, drop `<slug>.svg` here and swap its
-text tile in `index.html` for an `<img>` tile.
+`jne.png`, `anteraja.png`, `ninja.png`, `pos.png` and `tiki.png` are the couriers' own
+logos, supplied by the store owner. They were trimmed, given a transparent background, and had
+the "Logistik Indonesia" line (POS) and the website line (TIKI) cropped off. Ninja Xpress's white
+wordmark was darkened so it shows on the white tile.
+
+SiCepat is still a text tile. To add it, drop `sicepat.png` here and swap its text tile in
+`index.html` for an `<img>` tile.
