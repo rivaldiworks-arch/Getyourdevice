@@ -64,9 +64,15 @@ async function run(width){
   await card("0001").locator("[data-pay-order]").click();
   await page.waitForSelector("#paymentContent .payment-qr img");
   assert.match(await page.locator("#paymentContent").innerText(),/Rp\s?150\.000/);
-  assert.equal(await page.locator("#paymentCountdown").innerText(),"30:00");
+  // The QR expiry comes from the mocked API (Node clock) while the page runs on the
+  // installed fake clock, so the first reading can be 30:00 or 29:59. Assert the value
+  // range, then that the countdown moves with the page clock.
+  const toSeconds=text=>{const [m,sec]=text.split(":").map(Number);return m*60+sec;};
+  const startSeconds=toSeconds(await page.locator("#paymentCountdown").innerText());
+  assert.ok(startSeconds<=1800&&startSeconds>=1795,`countdown starts near 30:00 (got ${startSeconds}s)`);
   await page.clock.runFor(5000);
-  assert.equal(await page.locator("#paymentCountdown").innerText(),"29:55");
+  const elapsed=startSeconds-toSeconds(await page.locator("#paymentCountdown").innerText());
+  assert.ok(elapsed>=4&&elapsed<=6,`countdown follows the clock (moved ${elapsed}s in 5s)`);
   // manual check, still pending
   await page.getByRole("button",{name:"Saya Sudah Bayar, Cek Status"}).click();
   await page.waitForFunction(()=>/belum terdeteksi/.test(document.querySelector("#paymentPollNote")?.textContent||""));
