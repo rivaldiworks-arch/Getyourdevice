@@ -232,3 +232,46 @@ footer{background:var(--bg);color:var(--muted);border-top:1px solid var(--line);
   .feature-story-image,.weekly-deal-image{max-height:240px}
   .section-title h2{font-size:26px}
 }
+/* ===== Brand palette: blue dominant, yellow accent ===== */
+:root{--blue:#1446a0;--blue-dark:#0f3780;--navy:#0b2559;--yellow:#ffc629;--yellow-dark:#f2b705;--blue-tint:#eaf1ff;--yellow-tint:#fff6d6}
+/* Header */
+.brand>span:last-child>span{color:var(--blue)}
+.brand-mark{background:var(--blue);color:var(--yellow)}
+.cart-button b{background:var(--yellow);color:var(--navy);font-weight:700}
+.categories button.active{color:var(--blue);border-bottom-color:var(--yellow)}
+.search-wrap:focus-within{box-shadow:0 0 0 2px var(--blue)}
+/* Buttons */
+.primary{background:var(--blue)}
+.primary:hover{background:var(--blue-dark)}
+.text-link,.category-card small{color:var(--blue)}
+/* Hero: deep blue with a yellow call to action */
+.premium-hero.store-hero{background:radial-gradient(1200px 500px at 85% -10%,rgba(255,198,41,.22),transparent 60%),linear-gradient(135deg,var(--navy) 0%,var(--blue) 100%);color:#fff}
+.premium-hero.store-hero .hero-kicker{color:var(--yellow)}
+.premium-hero.store-hero h1{color:#fff}
+.premium-hero.store-hero .hero-copy>p{color:#dbe6ff}
+.premium-hero.store-hero .primary{background:var(--yellow);color:var(--navy);font-weight:700}
+.premium-hero.store-hero .primary:hover{background:var(--yellow-dark)}
+.premium-hero.store-hero .secondary.hero-link,.premium-hero.store-hero .secondary.hero-link:hover{color:#fff}
+/* Service strip and "why us" icons */
+.benefits article>span,.why-grid article>span{background:var(--blue-tint);color:var(--blue)}
+/* Section kickers get a yellow marker */
+.overline{color:var(--blue)}
+.section-title .overline::before{content:"";display:inline-block;width:18px;height:3px;margin-right:8px;border-radius:2px;background:var(--yellow);vertical-align:middle}
+/* Cards */
+.product-badge{background:var(--yellow);color:var(--navy)}
+.story-buy,.deal-button{background:var(--blue)}
+.product-actions .primary{background:var(--blue)}
+.product-actions .primary:hover{background:var(--blue-dark)}
+.product-actions .secondary{color:var(--blue);border-color:var(--blue)}
+.product-actions .secondary:hover{background:var(--blue-tint)}
+.feature-story{background:var(--blue-tint)}
+.weekly-deal{background:var(--yellow-tint);border-color:#f5e3a3}
+/* Footer: navy with yellow headings */
+footer{background:var(--navy);color:#c9d6f5;border-top:0}
+.footer-grid>div>strong{color:var(--yellow)}
+.footer-grid p{color:#c9d6f5}
+.footer-grid button:not(.brand){color:#e6edff}
+.footer-grid button:not(.brand):hover{color:#fff}
+.footer-brand,.footer-brand>span:last-child{color:#fff}
+.footer-brand>span:last-child>span{color:var(--yellow)}
+.copyright{border-top-color:rgba(255,255,255,.14);color:#9fb3e0}

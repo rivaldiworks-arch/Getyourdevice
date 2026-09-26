@@ -1,5 +1,5 @@
 // Browser test for the storefront home layout (Phase 9 design refresh): no horizontal
-// scroll on phone, tablet and desktop, a readable light hero with a blue primary action,
+// scroll on phone, tablet and desktop, a readable blue hero with a yellow primary action,
 // one SVG icon set instead of mixed glyphs/emoji, and a two-column product grid on phones.
 // Requires the playwright package: npm install --no-save playwright
 import assert from "node:assert/strict";
@@ -43,12 +43,14 @@ for(const width of [1440,834,390]){
   const hero=await page.evaluate(()=>{
     const section=document.querySelector(".store-hero"),p=section.querySelector(".hero-copy>p"),button=section.querySelector(".primary");
     const style=el=>getComputedStyle(el);
-    return {bg:style(section).backgroundColor,text:style(p).color,title:style(section.querySelector("h1")).color,button:style(button).backgroundColor,buttonText:style(button).color,
+    // The hero background is a gradient; judge contrast against its lighter end colour.
+    const heroBg="rgb(20, 70, 160)";
+    return {bg:style(section).backgroundImage.includes("gradient")?heroBg:style(section).backgroundColor,text:style(p).color,title:style(section.querySelector("h1")).color,button:style(button).backgroundColor,buttonText:style(button).color,
       titleCenter:Math.abs(section.querySelector("h1").getBoundingClientRect().left+section.querySelector("h1").getBoundingClientRect().width/2-innerWidth/2)};
   });
   assert.ok(contrast(hero.text,hero.bg)>=4.5,`hero text is readable (${hero.text} on ${hero.bg})`);
   assert.ok(contrast(hero.title,hero.bg)>=7,"hero title has strong contrast");
-  assert.equal(hero.button,"rgb(0, 113, 227)","primary action is the blue pill");
+  assert.equal(hero.button,"rgb(255, 198, 41)","primary action is the yellow pill on the blue hero");
   assert.ok(contrast(hero.buttonText,hero.button)>=4.5,"primary button text is readable");
   assert.ok(hero.titleCenter<=24,"hero title is centered");
 
