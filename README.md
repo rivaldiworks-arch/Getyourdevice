@@ -208,6 +208,15 @@ Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status 
 - **COD hanya untuk Ambil di Toko** (bayar tunai saat mengambil). Kurir tidak bisa dibooking sebelum pesanan dibayar dan tidak diinstruksikan menagih tunai, sehingga COD via kurir tidak dapat dipenuhi. Checkout menonaktifkan COD untuk opsi kurir; database menolaknya (`COD_REQUIRES_PICKUP`).
 - Pesanan yang dibatalkan otomatis diberi `orders.auto_cancelled_at`. Pembayaran yang tetap masuk setelahnya tetap dicatat dan email penjual menandainya **PERLU REFUND**.
 
+## Label pengiriman (Phase 8D)
+
+Biteship tidak menyediakan API label, jadi admin mencetak label sendiri langsung dari detail pesanan:
+
+- Setelah **Buat Pengiriman Biteship**, klik **Cetak Label**. Browser membuka dialog cetak dengan label **100 × 150 mm** (ukuran printer thermal/resi). Pilih printer label, atau **Simpan sebagai PDF**; nama file otomatis `Label <nomor pesanan> <resi>`.
+- Isi label: nama toko, kurir dan layanan, **barcode resi (Code 128)** beserta nomornya, penerima (nama, telepon, alamat, kota, kode pos), pengirim, nomor pesanan, tanggal, berat total, jumlah barang, isi paket (maks. 6 baris, sisanya diringkas), dan catatan pembeli. Booking mode uji Biteship diberi tanda **LABEL UJI COBA**.
+- Data label berasal dari `POST /api/shipping/label` (khusus admin). Pengirim memakai `SHIPPING_ORIGIN_*` yang sama dengan booking. Bila resi belum ada di database, endpoint menanyakannya sekali ke Biteship dan menyimpannya; bila kurir belum menerbitkan resi, admin mendapat pesan untuk mencoba lagi.
+- Barcode diuji dengan pemindai ZXing terhadap tangkapan layar label dalam mode cetak, untuk format resi numerik, berawalan huruf, campuran, dan bertanda hubung.
+
 ## Verifikasi & CI
 
 Semua script `scripts/verify-*.mjs` dijalankan oleh GitHub Actions (`.github/workflows/verify.yml`) pada setiap pull request dan push ke `main`. Jalankan secara lokal sebelum membuka PR:
@@ -219,7 +228,7 @@ node scripts/verify-all.mjs
 Test browser (`scripts/e2e-*.mjs`) menjalankan storefront di Chromium dengan API yang di-mock, pada lebar desktop dan ponsel. CI menjalankannya sebagai job terpisah. Lokal:
 
 ```bash
-npm install --no-save playwright@1.56.1
+npm install --no-save playwright@1.56.1 @zxing/library@0.21.3
 npx playwright install chromium
 for test in scripts/e2e-*.mjs; do node "$test"; done
 ```
