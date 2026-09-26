@@ -38,7 +38,7 @@ async function openPage({width,cart=[],access=[],orders={}}) {
     const url=new URL(route.request().url());
     const body=route.request().postDataJSON?.()||{};
     if(url.pathname==="/api/config") return route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y",checkout:CONFIG}});
-    if(url.pathname==="/api/shipping/quotes") return route.fulfill({json:{quotes:[{quoteId:"11111111-1111-4111-8111-111111111111",name:"Reguler",price:25000,etaMinDays:2,etaMaxDays:3,method:"regular",provider:"internal",serviceCode:"REG"}],liveRates:false}});
+    if(url.pathname==="/api/shipping/quotes") return route.fulfill({json:{quotes:[{quoteId:"11111111-1111-4111-8111-111111111111",name:"Reguler",price:25000,etaMinDays:2,etaMaxDays:3,method:"regular",provider:"internal",serviceCode:"REG"},{quoteId:"33333333-3333-4333-8333-333333333333",name:"Ambil di Toko",price:0,etaMinDays:0,etaMaxDays:0,method:"pickup",provider:"internal",serviceCode:"PUP"}],liveRates:false}});
     if(url.pathname==="/api/orders"){
       calls.orders.push(body);
       return route.fulfill({status:201,json:{orderNumber:"GYD-20260926-0300",createdAt:new Date().toISOString(),subtotal:949000,shippingCost:25000,total:974000,orderAccessToken:T("a"),paymentToken:T("b"),reused:false}});
@@ -75,6 +75,8 @@ async function run(width) {
     await page.click("#checkoutNext");
     await page.waitForSelector("[data-checkout-step='4']:not(.hidden)");
     assert.equal(await page.locator("#vaBankPicker").isHidden(),true,"Snap picks the bank, so the store does not");
+    assert.equal(await page.locator("input[name='payment'][value='COD']").isDisabled(),true,"COD is not offered for courier delivery");
+    assert.match(await page.locator("#codOptionNote").innerText(),/Ambil di Toko/);
     assert.equal(await page.locator("#qrisOptionLabel").innerText(),"QRIS / E-Wallet");
     assert.match(await page.locator("#vaOptionNote").innerText(),/halaman pembayaran Midtrans/);
     if(shotDir) await page.screenshot({path:`${shotDir}/snap-step4-${width}.png`});
@@ -93,6 +95,29 @@ async function run(width) {
     if(shotDir) await page.screenshot({path:`${shotDir}/snap-success-${width}.png`});
     await Promise.all([page.waitForURL(SNAP_URL),link.click()]);
     assert.equal(calls.snapVisits,1);
+    await page.close();
+  }
+  // 1b. Choosing "Ambil di Toko" makes COD (cash on pickup) available.
+  {
+    const {page}=await openPage({width,cart:[{id:MOUSE,qty:1}]});
+    await page.goto(`${origin}/#checkout`);
+    await page.waitForSelector("#checkoutModal:not(.hidden)");
+    await page.fill("#custName","Budi Santoso");
+    await page.fill("#custPhone","081234567890");
+    await page.fill("#custEmail","budi@example.com");
+    await page.click("#checkoutNext");
+    await page.fill("#custAddress","Jalan Merdeka No. 10");
+    await page.fill("#custCity","Jakarta");
+    await page.fill("#custPostal","10110");
+    await page.click("#checkoutNext");
+    await page.waitForSelector("input[name='shipping']");
+    await page.click("input[name='shipping'][value='33333333-3333-4333-8333-333333333333']");
+    await page.click("#checkoutNext");
+    await page.waitForSelector("[data-checkout-step='4']:not(.hidden)");
+    const cod=page.locator("input[name='payment'][value='COD']");
+    assert.equal(await cod.isDisabled(),false,"COD is available for store pickup");
+    await cod.check();
+    assert.match(await page.locator("#codOptionNote").innerText(),/mengambil pesanan di toko/);
     await page.close();
   }
   // 2. Pesanan: "Bayar Sekarang" goes straight to Snap; returning from Snap's finish

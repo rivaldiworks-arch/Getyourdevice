@@ -64,6 +64,7 @@ module.exports = async function handler(req, res) {
     const data=await response.json();
     if(!response.ok) {
       console.error("Supabase order RPC failed", {requestId,status:response.status,code:data.code,message:data.message,details:data.details,hint:data.hint});
+      if(data.message==="COD_REQUIRES_PICKUP") return res.status(400).json({error:"COD hanya tersedia untuk pengiriman Ambil di Toko. Pilih Ambil di Toko atau metode pembayaran lain.",code:"COD_REQUIRES_PICKUP"});
       if(data.message==="INSUFFICIENT_STOCK") return res.status(409).json({error:"Stok salah satu produk sudah berubah. Silakan periksa keranjang Anda."});
       if(data.message==="INVALID_CUSTOMER") return res.status(400).json({error:"Data pelanggan dan alamat belum valid. Periksa kembali data checkout."});
       if(data.message==="INVALID_PRODUCT" || data.message==="INVALID_QUANTITY") return res.status(422).json({error:"Salah satu produk tidak lagi tersedia. Silakan periksa keranjang Anda."});

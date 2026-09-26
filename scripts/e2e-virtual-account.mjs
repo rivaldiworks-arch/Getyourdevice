@@ -90,9 +90,7 @@ async function run(width) {
     assert.equal(await page.locator("#vaBankPicker").isVisible(),true);
     assert.deepEqual(await page.locator("#vaBank option").allTextContents(),BANKS.map(bank=>bank.name));
     await page.selectOption("#vaBank","mandiri");
-    await page.click("input[name='payment'][value='COD']");
-    assert.equal(await page.locator("#vaBankPicker").isHidden(),true,"bank picker only shows for Transfer Bank");
-    await page.click("input[name='payment'][value='Transfer Bank']");
+    assert.equal(await page.locator("input[name='payment'][value='COD']").isDisabled(),true,"COD is cash on pickup only, not for courier delivery");
     await page.click("#checkoutNext");
     assert.match(await page.locator("#finalReview").innerText(),/Transfer Bank · Mandiri/);
     await page.check("#reviewConsent");
@@ -126,6 +124,8 @@ async function run(width) {
     const small=await openPage({width,config,cart:[{id:MOUSE,qty:1}]});
     await goToPaymentStep(small.page);
     assert.equal(await small.page.locator("input[name='payment'][value='QRIS']").isDisabled(),false,"QRIS stays available below the cap");
+    await small.page.click("input[name='payment'][value='QRIS']");
+    assert.equal(await small.page.locator("#vaBankPicker").isHidden(),true,"bank picker only shows for Transfer Bank");
     await small.page.close();
   }
   // 3. Pesanan: a Transfer Bank order without a remembered bank asks for one first.

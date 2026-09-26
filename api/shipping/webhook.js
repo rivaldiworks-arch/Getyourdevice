@@ -2,6 +2,7 @@
 
 const { timingSafeEqual } = require("node:crypto");
 const { supabaseAdmin } = require("../_supabase");
+const { orderStatusForShipment } = require("../_orderStatus");
 
 function secureEqual(a,b){
   const left=Buffer.from(String(a||"")),right=Buffer.from(String(b||""));
@@ -28,15 +29,6 @@ async function patchOrder(id,body){
     throw new Error(data?.message||data?.error||"Shipping webhook update failed");
   }
 }
-function mapOrderStatus(shippingStatus,current){
-  const shipping=String(shippingStatus||"").toLowerCase();
-  const existing=String(current||"").toLowerCase();
-  if(shipping==="delivered") return "completed";
-  if(["picked","dropping_off","return_in_transit","returned","disposed"].includes(shipping)) return "shipped";
-  if(["confirmed","allocated","picking_up"].includes(shipping)&&["pending","confirmed"].includes(existing)) return "processing";
-  if(shipping==="cancelled") return "cancelled";
-  return current;
-}
 
 module.exports=async function handler(req,res){
   if(req.method!=="POST") return res.status(405).setHeader("Allow","POST").json({error:"Method not allowed"});
@@ -54,7 +46,7 @@ module.exports=async function handler(req,res){
       return res.status(200).json({ok:true,ignored:true});
     }
 
-    const order=(await rows(`orders?select=id,status,shipping_status,shipping_order_id&shipping_order_id=eq.${encodeURIComponent(shippingOrderId)}&limit=1`))[0];
+    const order=(await rows(`orders?select=id,status,payment_method,shipping_method,shipping_status,shipping_order_id&shipping_order_id=eq.${encodeURIComponent(shippingOrderId)}&limit=1`))[0];
     if(!order) return res.status(200).json({ok:true,ignored:true});
 
     const now=new Date().toISOString();
@@ -62,7 +54,8 @@ module.exports=async function handler(req,res){
     const shippingStatus=String(payload.status||order.shipping_status||"");
     if(shippingStatus) {
       patch.shipping_status=shippingStatus;
-      patch.status=mapOrderStatus(shippingStatus,order.status);
+      const status=orderStatusForShipment(shippingStatus,order);
+      if(status!==order.status) patch.status=status;
     }
     if(payload.courier_tracking_id) patch.shipping_tracking_id=String(payload.courier_tracking_id);
     if(payload.courier_waybill_id) patch.tracking_number=String(payload.courier_waybill_id);
