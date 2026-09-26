@@ -13,8 +13,8 @@ const shippingMigration = readFileSync(new URL("../supabase/migrations/009_shipp
 const orderApi = readFileSync(new URL("../api/orders.js", import.meta.url), "utf8");
 const quoteApi = readFileSync(new URL("../api/shipping/quotes.js", import.meta.url), "utf8");
 const canonicalPayments = ["Transfer Bank", "COD", "QRIS"];
-// Transfer Bank is hidden at checkout until it has a real payment rail.
-const checkoutPayments = ["QRIS", "COD"];
+// Transfer Bank is paid through Midtrans Virtual Account and listed first.
+const checkoutPayments = ["Transfer Bank", "QRIS", "COD"];
 const canonicalShipping = ["regular", "express", "sameday", "pickup"];
 
 new Script(javascript, { filename: "app.js" });
@@ -54,8 +54,7 @@ for (const option of ["Reguler", "Express", "Same Day / Instant", "Ambil di Toko
 for (const option of checkoutPayments) {
   if (!`${html}\n${javascript}`.includes(option)) throw new Error(`Checkout option missing: ${option}`);
 }
-if (/name="payment" value="Transfer Bank"/.test(html)) throw new Error("Transfer Bank must not be offered at checkout");
-if (!/CHECKOUT_PAYMENT_METHODS = new Set\(\["QRIS", "COD"\]\)/.test(orderApi)) throw new Error("Order API must only accept QRIS and COD at checkout");
+if (!/checkoutPaymentMethods\(\)\.includes\(body\.payment\)/.test(orderApi)) throw new Error("Order API must enforce the configured checkout methods");
 
 const combined = `${html}\n${css}\n${javascript}`;
 if (/^(<<<<<<<|=======|>>>>>>>)/m.test(combined)) {

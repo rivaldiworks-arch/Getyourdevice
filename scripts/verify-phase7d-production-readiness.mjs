@@ -10,7 +10,7 @@ const PRODUCTION_KEY="Mid-server-test-production-key";
 const SERVICE_ROLE="service-role-test-key-0123456789abcdef";
 
 function resetEnv(overrides={}) {
-  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","MIDTRANS_QRIS_ACQUIRER","VERCEL_ENV","SERVER_HMAC_SECRET"]) delete process.env[key];
+  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","MIDTRANS_QRIS_ACQUIRER","MIDTRANS_VA_BANKS","VERCEL_ENV","SERVER_HMAC_SECRET"]) delete process.env[key];
   Object.assign(process.env,{
     SUPABASE_URL:"https://db.test",
     SUPABASE_ANON_KEY:"anon-test-key",
@@ -82,11 +82,15 @@ function midtransFetch(url,init) {
   if(pathname==="/v2/charge") {
     const body=JSON.parse(init.body);
     const orderId=body.transaction_details.order_id;
-    midtrans.charges.push({orderId,host:new URL(url).host,acquirer:body.qris?.acquirer});
+    midtrans.charges.push({orderId,host:new URL(url).host,acquirer:body.qris?.acquirer,paymentType:body.payment_type,bank:body.bank_transfer?.bank,expiry:body.custom_expiry});
     if(midtrans.chargeError) return json(200,midtrans.chargeError);
     if(midtrans.transactions.has(orderId)) return json(200,{status_code:"406",status_message:"The request could not be completed due to a conflict with the current state"});
-    const transaction={order_id:orderId,transaction_id:randomUUID(),transaction_status:"pending",gross_amount:`${body.transaction_details.gross_amount}.00`,
-      actions:[{name:"generate-qr-code",url:`https://qr.test/${orderId}.png`}]};
+    const common={order_id:orderId,transaction_id:randomUUID(),transaction_status:"pending",gross_amount:`${body.transaction_details.gross_amount}.00`};
+    let transaction;
+    if(body.payment_type==="qris") transaction={...common,actions:[{name:"generate-qr-code",url:`https://qr.test/${orderId}.png`}]};
+    else if(body.payment_type==="echannel") transaction={...common,bill_key:"70012345678",biller_code:"70012",expiry_time:"2026-09-27 13:20:00"};
+    else if(body.bank_transfer.bank==="permata") transaction={...common,permata_va_number:"8562000012345678",expiry_time:"2026-09-27 13:20:00"};
+    else transaction={...common,va_numbers:[{bank:body.bank_transfer.bank,va_number:`9880${orderId.length}${midtrans.charges.length}`}],expiry_time:"2026-09-27 13:20:00"};
     midtrans.transactions.set(orderId,transaction);
     return json(200,{status_code:"201",...transaction});
   }
@@ -134,6 +138,7 @@ const {serverHmac,isServerConfigError}=require("../api/_secrets.js");
 
 const TOKEN="a".repeat(64);
 const pay=order=>invoke(createPayment,{body:{orderNumber:order.order_number,paymentToken:TOKEN}});
+const payVa=(order,bank)=>invoke(createPayment,{body:{orderNumber:order.order_number,paymentToken:TOKEN,...(bank?{bank}:{})}});
 
 // ------------------------------------------------ 0. storage outage still fails open
 resetEnv(); resetBackend();
@@ -341,6 +346,111 @@ resetEnv({MIDTRANS_QRIS_ACQUIRER:"airpay shopee"}); resetBackend();
   assert.equal(res.statusCode,201);
   assert.equal(midtrans.charges[0].acquirer,"airpay shopee","ShopeePay QRIS is selectable without a code change");
 }
+// ------------------------------------------------ 12. Transfer Bank via Virtual Account
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank",total:12999000});
+  const missing=await payVa(order);
+  assert.equal(missing.statusCode,400);
+  assert.equal(missing.body.code,"BANK_REQUIRED","a VA needs a bank before it can be issued");
+  assert.equal(midtrans.charges.length,0);
+
+  const res=await payVa(order,"bni");
+  assert.equal(res.statusCode,200,"the attempt row created by the bank-less request is reused");
+  assert.equal(midtrans.charges[0].paymentType,"bank_transfer");
+  assert.equal(midtrans.charges[0].bank,"bni");
+  assert.deepEqual(midtrans.charges[0].expiry,{expiry_duration:24,unit:"hour"});
+  const payment=db.payments.at(-1);
+  assert.equal(payment.provider,"midtrans");
+  assert.equal(payment.va_bank,"bni");
+  assert.ok(payment.va_number);
+  assert.equal(payment.provider_environment,"production");
+  assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
+  assert.equal(payment.expires_at,"2026-09-27T06:20:00.000Z","Midtrans expiry_time is Western Indonesia Time");
+  assert.equal(res.body.vaBank,"bni");
+  assert.equal(res.body.vaNumber,payment.va_number);
+  assert.equal(res.body.paymentUrl,undefined);
+  assert.ok(Number(order.total)>10000000,"VA has no QRIS-style amount cap");
+
+  payment.expires_at=new Date(Date.now()+60*60_000).toISOString();
+  const again=await payVa(order,"bri");
+  assert.equal(again.statusCode,200);
+  assert.equal(again.body.vaBank,"bni","an active VA is kept; issuing a second one could let the customer pay twice");
+  assert.equal(midtrans.charges.length,1);
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"mandiri");
+  assert.equal(res.statusCode,201);
+  assert.equal(midtrans.charges[0].paymentType,"echannel","Mandiri uses Bill Payment");
+  assert.equal(res.body.vaBank,"mandiri");
+  assert.equal(res.body.vaNumber,"70012345678");
+  assert.equal(res.body.billerCode,"70012");
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"permata");
+  assert.equal(res.body.vaBank,"permata");
+  assert.equal(res.body.vaNumber,"8562000012345678");
+}
+resetEnv(); resetBackend();
+{
+  // Expired VA is renewed with a new Midtrans order_id and the bank the customer picks now.
+  const order=addOrder({method:"Transfer Bank"});
+  await payVa(order,"bni");
+  const first=db.payments.at(-1);
+  first.expires_at=new Date(Date.now()-60_000).toISOString();
+  midtrans.transactions.get(first.provider_reference).transaction_status="expire";
+  const res=await payVa(order,"bri");
+  assert.equal(res.statusCode,201);
+  assert.equal(first.status,"expired");
+  assert.equal(res.body.vaBank,"bri");
+  assert.notEqual(db.payments.at(-1).provider_reference,first.provider_reference);
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const unknown=await payVa(order,"bca");
+  assert.equal(unknown.statusCode,400);
+  assert.equal(unknown.body.code,"BANK_UNAVAILABLE");
+  resetEnv({MIDTRANS_VA_BANKS:"bni,mandiri"});
+  const disabled=await payVa(order,"bri");
+  assert.equal(disabled.statusCode,400,"banks removed from MIDTRANS_VA_BANKS are refused");
+  resetEnv({MIDTRANS_VA_BANKS:"bni,bca"});
+  assert.throws(()=>require("../api/payments/_midtrans.js").enabledVaBanks(),error=>isServerConfigError(error));
+}
+resetEnv(); resetBackend();
+{
+  midtrans.chargeError={status_code:"402",status_message:"Payment channel is not activated."};
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"cimb");
+  assert.equal(res.statusCode,503);
+  assert.equal(res.body.code,"BANK_UNAVAILABLE","an inactive bank asks the customer to pick another one");
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({total:12999000});
+  const res=await pay(order);
+  assert.equal(res.statusCode,409);
+  assert.equal(res.body.code,"QRIS_LIMIT");
+  assert.equal(midtrans.charges.length,0,"QRIS above Rp10.000.000 is refused before calling Midtrans");
+}
+resetEnv(); resetBackend();
+{
+  // The webhook settles VA payments exactly like QRIS.
+  const order=addOrder({method:"Transfer Bank"});
+  await payVa(order,"bni");
+  const payment=db.payments.at(-1);
+  const transaction=midtrans.transactions.get(payment.provider_reference);
+  transaction.transaction_status="settlement";
+  const signature=createHash("sha512").update(`${transaction.order_id}200${transaction.gross_amount}${PRODUCTION_KEY}`).digest("hex");
+  const res=await invoke(webhook,{body:{order_id:transaction.order_id,status_code:"200",gross_amount:transaction.gross_amount,signature_key:signature}});
+  assert.equal(res.body.paymentStatus,"paid");
+  assert.equal(payment.status,"paid");
+}
+
 resetEnv({MIDTRANS_QRIS_ACQUIRER:"ovo"});
 assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&/MIDTRANS_QRIS_ACQUIRER/.test(error.message));
 resetEnv(); resetBackend();

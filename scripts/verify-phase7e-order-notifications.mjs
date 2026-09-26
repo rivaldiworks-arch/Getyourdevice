@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const SERVER_KEY="SB-Mid-server-test-sandbox-key";
 
 function resetEnv(overrides={}) {
-  for(const key of ["RESEND_API_KEY","ORDER_NOTIFY_EMAIL","ORDER_NOTIFY_FROM","SITE_URL"]) delete process.env[key];
+  for(const key of ["RESEND_API_KEY","ORDER_NOTIFY_EMAIL","ORDER_NOTIFY_FROM","SITE_URL","CHECKOUT_PAYMENT_METHODS"]) delete process.env[key];
   Object.assign(process.env,{
     SUPABASE_URL:"https://db.test",
     SUPABASE_ANON_KEY:"anon-test-key",
@@ -171,7 +171,8 @@ resetEnv({RESEND_API_KEY:""}); reset();
   assert.equal(order.paid_notified_at,null,"an unconfigured notifier must not claim the order");
 }
 
-// 5. Checkout: COD emails on creation, QRIS waits for payment, Transfer Bank is closed.
+// 5. Checkout: COD emails on creation, gateway methods wait for payment, and methods
+//    removed from CHECKOUT_PAYMENT_METHODS are refused before reaching the database.
 resetEnv(); reset();
 {
   const cod=await checkout("COD");
@@ -182,8 +183,12 @@ resetEnv(); reset();
   assert.equal(qris.statusCode,201);
   assert.equal(sent.length,1,"QRIS orders are announced when paid, not when created");
   const transfer=await checkout("Transfer Bank");
-  assert.equal(transfer.statusCode,400,"Transfer Bank is not offered until it has a payment rail");
-  assert.equal(rpcCalls,2,"a rejected method must not reach the database");
+  assert.equal(transfer.statusCode,201,"Transfer Bank is offered through Midtrans Virtual Account");
+  assert.equal(sent.length,1,"Transfer Bank orders are announced when paid, not when created");
+  resetEnv({CHECKOUT_PAYMENT_METHODS:"Transfer Bank,COD"});
+  const hidden=await checkout("QRIS");
+  assert.equal(hidden.statusCode,400,"a method hidden by CHECKOUT_PAYMENT_METHODS is refused");
+  assert.equal(rpcCalls,3,"a refused method must not reach the database");
 }
 
 // 6. Customer-controlled text is escaped in the email body.
