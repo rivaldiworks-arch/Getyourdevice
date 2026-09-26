@@ -217,6 +217,24 @@ Biteship tidak menyediakan API label, jadi admin mencetak label sendiri langsung
 - Data label berasal dari `POST /api/shipping/label` (khusus admin). Pengirim memakai `SHIPPING_ORIGIN_*` yang sama dengan booking. Bila resi belum ada di database, endpoint menanyakannya sekali ke Biteship dan menyimpannya; bila kurir belum menerbitkan resi, admin mendapat pesan untuk mencoba lagi.
 - Barcode diuji dengan pemindai ZXing terhadap tangkapan layar label dalam mode cetak, untuk format resi numerik, berawalan huruf, campuran, dan bertanda hubung.
 
+## Login admin: lupa password (Phase 8E)
+
+- Kolom password punya tombol mata untuk menampilkan atau menyembunyikan isinya.
+- **Lupa password?** di halaman login mengirim link reset lewat Supabase Auth (`POST /auth/v1/recover`). Pesan konfirmasinya sama untuk email terdaftar maupun tidak, agar tidak membocorkan akun admin.
+- Link reset kembali ke `admin.html`. Token di URL langsung dihapus dari address bar, admin membuat password baru (minimal 12 karakter, huruf besar, huruf kecil, angka, simbol), lalu otomatis masuk ke dashboard. Link kedaluwarsa atau sudah dipakai menampilkan permintaan link baru.
+
+Setup Supabase (sekali):
+
+1. **Authentication → URL Configuration → Redirect URLs**: tambahkan `https://getyourdevice.vercel.app/admin.html`. Tanpa ini Supabase mengarahkan link ke Site URL dan form password baru tidak muncul.
+2. Email bawaan Supabase hanya untuk uji coba: terbatas beberapa email per jam dan hanya terkirim ke anggota tim project Supabase. Untuk pengiriman yang andal, pasang SMTP sendiri (misalnya Resend) di **Authentication → Emails → SMTP Settings**.
+
+Jalur darurat bila email tidak sampai: set password lewat **SQL Editor** Supabase:
+
+```sql
+update auth.users set encrypted_password = crypt('<password baru>', gen_salt('bf')), updated_at = now()
+where email = '<email admin>';
+```
+
 ## Verifikasi & CI
 
 Semua script `scripts/verify-*.mjs` dijalankan oleh GitHub Actions (`.github/workflows/verify.yml`) pada setiap pull request dan push ke `main`. Jalankan secara lokal sebelum membuka PR:
