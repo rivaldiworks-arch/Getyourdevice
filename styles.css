@@ -330,3 +330,21 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
 .brand-mark::after{top:-3px!important;right:-3px!important;width:9px!important;height:9px!important;box-shadow:0 0 0 2px #fff!important}
 .footer-brand .brand-mark::after{background:#fff!important;box-shadow:0 0 0 2px var(--navy)!important}
 @media(max-width:680px){.brand-mark::after{width:8px!important;height:8px!important}}
+/* ===== Scroll rhythm: alternating surfaces, consistent spacing, trust close to the footer ===== */
+.category-section{padding-block:56px 44px;background:#fff}
+.products-section{padding-block:56px 64px}
+.weekly-deal{margin-block:56px}
+.showcase-section{padding-block:56px}
+.feature-story{margin-block:56px}
+.trust-section{background:#fff;padding-block:64px}
+.trust-section .why-grid{margin-top:8px}
+.trust-section .why-grid article{background:var(--bg);padding:24px}
+.trust-section .why-grid article>span{background:#fff}
+.assurance-strip{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}
+.assurance-strip>div{border-radius:var(--radius);background:var(--bg);padding:18px 20px}
+.assurance-label{display:block;margin-bottom:10px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.chip-list{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.chip-list li{border:1px solid var(--line);border-radius:980px;background:#fff;padding:6px 12px;color:var(--ink);font-size:13px;font-weight:500}
+.product-heading{align-items:end}
+@media(max-width:900px){.assurance-strip{grid-template-columns:1fr}}
+@media(max-width:680px){.category-section,.products-section,.showcase-section,.trust-section{padding-block:40px}.weekly-deal,.feature-story{margin-block:36px}.trust-section .why-grid article{padding:18px}}
