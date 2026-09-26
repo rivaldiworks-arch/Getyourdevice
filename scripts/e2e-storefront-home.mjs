@@ -20,7 +20,7 @@ await new Promise(r=>server.listen(0,"127.0.0.1",r));
 const origin=`http://127.0.0.1:${server.address().port}`;
 const categories=["Smartphone","Laptop","Tablet","Smartwatch","Audio","Accessories"];
 const products=categories.flatMap((category,c)=>[0,1].map(n=>({id:`00000000-0000-4000-8000-0000000001${c}${n}`,name:`${category} ${n+1}`,brand:"Brand",category,
-  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:null,stock:c===0&&n===0?0:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true})));
+  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:n===1?10999000+c*1000000:null,stock:c===0&&n===0?0:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true})));
 const errors=[];
 const browser=await chromium.launch();
 const luminance=rgb=>{const [r,g,b]=rgb.match(/\d+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4;});return .2126*r+.7152*g+.0722*b;};
@@ -129,6 +129,24 @@ for(const width of [1440,834,390]){
   // Header actions still work.
   await page.locator('.header-actions [data-action="open-cart"]').click();
   await page.waitForSelector("#cartDrawer:not(.hidden)");
+  await page.close();
+}
+
+// Nothing is clipped on a small phone or an iPad: struck-through prices stay inside their
+// card, and the product detail info column stays inside the dialog.
+for(const width of [360,834]){
+  const page=await browser.newPage({viewport:{width,height:860}});
+  await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
+  await page.goto(origin);
+  await page.waitForSelector("#productGrid .product-card del");
+  const cut=await page.evaluate(()=>[...document.querySelectorAll("#productGrid .product-card del")].filter(del=>del.getBoundingClientRect().right>del.closest(".product-card").getBoundingClientRect().right+1).length);
+  assert.equal(cut,0,`struck-through prices fit their card at ${width}px`);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`no sideways scroll at ${width}px`);
+  await page.locator("#productGrid .product-card").first().click();
+  await page.waitForSelector("#productModal:not(.hidden) .detail-info");
+  const overflow=await page.evaluate(()=>{const card=document.querySelector(".product-detail-card").getBoundingClientRect();return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-buttons button")].map(el=>Math.round(el.getBoundingClientRect().right-card.right)).filter(d=>d>1);});
+  assert.deepEqual(overflow,[],`product detail fits the dialog at ${width}px`);
   await page.close();
 }
 
