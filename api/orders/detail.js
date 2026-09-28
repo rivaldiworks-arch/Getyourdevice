@@ -54,7 +54,11 @@ module.exports=async function handler(req,res){
       return res.status(404).json({error:byPhone?"Pesanan tidak ditemukan. Periksa nomor pesanan dan nomor WhatsApp yang dipakai saat checkout.":"Pesanan tidak ditemukan atau akses sudah kedaluwarsa."});
     }
 
-    const items=await rows(`order_items?select=product_name,quantity,product_price,subtotal&order_id=eq.${encodeURIComponent(order.id)}`);
+    const items=await rows(`order_items?select=product_id,product_name,quantity,product_price,subtotal&order_id=eq.${encodeURIComponent(order.id)}`);
+    // Current product photo for each line, so the customer recognises what they bought.
+    // A missing or deleted product just shows no photo; the order data never depends on it.
+    const productIds=[...new Set(items.map(item=>item.product_id).filter(id=>/^[0-9a-f-]{36}$/i.test(String(id||""))))];
+    const images=new Map(productIds.length?(await rows(`products?select=id,image_url&id=in.(${productIds.join(",")})`).catch(()=>[])).map(row=>[row.id,row.image_url]):[]);
     return res.status(200).json({
       orderNumber:order.order_number,
       createdAt:order.created_at,
@@ -83,7 +87,8 @@ module.exports=async function handler(req,res){
         name:item.product_name||"Produk",
         quantity:Number(item.quantity||1),
         unitPrice:Number(item.product_price||0),
-        subtotal:Number(item.subtotal||0)
+        subtotal:Number(item.subtotal||0),
+        image:/^https:\/\//i.test(String(images.get(item.product_id)||""))?images.get(item.product_id):null
       }))
     });
   }catch(error){
