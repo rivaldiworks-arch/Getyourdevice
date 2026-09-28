@@ -247,6 +247,7 @@ resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); rese
   assert.match(created.subject,/menunggu pembayaran/);
   assert.match(created.html,/#pesanan\/akses\/GYD-\d{8}-\d{4}\/[a-f0-9]{64}/,"the link opens the order on any device");
   assert.match(created.html,/tidak pernah meminta transfer ke rekening pribadi/);
+  assert.match(created.html,/<img src="https:\/\/www\.getyourdevice\.id\/icon-192\.png" width="40" height="40" alt="gyd"/,"the gyd mark is a hosted PNG with alt text");
   const order=[...db.orders.values()][0];
   const payment=addPendingPayment(order);
   sent.length=0;
@@ -255,6 +256,7 @@ resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); rese
   const receipt=sent.find(mail=>mail.to[0]==="budi@example.com");
   assert.match(receipt.subject,new RegExp(`Pembayaran diterima · ${order.order_number}`));
   assert.match(receipt.html,/#lacak\//);
+  assert.match(receipt.html,/icon-192\.png/,"the receipt carries the gyd mark too");
   assert.ok(order.customer_paid_notified_at);
   await midtransNotification(payment,"settlement");
   assert.equal(sent.length,2,"retries do not email the customer again");

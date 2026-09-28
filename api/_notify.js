@@ -177,12 +177,17 @@ const STORE_WHATSAPP="https://wa.me/6281288451500";
 function paymentLabel(method) {
   return ({QRIS:"QRIS / e-wallet","Transfer Bank":"Transfer Bank (Virtual Account)",COD:"Bayar di toko (COD)"})[method]||method;
 }
-function customerEmail(order,items,{headline,intro,ctaLabel,ctaUrl,notes=[]}) {
+// The brand mark is a hosted PNG (email clients drop SVG and most block data: URIs); the
+// alt text keeps the name readable when images are off.
+function customerEmail(order,items,{headline,intro,ctaLabel,ctaUrl,notes=[],siteUrl}) {
   const rows=items.map(item=>`<tr><td style="padding:8px 0;border-bottom:1px solid #eef1f5">${escapeHtml(item.product_name)} × ${Number(item.quantity||1)}</td><td style="padding:8px 0;border-bottom:1px solid #eef1f5;text-align:right">${rupiah(item.subtotal)}</td></tr>`).join("");
   const pickup=order.shipping_method==="pickup";
   const html=`<div style="background:#f5f5f7;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#172033">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;padding:28px">
-<p style="margin:0 0 18px;font-size:20px;font-weight:bold"><span style="color:#172033">getyour</span><span style="color:#1446a0">device</span></p>
+<table role="presentation" style="border-collapse:collapse;margin:0 0 18px"><tr>
+<td style="padding:0 10px 0 0;vertical-align:middle"><img src="${siteUrl}/icon-192.png" width="40" height="40" alt="gyd" style="display:block;width:40px;height:40px;border:0;border-radius:10px"></td>
+<td style="vertical-align:middle;font-size:20px;font-weight:bold"><span style="color:#172033">getyour</span><span style="color:#1446a0">device</span></td>
+</tr></table>
 <h1 style="margin:0 0 8px;font-size:22px;color:#0b2559">${escapeHtml(headline)}</h1>
 <p style="margin:0 0 20px;line-height:1.6">Halo ${escapeHtml(order.customer_name)}, ${escapeHtml(intro)}</p>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:6px">
@@ -223,9 +228,9 @@ async function notifyCustomerOrderCreated(orderNumber,accessToken,{requestId}={}
     const deadline=order.payment_access_expires_at?new Date(order.payment_access_expires_at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})+" WIB":"24 jam";
     const ctaUrl=/^[a-f0-9]{64}$/i.test(String(accessToken||""))?`${cfg.siteUrl}/#pesanan/akses/${encodeURIComponent(order.order_number)}/${accessToken}`:`${cfg.siteUrl}/#lacak/${encodeURIComponent(order.order_number)}`;
     const content=customerEmail(order,items,cod
-      ?{headline:"Pesanan Anda kami terima",intro:"terima kasih sudah berbelanja. Pesanan Anda sudah kami catat.",ctaLabel:"Lihat Pesanan",ctaUrl,
+      ?{siteUrl:cfg.siteUrl,headline:"Pesanan Anda kami terima",intro:"terima kasih sudah berbelanja. Pesanan Anda sudah kami catat.",ctaLabel:"Lihat Pesanan",ctaUrl,
         notes:["Bayar tunai saat mengambil barang di toko.","Alamat dan jadwal pengambilan kami kirim lewat WhatsApp setelah pesanan dikonfirmasi."]}
-      :{headline:"Selesaikan pembayaran Anda",intro:"terima kasih sudah berbelanja. Pesanan Anda sudah kami catat dan menunggu pembayaran.",ctaLabel:"Lihat Pesanan",ctaUrl,
+      :{siteUrl:cfg.siteUrl,headline:"Selesaikan pembayaran Anda",intro:"terima kasih sudah berbelanja. Pesanan Anda sudah kami catat dan menunggu pembayaran.",ctaLabel:"Lihat Pesanan",ctaUrl,
         notes:[`Selesaikan pembayaran sebelum ${deadline}. Setelah itu pesanan dibatalkan otomatis.`,"Pembayaran terkonfirmasi otomatis; Anda tidak perlu mengirim bukti transfer.","Kami tidak pernah meminta transfer ke rekening pribadi atau kode OTP."]});
     const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pesanan ${order.order_number} · ${cod?"diterima":"menunggu pembayaran"}`,...content});
     await logEmail({orderNumber,kind:"customer-created",status:"sent",recipient,providerId});
@@ -257,7 +262,7 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
     recipient=maskEmail(order.customer_email);
     const items=await loadItems(order.id);
     const pickup=order.shipping_method==="pickup";
-    const content=customerEmail(order,items,{headline:"Pembayaran diterima",intro:"pembayaran Anda sudah kami terima dan pesanan sedang diproses.",
+    const content=customerEmail(order,items,{siteUrl:cfg.siteUrl,headline:"Pembayaran diterima",intro:"pembayaran Anda sudah kami terima dan pesanan sedang diproses.",
       ctaLabel:"Lacak Pesanan",ctaUrl:`${cfg.siteUrl}/#lacak/${encodeURIComponent(order.order_number)}`,
       notes:pickup
         ?["Alamat dan jadwal pengambilan kami kirim lewat WhatsApp."]
