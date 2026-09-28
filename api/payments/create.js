@@ -186,7 +186,7 @@ async function chargeBankTransfer(payment,bank,reference) {
 }
 
 function snapFinishUrl() {
-  const site=String(process.env.SITE_URL||"https://getyourdevice.vercel.app").trim().replace(/\/$/,"");
+  const site=String(process.env.SITE_URL||"https://www.getyourdevice.id").trim().replace(/\/$/,"");
   return /^https:\/\//.test(site)?`${site}/#pesanan`:null;
 }
 

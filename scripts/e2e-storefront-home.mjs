@@ -176,7 +176,8 @@ for(const width of [360,834,1024,1180]){
   assert.equal(await page.locator("#categoryNav .active").innerText(),"Laptop","menu category filters the catalog");
   // Footer: real contact only, policy links, localized category label.
   const footer=await page.locator("footer").innerText();
-  assert.doesNotMatch(footer,/support@/,"no unreachable support email");
+  assert.equal(await page.locator('footer a[href="mailto:support@getyourdevice.id"]').count(),1,"footer shows the store email");
+  assert.equal(await page.locator('#menuDrawer a[href="mailto:support@getyourdevice.id"]').count(),1,"menu shows the store email");
   assert.match(footer,/WhatsApp 0812-8845-1500/);
   assert.match(footer,/Aksesori/);
   for(const hash of ["pengiriman","pembayaran","pengembalian","privasi","syarat"])assert.equal(await page.locator(`footer a[href="./bantuan.html#${hash}"]`).count(),1,`footer links to ${hash}`);

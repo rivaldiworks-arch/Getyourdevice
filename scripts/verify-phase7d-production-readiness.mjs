@@ -501,7 +501,7 @@ snapEnv(); resetBackend();
   assert.deepEqual(request.body.enabled_payments,["other_qris","gopay","shopeepay"]);
   assert.equal(request.body.transaction_details.gross_amount,150000);
   assert.deepEqual(request.body.expiry,{unit:"hour",duration:24});
-  assert.equal(request.body.callbacks.finish,"https://getyourdevice.vercel.app/#pesanan");
+  assert.equal(request.body.callbacks.finish,"https://www.getyourdevice.id/#pesanan");
   const payment=db.payments[0];
   assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
   assert.equal(request.body.transaction_details.order_id,payment.provider_reference);

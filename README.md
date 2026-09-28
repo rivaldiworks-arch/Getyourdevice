@@ -89,7 +89,7 @@ Jangan commit atau tampilkan nilai ketiga secret tersebut di browser. Aktivasi p
 Set Payment Notification URL di dashboard Midtrans Sandbox ke:
 
 ```text
-https://getyourdevice.vercel.app/api/payments/webhook
+https://www.getyourdevice.id/api/payments/webhook
 ```
 
 Webhook memverifikasi `signature_key`, lalu melakukan GET Status ke Midtrans sebagai challenge sebelum menyinkronkan payment status ke Supabase. QRIS `pending` dipetakan ke payment `pending`; `settlement/capture` ke `paid`; `expire` ke `expired`; dan `deny/cancel/failure` ke `failed`.
@@ -146,7 +146,7 @@ SHIPPING_ORIGIN_ORGANIZATION=GETYOURDEVICE
 Tracking utama memakai Biteship tracking ID melalui `POST /api/shipping/track` dari admin. Biteship webhook tersedia di:
 
 ```text
-https://getyourdevice.vercel.app/api/shipping/webhook
+https://www.getyourdevice.id/api/shipping/webhook
 ```
 
 Webhook menerima event `order.status`, `order.waybill_id`, dan `order.price`. Untuk autentikasi, konfigurasi pasangan custom header yang sama di Vercel dan dashboard Biteship:
@@ -209,6 +209,14 @@ Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status 
 - **COD hanya untuk Ambil di Toko** (bayar tunai saat mengambil). Kurir tidak bisa dibooking sebelum pesanan dibayar dan tidak diinstruksikan menagih tunai, sehingga COD via kurir tidak dapat dipenuhi. Checkout menonaktifkan COD untuk opsi kurir; database menolaknya (`COD_REQUIRES_PICKUP`).
 - Pesanan yang dibatalkan otomatis diberi `orders.auto_cancelled_at`. Pembayaran yang tetap masuk setelahnya tetap dicatat dan email penjual menandainya **PERLU REFUND**.
 
+## Domain toko (Phase 8G)
+
+- Domain utama: **`https://www.getyourdevice.id`**. `getyourdevice.id` dialihkan (308) ke `www`, dan `getyourdevice.vercel.app` tetap aktif.
+- DNS di Rumahweb: `A @ → 216.198.79.1`, `CNAME www → b37548a44224970a.vercel-dns-017.com`. Record email Titan (MX `mx1/mx2.titan.email`, SPF, `titan1._domainkey`) tidak diubah. Disarankan menambah `TXT _dmarc → v=DMARC1; p=none; rua=mailto:support@getyourdevice.id`.
+- Email toko: `support@getyourdevice.id` (Titan), tampil di footer, menu, dan halaman Bantuan.
+- `SITE_URL` default sekarang `https://www.getyourdevice.id`, dipakai untuk halaman kembali setelah pembayaran Midtrans dan tautan di email. Bila env `SITE_URL` di Vercel masih berisi `vercel.app`, ganti ke domain baru.
+- **URL webhook (Midtrans, Biteship) harus memakai `www.`**. Pengalihan dari `getyourdevice.id` tanpa `www` mengubah POST menjadi redirect, sehingga notifikasi pembayaran bisa gagal.
+
 ## Menu, footer, dan Bantuan & Kebijakan (Phase 8F)
 
 - **Menu samping (☰)** di kiri atas: kategori, Pesanan Saya, Bantu Saya Pilih, tautan ke halaman Bantuan, dan WhatsApp. Menu hanya berisi fitur yang sudah ada. Promo, member, edukasi, dan login pembeli belum dipasang.
@@ -233,7 +241,7 @@ Biteship tidak menyediakan API label, jadi admin mencetak label sendiri langsung
 
 Setup Supabase (sekali):
 
-1. **Authentication → URL Configuration → Redirect URLs**: tambahkan `https://getyourdevice.vercel.app/admin.html`. Tanpa ini Supabase mengarahkan link ke Site URL dan form password baru tidak muncul.
+1. **Authentication → URL Configuration → Redirect URLs**: tambahkan `https://www.getyourdevice.id/admin.html`. Tanpa ini Supabase mengarahkan link ke Site URL dan form password baru tidak muncul.
 2. Email bawaan Supabase hanya untuk uji coba: terbatas beberapa email per jam dan hanya terkirim ke anggota tim project Supabase. Untuk pengiriman yang andal, pasang SMTP sendiri (misalnya Resend) di **Authentication → Emails → SMTP Settings**.
 
 Jalur darurat bila email tidak sampai: set password lewat **SQL Editor** Supabase:
@@ -303,7 +311,7 @@ Modal pembayaran menampilkan hitung mundur masa berlaku QR, memeriksa status set
 2. Di Vercel → Settings → Environment Variables, set `SERVER_HMAC_SECRET` untuk **Production dan Preview** (nilai berbeda per environment dianjurkan).
 3. Deploy/merge kode Phase 7D. Pastikan checkout sandbox masih berjalan.
 4. Khusus environment **Production**: `MIDTRANS_SERVER_KEY=<Mid-server-...>` dan `MIDTRANS_ENV=production`. Preview tetap `SB-Mid-server-...` + `sandbox`.
-5. Di dashboard Midtrans **Production**: aktifkan channel QRIS dan set Payment Notification URL ke `https://getyourdevice.vercel.app/api/payments/webhook`.
+5. Di dashboard Midtrans **Production**: aktifkan channel QRIS dan set Payment Notification URL ke `https://www.getyourdevice.id/api/payments/webhook`.
 6. Redeploy Production agar env baru terbaca.
 7. Uji satu transaksi QRIS nominal kecil hingga admin menampilkan `paid`. Jika status tidak berubah dalam 1–2 menit, periksa log webhook sebelum membuka toko.
 
@@ -329,7 +337,7 @@ RESEND_API_KEY=<re_...>
 ORDER_NOTIFY_EMAIL=<email penjual; pisahkan dengan koma untuk lebih dari satu>
 # Optional:
 ORDER_NOTIFY_FROM=GETYOURDEVICE <pesanan@domain-anda>   # default onboarding@resend.dev
-SITE_URL=https://getyourdevice.vercel.app               # untuk tautan Admin di email
+SITE_URL=https://www.getyourdevice.id               # untuk tautan Admin di email
 ```
 
 Tanpa domain terverifikasi, pengirim default `onboarding@resend.dev` hanya dapat mengirim ke email pemilik akun Resend; cukup untuk notifikasi penjual. Bila `RESEND_API_KEY` atau `ORDER_NOTIFY_EMAIL` kosong, notifikasi dilewati tanpa error.
@@ -367,7 +375,7 @@ Akun Midtrans production toko ini menolak semua channel lewat Core API (`402 Pay
 - `POST /api/payments/create` membuat transaksi Snap (`/snap/v1/transactions`) dan mengembalikan `checkoutUrl`. Customer memilih bank VA, QRIS, atau e-wallet di halaman Midtrans. Tidak ada migrasi database: link disimpan di `payments.payment_url`.
 - `enabled_payments` dibatasi per metode toko: **Transfer Bank** → VA dari `MIDTRANS_VA_BANKS` (`bni_va`, `bri_va`, `echannel`, `permata_va`, `cimb_va`) + `other_va`; **QRIS** → `other_qris`, `gopay`, `shopeepay`. Channel yang belum aktif otomatis tidak ditampilkan oleh Midtrans.
 - Link berlaku 24 jam dan dipakai ulang selama masih berlaku. Link kedaluwarsa yang belum dipakai diganti attempt baru (`order_id` baru); bila ternyata sudah dibayar, API melaporkan `paid` tanpa membuat link baru. Batas QRIS Rp10.000.000 tetap berlaku.
-- Setelah bayar, Midtrans mengarahkan customer ke `SITE_URL/#pesanan` (default `https://getyourdevice.vercel.app`). Status tetap ditentukan webhook, bukan redirect.
+- Setelah bayar, Midtrans mengarahkan customer ke `SITE_URL/#pesanan` (default `https://www.getyourdevice.id`). Status tetap ditentukan webhook, bukan redirect.
 - Webhook menjawab `200 ignored` untuk notifikasi yang `order_id`-nya bukan milik toko (Payment Link, transaksi dashboard), setelah signature diverifikasi, sehingga Midtrans berhenti mengirim ulang.
 - Order VA Core API lama tetap tampil dengan nomor VA-nya.
 

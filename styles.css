@@ -479,3 +479,4 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
 @media(max-width:680px){.header-start{gap:2px}.menu-button{margin-left:-12px}.header-start .brand{gap:8px}.header-start .brand .brand-mark{width:32px!important;height:32px!important;font-size:13px!important}.header-start .brand .logo{font-size:19px}.header-actions .icon-button{min-width:40px}}
 @media(max-width:400px){.header-start .brand .brand-mark{display:none!important}}
 @media(max-width:350px){.header-start .brand .logo{font-size:17px}.header-actions .icon-button{min-width:36px;padding:6px}}
+.menu-email{display:block;margin-top:12px;color:var(--blue);font-weight:600;text-align:center;text-decoration:none}

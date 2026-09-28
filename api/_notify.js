@@ -16,7 +16,7 @@ function notifyConfig() {
     apiKey,
     to,
     from:String(process.env.ORDER_NOTIFY_FROM||"").trim()||DEFAULT_FROM,
-    siteUrl:String(process.env.SITE_URL||"https://getyourdevice.vercel.app").replace(/\/$/,"")
+    siteUrl:String(process.env.SITE_URL||"https://www.getyourdevice.id").replace(/\/$/,"")
   };
 }
 
