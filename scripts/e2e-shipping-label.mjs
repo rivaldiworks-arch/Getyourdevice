@@ -78,7 +78,7 @@ async function decodeLabelBarcode(page){
 async function run(width){
   let current=WAYBILLS[0];
   const {page,calls}=await openAdmin(width,()=>({json:labelData(current)}));
-  const button=page.locator("[data-shipping-label]");
+  const button=page.locator("#orderDetailContent [data-shipping-label]");
   assert.equal(await button.innerText(),"Cetak Label");
   await button.click();
   await page.waitForFunction(()=>window.__prints===1);
@@ -115,10 +115,10 @@ async function run(width){
   // Waybill not issued yet: the admin sees why, nothing is printed.
   current=null;
   const pending=await openAdmin(width,()=>({status:409,json:{error:"Nomor resi belum diterbitkan kurir. Coba lagi beberapa saat lagi.",code:"WAYBILL_PENDING"}}));
-  await pending.page.locator("[data-shipping-label]").click();
+  await pending.page.locator("#orderDetailContent [data-shipping-label]").click();
   await pending.page.waitForFunction(()=>/belum diterbitkan kurir/.test(document.querySelector("#shippingActionMessage")?.textContent||""));
   assert.equal(await pending.page.evaluate(()=>window.__prints),0);
-  assert.equal(await pending.page.locator("[data-shipping-label]").isEnabled(),true);
+  assert.equal(await pending.page.locator("#orderDetailContent [data-shipping-label]").isEnabled(),true);
   await pending.page.close();
   await page.close();
 }

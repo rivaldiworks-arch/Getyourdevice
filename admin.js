@@ -6,7 +6,7 @@ const escapeHTML = (value="") => String(value).replace(/[&<>'"]/g, char => ({"&"
 const IMAGE_BUCKET="product-images";
 const MAX_IMAGE_BYTES=5*1024*1024;
 const IMAGE_TYPES={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
-let config, session, products=[], orders=[], orderItems=[], payments=[], previewObjectUrl="", adminReady=false, applyingAdminRoute=false, adminRouteQueued=false;
+let config, session, products=[], orders=[], orderItems=[], payments=[], productThumbs=new Map(), previewObjectUrl="", adminReady=false, applyingAdminRoute=false, adminRouteQueued=false;
 const ORDER_STATUSES=["pending","confirmed","processing","shipped","completed","cancelled"];
 const PAYMENT_STATUSES=["unpaid","pending","paid","failed","expired","refunded"];
 
@@ -207,13 +207,82 @@ function getItemUnitPrice(item){return Number(item.product_price)||Number(item.p
 function getItemSubtotal(item){return Number(item.subtotal)||Number(item.total_price)||(getItemUnitPrice(item)*getItemQty(item));}
 function orderDate(value){if(!value)return "-";const date=new Date(value);return Number.isNaN(date.getTime())?"-":date.toLocaleString("id-ID",{dateStyle:"medium",timeStyle:"short"});}
 function normalizedStatus(status){const value=String(status||"").toLowerCase();return ORDER_STATUSES.includes(value)?value:"pending";}
-function statusBadge(status){const value=normalizedStatus(status);return `<span class="order-status status-${value}" data-status-badge>${escapeHTML(value)}</span>`;}
+const ORDER_STATUS_LABELS={pending:"Menunggu",confirmed:"Dikonfirmasi",processing:"Dijadwalkan kurir",shipped:"Dikirim",completed:"Selesai",cancelled:"Dibatalkan"};
+const PAYMENT_STATUS_LABELS={unpaid:"Belum bayar",pending:"Menunggu bayar",paid:"Lunas",failed:"Gagal",expired:"Kedaluwarsa",refunded:"Refund"};
+function statusBadge(status){const value=normalizedStatus(status);return `<span class="order-status status-${value}" data-status-badge="${value}">${escapeHTML(ORDER_STATUS_LABELS[value])}</span>`;}
 function normalizedPaymentStatus(status){const value=String(status||"").toLowerCase();return PAYMENT_STATUSES.includes(value)?value:"unpaid";}
-function paymentStatusBadge(status){const value=normalizedPaymentStatus(status);return `<span class="order-status payment-${value}">${escapeHTML(value)}</span>`;}
+function paymentStatusBadge(status){const value=normalizedPaymentStatus(status);return `<span class="order-status payment-${value}">${escapeHTML(PAYMENT_STATUS_LABELS[value])}</span>`;}
 function paymentForOrder(order){return payments.filter(payment=>String(payment.order_id)===String(order.id)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0]||null;}
-function filteredOrders(){const query=$("orderSearch").value.trim().toLowerCase(),status=$("orderStatusFilter").value;return orders.filter(order=>(status==="all"||normalizedStatus(order.status)===status)&&(!query||[order.order_number,getOrderCustomerName(order),getOrderEmail(order),getOrderPhone(order)].some(value=>String(value||"").toLowerCase().includes(query))));}
-function renderOrders(){const rows=filteredOrders();$("orderTable").innerHTML=rows.length?`<table class="orders-table"><thead><tr><th>Nomor pesanan</th><th>Dibuat</th><th>Pelanggan</th><th>Status</th><th>Total</th><th>Aksi</th></tr></thead><tbody>${rows.map(order=>`<tr data-order-row="${escapeHTML(order.id)}"><td data-label="Nomor pesanan"><strong>${escapeHTML(order.order_number||order.id)}</strong></td><td data-label="Dibuat">${escapeHTML(orderDate(order.created_at))}</td><td data-label="Pelanggan"><strong>${escapeHTML(getOrderCustomerName(order))}</strong><small>${escapeHTML(getOrderPhone(order))}</small></td><td data-label="Status">${statusBadge(order.status)}</td><td data-label="Total"><strong>${money(getOrderTotal(order))}</strong></td><td data-label="Aksi"><button class="secondary detail-button" type="button" data-order-detail="${escapeHTML(order.id)}">Lihat Detail</button></td></tr>`).join("")}</tbody></table>`:'<div class="empty-admin">Belum ada pesanan.</div>';}
-async function loadOrders(){const message=$("orderMessage");message.textContent="Memuat pesanan…";try{const [orderRows,itemRows,paymentRows]=await Promise.all([request("/rest/v1/orders?select=*&order=created_at.desc&limit=100"),request("/rest/v1/order_items?select=*&limit=500"),request("/rest/v1/payments?select=id,order_id,provider,payment_method,status,provider_reference,external_transaction_id,expires_at,paid_at,created_at&order=created_at.desc&limit=500")]);orders=orderRows||[];orderItems=itemRows||[];payments=paymentRows||[];renderOrders();message.textContent=orders.length?`${orders.length} pesanan ditemukan. Urutan terbaru terlebih dahulu.`:"";return true;}catch(error){message.textContent=`Pesanan belum dapat dimuat: ${error.message}`;$("orderTable").innerHTML="";return false;}}
+// Quick views on top of the per-status filter. "todo" is every order waiting on the
+// admin: paid orders to pack/ship/hand over, and COD pickups to confirm.
+const ORDER_VIEWS={
+  todo:order=>{const status=normalizedStatus(order.status);return status==="confirmed"||(status==="pending"&&order.payment_method==="COD");},
+  awaiting:order=>normalizedStatus(order.status)==="pending"&&order.payment_method!=="COD",
+  transit:order=>["processing","shipped"].includes(normalizedStatus(order.status))
+};
+function itemsForOrder(order){return orderItems.filter(item=>String(item.order_id)===String(order.id));}
+function orderPaymentStatus(order){return normalizedPaymentStatus(paymentForOrder(order)?.status||order.payment_status);}
+function filteredOrders(){
+  const query=$("orderSearch").value.trim().toLowerCase(),filter=$("orderStatusFilter").value;
+  return orders.filter(order=>{
+    const matchesFilter=filter==="all"||(ORDER_VIEWS[filter]?ORDER_VIEWS[filter](order):normalizedStatus(order.status)===filter);
+    const haystack=[order.order_number,getOrderCustomerName(order),getOrderEmail(order),getOrderPhone(order),order.city,order.tracking_number,...itemsForOrder(order).map(item=>item.product_name)];
+    return matchesFilter&&(!query||haystack.some(value=>String(value||"").toLowerCase().includes(query)));
+  });
+}
+function renderOrderStats(){
+  const monthStart=new Date();monthStart.setDate(1);monthStart.setHours(0,0,0,0);
+  const count=view=>orders.filter(ORDER_VIEWS[view]).length;
+  const paidThisMonth=orders.filter(order=>orderPaymentStatus(order)==="paid"&&normalizedStatus(order.status)!=="cancelled"&&new Date(order.created_at)>=monthStart);
+  const active=$("orderStatusFilter").value;
+  const card=(view,label,value,hint)=>`<button type="button" class="order-stat${view&&active===view?" active":""}" ${view?`data-order-view="${view}"`:"disabled"}><span>${label}</span><strong>${value}</strong><small>${hint}</small></button>`;
+  $("orderStats").innerHTML=card("todo","Perlu diproses",count("todo"),"Kemas, kirim, atau serahkan")
+    +card("awaiting","Menunggu bayar",count("awaiting"),"Batal otomatis setelah 24 jam")
+    +card("transit","Dalam pengiriman",count("transit"),"Diperbarui otomatis oleh kurir")
+    +card("","Omzet lunas bulan ini",money(paidThisMonth.reduce((sum,order)=>sum+getOrderTotal(order),0)),`${paidThisMonth.length} pesanan`);
+}
+// One-line summary of what happens next, shown under the status in the list.
+function nextStepHint(order,status,paymentStatus){
+  const pickup=order.shipping_method==="pickup",cod=order.payment_method==="COD";
+  if(status==="pending")return cod?"COD: konfirmasi, lalu tunggu diambil":`Menunggu pembayaran${order.payment_access_expires_at?` s/d ${orderDate(order.payment_access_expires_at)}`:""}`;
+  if(status==="confirmed")return pickup?"Siapkan untuk diambil pelanggan":order.shipping_provider==="biteship"?(order.shipping_order_id?"Menunggu kurir":"Kemas, lalu buat pengiriman"):"Kirim manual, lalu tandai dikirim";
+  if(status==="processing")return "Menunggu kurir mengambil paket";
+  if(status==="shipped")return order.tracking_number?`Resi ${order.tracking_number}`:"Dalam perjalanan";
+  if(status==="cancelled")return paymentStatus==="paid"?"Sudah dibayar: proses refund":order.auto_cancelled_at?"Batal otomatis (tidak dibayar)":"Dibatalkan";
+  return "Selesai";
+}
+// The next step as a button in the row, so routine work needs no detail dialog.
+// Cancelling stays in the detail dialog, next to the full order information.
+function rowActions(order,status,paymentStatus){
+  const {actions}=orderFlow(order,status,paymentStatus),buttons=actions.filter(key=>key!=="cancel").map(key=>`<button class="${ORDER_ACTIONS[key].tone} row-action" type="button" data-order-action="${key}" data-order-id="${escapeHTML(order.id)}">${escapeHTML(ORDER_ACTIONS[key].label)}</button>`);
+  if(status==="confirmed"&&order.shipping_provider==="biteship"&&order.shipping_method!=="pickup"&&!order.shipping_order_id)buttons.push(`<button class="primary row-action" type="button" data-shipping-book="${escapeHTML(order.id)}">Buat Pengiriman Biteship</button>`);
+  if(order.shipping_order_id&&["confirmed","processing","shipped"].includes(status))buttons.push(`<button class="secondary row-action" type="button" data-shipping-label="${escapeHTML(order.id)}">Cetak Label</button>`);
+  return buttons.join("");
+}
+function orderProducts(order){
+  const items=itemsForOrder(order);
+  if(!items.length)return '<span class="order-products empty">Item tidak tersedia</span>';
+  const [first]=items,image=productThumbs.get(String(first.product_id)),units=items.reduce((sum,item)=>sum+getItemQty(item),0);
+  const thumb=/^https:\/\//i.test(String(image||""))?`<img src="${escapeHTML(image)}" alt="" width="44" height="44" loading="lazy">`:'<span class="thumb-fallback" aria-hidden="true"></span>';
+  return `<div class="order-products">${thumb}<div><strong>${escapeHTML(firstValue(first.product_name,first.name,"Produk"))}</strong><small>${getItemQty(first)} unit${items.length>1?` · +${items.length-1} produk lain`:""}${items.length>1?` (${units} unit)`:""}</small></div></div>`;
+}
+function whatsappHref(phone){const digits=String(phone||"").replace(/\D/g,"").replace(/^0/,"62");return digits.length>=9?`https://wa.me/${digits}`:null;}
+function renderOrders(){
+  renderOrderStats();
+  const rows=filteredOrders();
+  $("orderTable").innerHTML=rows.length?`<div class="order-list" role="list">${rows.map(order=>{
+    const status=normalizedStatus(order.status),paymentStatus=orderPaymentStatus(order),wa=whatsappHref(getOrderPhone(order));
+    const pickup=order.shipping_method==="pickup";
+    return `<article class="order-row status-row-${status}" role="listitem" data-order-row="${escapeHTML(order.id)}">
+<div class="order-cell order-id"><strong>${escapeHTML(order.order_number||order.id)}</strong><small>${escapeHTML(orderDate(order.created_at))}</small><small>${escapeHTML(firstValue(order.payment_method,"-"))}</small></div>
+<div class="order-cell">${orderProducts(order)}</div>
+<div class="order-cell order-customer"><strong>${escapeHTML(getOrderCustomerName(order))}</strong><small>${escapeHTML(firstValue(order.city,"-"))}</small>${wa?`<a href="${wa}" target="_blank" rel="noopener">WhatsApp ${escapeHTML(getOrderPhone(order))}</a>`:`<small>${escapeHTML(getOrderPhone(order))}</small>`}</div>
+<div class="order-cell order-shipping"><strong>${escapeHTML(pickup?"Ambil di toko":firstValue(order.shipping_service_name,"Kurir"))}</strong>${order.tracking_number?`<small>Resi ${escapeHTML(order.tracking_number)}</small>`:""}</div>
+<div class="order-cell order-state"><div class="badges">${statusBadge(status)}${paymentStatusBadge(paymentStatus)}</div><small>${escapeHTML(nextStepHint(order,status,paymentStatus))}</small></div>
+<div class="order-cell order-total"><strong>${money(getOrderTotal(order))}</strong><div class="order-row-actions">${rowActions(order,status,paymentStatus)}<button class="secondary detail-button" type="button" data-order-detail="${escapeHTML(order.id)}">Detail</button></div></div>
+</article>`;}).join("")}</div>`:'<div class="empty-admin">Tidak ada pesanan untuk filter ini.</div>';
+}
+async function loadOrders(){const message=$("orderMessage");message.textContent="Memuat pesanan…";try{const [orderRows,itemRows,paymentRows,thumbRows]=await Promise.all([request("/rest/v1/orders?select=*&order=created_at.desc&limit=100"),request("/rest/v1/order_items?select=*&limit=500"),request("/rest/v1/payments?select=id,order_id,provider,payment_method,status,provider_reference,external_transaction_id,expires_at,paid_at,created_at&order=created_at.desc&limit=500"),request("/rest/v1/products?select=id,image_url").catch(()=>[])]);orders=orderRows||[];orderItems=itemRows||[];payments=paymentRows||[];productThumbs=new Map((thumbRows||[]).map(row=>[String(row.id),row.image_url]));renderOrders();message.textContent=orders.length?`${orders.length} pesanan ditemukan. Urutan terbaru terlebih dahulu.`:"";return true;}catch(error){message.textContent=`Pesanan belum dapat dimuat: ${error.message}`;$("orderTable").innerHTML="";return false;}}
 function renderOrderDetails(order,items){
   const status=normalizedStatus(order.status),subtotal=Number(firstValue(order.subtotal,order.items_total,items.reduce((sum,item)=>sum+getItemSubtotal(item),0),0))||0;
   const shippingCost=Number(firstValue(order.shipping_cost,order.shipping_fee,order.delivery_cost,0))||0,discount=Number(firstValue(order.discount,order.discount_amount,0))||0;
@@ -268,7 +337,7 @@ function orderStatusError(error){
   return error.message;
 }
 async function updateOrderStatus(orderId,status){return request(`/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({status})});}
-async function runOrderAction(id,key){const action=ORDER_ACTIONS[key],order=orders.find(row=>String(row.id)===String(id));if(!action||!order)return;const paymentStatus=normalizedPaymentStatus(paymentForOrder(order)?.status||order.payment_status);let prompt=action.confirm;if(key==="cancel"&&paymentStatus==="paid")prompt+=" Pesanan ini SUDAH DIBAYAR: refund harus diproses manual lewat dashboard Midtrans.";if(key==="cancel"&&["processing","shipped"].includes(normalizedStatus(order.status))&&order.shipping_order_id)prompt+=" Batalkan juga pengirimannya di dashboard Biteship.";if(!window.confirm(prompt))return;const message=$("orderStatusMessage");document.querySelectorAll("[data-order-action]").forEach(button=>{button.disabled=true;});if(message)message.textContent="Menyimpan…";try{await updateOrderStatus(id,action.to);toast("Status pesanan diperbarui.");const reloaded=await loadOrders();const refreshed=orders.find(row=>String(row.id)===String(id));if(reloaded&&refreshed)renderOrderDetails(refreshed,orderItems.filter(item=>String(item.order_id)===String(id)));else if(message)message.textContent="Status tersimpan, tetapi data terbaru belum dapat dimuat.";}catch(error){if(message)message.textContent=`Status gagal diperbarui: ${orderStatusError(error)}`;document.querySelectorAll("[data-order-action]").forEach(button=>{button.disabled=false;});}}
+async function runOrderAction(id,key){const action=ORDER_ACTIONS[key],order=orders.find(row=>String(row.id)===String(id));if(!action||!order)return;const paymentStatus=normalizedPaymentStatus(paymentForOrder(order)?.status||order.payment_status);let prompt=action.confirm;if(key==="cancel"&&paymentStatus==="paid")prompt+=" Pesanan ini SUDAH DIBAYAR: refund harus diproses manual lewat dashboard Midtrans.";if(key==="cancel"&&["processing","shipped"].includes(normalizedStatus(order.status))&&order.shipping_order_id)prompt+=" Batalkan juga pengirimannya di dashboard Biteship.";if(!window.confirm(prompt))return;const message=$("orderStatusMessage");document.querySelectorAll("[data-order-action]").forEach(button=>{button.disabled=true;});if(message)message.textContent="Menyimpan…";try{await updateOrderStatus(id,action.to);toast("Status pesanan diperbarui.");const reloaded=await loadOrders();const refreshed=orders.find(row=>String(row.id)===String(id));if(reloaded&&refreshed)renderOrderDetails(refreshed,orderItems.filter(item=>String(item.order_id)===String(id)));else if(message)message.textContent="Status tersimpan, tetapi data terbaru belum dapat dimuat.";}catch(error){if(message)message.textContent=`Status gagal diperbarui: ${orderStatusError(error)}`;if(!$("orderDialog").open)toast(`Status gagal diperbarui: ${orderStatusError(error)}`);document.querySelectorAll("[data-order-action]").forEach(button=>{button.disabled=false;});}}
 
 async function bookShipment(id){
   const button=document.querySelector(`[data-shipping-book="${CSS.escape(String(id))}"]`),message=$("shippingActionMessage");
@@ -277,7 +346,7 @@ async function bookShipment(id){
     const result=await serverRequest("/api/shipping/book",{method:"POST",body:JSON.stringify({orderId:id})});
     toast(result.environment==="test"?"Pengiriman test Biteship berhasil dibuat.":"Pengiriman Biteship berhasil dibuat.");
     await loadOrders();const refreshed=orders.find(row=>String(row.id)===String(id));if(refreshed)renderOrderDetails(refreshed,orderItems.filter(item=>String(item.order_id)===String(id)));
-  }catch(error){if(message)message.textContent=`Booking gagal: ${error.message}`;}
+  }catch(error){if(message)message.textContent=`Booking gagal: ${error.message}`;if(!$("orderDialog").open)toast(`Booking gagal: ${error.message}`);}
   finally{const current=document.querySelector(`[data-shipping-book="${CSS.escape(String(id))}"]`);if(current){current.disabled=false;current.textContent="Buat Pengiriman Biteship";}}
 }
 // Biteship has no label API: fetch the label data, render it into #printArea and
@@ -292,7 +361,7 @@ async function printShippingLabel(id){
     const title=document.title;document.title=`Label ${data.orderNumber} ${data.trackingNumber}`;
     window.print();
     document.title=title;
-  }catch(error){if(message)message.textContent=`Label gagal dibuat: ${error.message}`;}
+  }catch(error){if(message)message.textContent=`Label gagal dibuat: ${error.message}`;if(!$("orderDialog").open)toast(`Label gagal dibuat: ${error.message}`);}
   finally{const current=document.querySelector(`[data-shipping-label="${CSS.escape(String(id))}"]`);if(current){current.disabled=false;current.textContent="Cetak Label";}}
 }
 async function refreshShipmentTracking(id){
@@ -407,7 +476,13 @@ $("productTable").addEventListener("change",async event=>{if(!event.target.datas
 $("imageFile").addEventListener("change",event=>{const file=event.target.files[0];if(!file){setImagePreview($("imageUrl").value.trim());return;}try{validateImage(file);setImagePreview(file);$("formError").classList.add("hidden");}catch(error){event.target.value="";showFormError(error.message);setImagePreview($("imageUrl").value.trim());}});
 $("imageUrl").addEventListener("input",event=>{if(!$("imageFile").files.length)setImagePreview(event.target.value.trim());});
 $("orderSearch").addEventListener("input",renderOrders);$("orderStatusFilter").addEventListener("change",renderOrders);$("closeOrderDialog").addEventListener("click",()=>navigateAdminRoute("pesanan"));$("orderDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("pesanan");});
-$("orderTable").addEventListener("click",event=>{const id=event.target.closest("[data-order-detail]")?.dataset.orderDetail;if(id)navigateAdminRoute(`pesanan/${id}`);});
+$("orderTable").addEventListener("click",event=>{
+  const id=event.target.closest("[data-order-detail]")?.dataset.orderDetail;if(id){navigateAdminRoute(`pesanan/${id}`);return;}
+  const action=event.target.closest("[data-order-action]");if(action){runOrderAction(action.dataset.orderId,action.dataset.orderAction);return;}
+  const book=event.target.closest("[data-shipping-book]")?.dataset.shippingBook;if(book){bookShipment(book);return;}
+  const label=event.target.closest("[data-shipping-label]")?.dataset.shippingLabel;if(label)printShippingLabel(label);
+});
+$("orderStats").addEventListener("click",event=>{const view=event.target.closest("[data-order-view]")?.dataset.orderView;if(!view)return;const select=$("orderStatusFilter");select.value=select.value===view?"all":view;renderOrders();});
 $("orderDetailContent").addEventListener("click",event=>{const actionButton=event.target.closest("[data-order-action]");if(actionButton)runOrderAction(actionButton.dataset.orderId,actionButton.dataset.orderAction);const bookId=event.target.closest("[data-shipping-book]")?.dataset.shippingBook;if(bookId)bookShipment(bookId);const trackId=event.target.closest("[data-shipping-track]")?.dataset.shippingTrack;if(trackId)refreshShipmentTracking(trackId);const labelId=event.target.closest("[data-shipping-label]")?.dataset.shippingLabel;if(labelId)printShippingLabel(labelId);});
 document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>navigateAdminRoute(button.dataset.tab==="orders"?"pesanan":"produk")));
 window.addEventListener("hashchange",queueAdminRouteApply);

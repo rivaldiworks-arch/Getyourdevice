@@ -56,6 +56,8 @@ async function openAdmin(width,{rejectPatch=false}={}) {
       return route.fulfill({status:204,body:""});
     }
     if(table==="orders") return route.fulfill({json:orders});
+    if(table==="order_items") return route.fulfill({json:[{order_id:"o-pickup",product_id:"p-1",product_name:"iPhone 15 128GB",quantity:1,subtotal:1000},{order_id:"o-courier",product_id:"p-2",product_name:"Galaxy Tab S9 FE",quantity:2,subtotal:800},{order_id:"o-courier",product_id:"p-3",product_name:"Case",quantity:1,subtotal:200}]});
+    if(table==="products") return route.fulfill({json:[{id:"p-1",image_url:"https://img.example.test/iphone.jpg"}]});
     return route.fulfill({json:[]});
   });
   await page.addInitScript(()=>localStorage.setItem("gyd_admin_session",JSON.stringify({refresh_token:"ref"})));
@@ -141,6 +143,41 @@ async function notifications(width){
 
 await run(1280);
 await run(390);
+// The order list shows products, both statuses, the next step and its button, so
+// routine work happens without opening the detail dialog.
+async function orderList(width){
+  const {page,patches}=await openAdmin(width);
+  await page.goto(`${origin}/admin.html#pesanan`);
+  await page.waitForSelector(".order-row");
+  const stats=await page.locator(".order-stat").allInnerTexts();
+  assert.match(stats[0],/Perlu diproses\s*4/i,"confirmed orders plus the COD pickup need the admin");
+  assert.match(stats[1],/Menunggu bayar\s*1/i);
+  const row=id=>page.locator(`[data-order-row="${id}"]`);
+  const pickup=await row("o-pickup").innerText();
+  assert.match(pickup,/iPhone 15 128GB/,"product name in the row");
+  assert.match(pickup,/Dikonfirmasi/);assert.match(pickup,/Lunas/);assert.match(pickup,/Ambil di toko/);
+  assert.equal(await row("o-pickup").locator('img[src="https://img.example.test/iphone.jpg"]').count(),1,"product photo in the row");
+  assert.match(await row("o-courier").innerText(),/\+1 produk lain/);
+  assert.equal(await row("o-courier").locator("[data-shipping-book]").count(),1,"courier orders can be booked from the list");
+  assert.equal(await page.locator('.order-row [data-order-action="cancel"]').count(),0,"cancelling stays in the detail dialog");
+  // The quick view narrows the list; clicking it again clears it.
+  await page.locator('[data-order-view="awaiting"]').click();
+  assert.deepEqual(await page.locator(".order-row").evaluateAll(rows=>rows.map(r=>r.dataset.orderRow)),["o-unpaid"]);
+  await page.locator('[data-order-view="awaiting"]').click();
+  assert.equal(await page.locator(".order-row").count(),6);
+  // Search covers product names.
+  await page.fill("#orderSearch","galaxy tab");
+  assert.deepEqual(await page.locator(".order-row").evaluateAll(rows=>rows.map(r=>r.dataset.orderRow)),["o-courier"]);
+  await page.fill("#orderSearch","");
+  // The row button advances the order without the dialog.
+  await row("o-pickup").getByRole("button",{name:"Tandai Sudah Diambil"}).click();
+  await page.waitForFunction(()=>/Selesai/.test(document.querySelector('[data-order-row="o-pickup"]')?.textContent||""));
+  assert.deepEqual(patches,[{id:"o-pickup",status:"completed"}]);
+  assert.equal(await page.locator("#orderDialog[open]").count(),0,"no dialog was needed");
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,`no horizontal scroll at ${width}px`);
+  await page.close();
+}
+for(const width of [1440,1180,834,390])await orderList(width);
 await notifications(1280);
 await notifications(390);
 assert.deepEqual(errors,[],"no page errors");

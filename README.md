@@ -439,3 +439,10 @@ Customer guest tetap dibuat satu record per order. Deduplication sengaja tidak d
 - Setiap percobaan email dicatat di `email_log` (migration 023), sehingga email yang tidak sampai bisa dilacak dari database tanpa membuka log Vercel: `sent` + id Resend, `failed` + pesan error Resend, atau `skipped` bila `RESEND_API_KEY`/`ORDER_NOTIFY_EMAIL`/`CUSTOMER_EMAIL_FROM` belum diisi. Alamat pembeli disamarkan (`bu***@gmail.com`).
 - Email penjual dikirim ke `ORDER_NOTIFY_EMAIL`. Isi dengan alamat yang benar-benar dibaca penjual, mis. `support@getyourdevice.id`; pengirimnya ikut `CUSTOMER_EMAIL_FROM` (domain terverifikasi di Resend).
 - Email "Lunas"/"Pembayaran diterima" yang gagal (mis. domain Resend belum terverifikasi) dikirim ulang saat pesanan yang sudah dibayar dibuka lewat halaman pesanan/Lacak Pesanan (maks. 7 hari setelah pesanan dibuat). Klaim `paid_notified_at`/`customer_paid_notified_at` menjaga tiap email hanya terkirim sekali.
+
+## Admin: ringkasan & daftar pesanan (Phase 8J)
+
+- Tab **Pesanan** dibuka dengan 4 kartu ringkasan: **Perlu diproses** (pesanan lunas yang perlu dikemas/dikirim/diserahkan + COD yang perlu dikonfirmasi), **Menunggu bayar**, **Dalam pengiriman**, dan **Omzet lunas bulan ini**. Tiga kartu pertama juga berfungsi sebagai filter cepat (klik lagi untuk kembali ke semua pesanan). Angka dihitung dari 100 pesanan terakhir yang dimuat.
+- Setiap pesanan tampil dalam satu baris informatif: nomor, tanggal & metode bayar; foto + nama produk pertama, jumlah unit dan "+N produk lain"; pelanggan, kota dan tautan WhatsApp; pengiriman & resi; status pesanan + status pembayaran (label Bahasa Indonesia) dengan langkah berikutnya; total.
+- Langkah berikutnya bisa dijalankan langsung dari baris (Konfirmasi, Tandai Sudah Diambil/Dikirim/Selesai, Buat Pengiriman Biteship, Cetak Label) tanpa membuka detail. **Batalkan Pesanan** sengaja hanya ada di dialog detail. Aturan alur status tetap sama (migration 020).
+- Pencarian mencakup nama produk, kota dan nomor resi.
