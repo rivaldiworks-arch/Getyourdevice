@@ -20,7 +20,7 @@ await new Promise(r=>server.listen(0,"127.0.0.1",r));
 const origin=`http://127.0.0.1:${server.address().port}`;
 const categories=["Smartphone","Laptop","Tablet","Smartwatch","Audio","Accessories"];
 const products=categories.flatMap((category,c)=>[0,1].map(n=>({id:`00000000-0000-4000-8000-0000000001${c}${n}`,name:`${category} ${n+1}`,brand:"Brand",category,
-  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:n===1?10999000+c*1000000:null,stock:c===0&&n===0?0:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true})));
+  description:"Deskripsi produk.",specifications:{summary:"Spesifikasi"},price:1000000*(c+1)+n*50000,original_price:n===1?10999000+c*1000000:null,stock:c===0&&n===0?0:5+n,image_url:`https://images.example.test/${category}-${n}.jpg`,rating:4.8,is_active:true,warranty:n===1?["resmi","tam","blibli"][c%3]:null})));
 const errors=[];
 const browser=await chromium.launch();
 const luminance=rgb=>{const [r,g,b]=rgb.match(/\d+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4;});return .2126*r+.7152*g+.0722*b;};
@@ -147,6 +147,48 @@ for(const width of [360,834]){
   await page.waitForSelector("#productModal:not(.hidden) .detail-info");
   const overflow=await page.evaluate(()=>{const card=document.querySelector(".product-detail-card").getBoundingClientRect();return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-buttons button")].map(el=>Math.round(el.getBoundingClientRect().right-card.right)).filter(d=>d>1);});
   assert.deepEqual(overflow,[],`product detail fits the dialog at ${width}px`);
+  await page.close();
+}
+
+// Side menu, footer and the help & policy page.
+{
+  const page=await browser.newPage({viewport:{width:390,height:860}});
+  await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
+  await page.goto(origin);
+  await page.waitForSelector("#productGrid .product-card");
+  await page.locator(".menu-button").click();
+  await page.waitForSelector("#menuDrawer:not(.hidden)");
+  assert.equal(await page.locator("#menuDrawer [data-category]").count(),6,"menu lists every category");
+  assert.deepEqual(await page.locator("#menuDrawer .menu-label").allInnerTexts(),["KATEGORI","BELANJA","BANTUAN"]);
+  assert.equal(await page.locator('#menuDrawer a[href="https://wa.me/6281288451500"]').count(),1,"menu links to WhatsApp");
+  // No menu entry for features that do not exist yet.
+  assert.doesNotMatch(await page.locator("#menuDrawer").innerText(),/Member|Promo|Voucher|Edukasi|Masuk|Login/i);
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("#menuDrawer.hidden",{state:"attached"});
+  await page.locator(".menu-button").click();
+  await page.locator('#menuDrawer [data-category="Laptop"]').click();
+  await page.waitForSelector("#menuDrawer.hidden",{state:"attached"});
+  assert.equal(await page.locator("#categoryNav .active").innerText(),"Laptop","menu category filters the catalog");
+  // Footer: real contact only, policy links, localized category label.
+  const footer=await page.locator("footer").innerText();
+  assert.doesNotMatch(footer,/support@/,"no unreachable support email");
+  assert.match(footer,/WhatsApp 0812-8845-1500/);
+  assert.match(footer,/Aksesori/);
+  for(const hash of ["pengiriman","pembayaran","pengembalian","privasi","syarat"])assert.equal(await page.locator(`footer a[href="./bantuan.html#${hash}"]`).count(),1,`footer links to ${hash}`);
+  // Product detail shows the product's own warranty type.
+  await page.goto(`${origin}/#produk/${products.find(product=>product.warranty==="tam").id}`);
+  await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
+  assert.match(await page.locator(".detail-assurance").innerText(),/Garansi distributor TAM/);
+  await page.goto(`${origin}/#produk/${products.find(product=>!product.warranty).id}`);
+  await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
+  assert.doesNotMatch(await page.locator(".detail-assurance").innerText(),/Garansi/,"no warranty claim when none is set");
+  // Help & policy page.
+  await page.goto(`${origin}/bantuan.html`);
+  for(const id of ["cara-belanja","faq","pengiriman","pembayaran","pengembalian","privasi","syarat","hubungi"])assert.equal(await page.locator(`section#${id}`).count(),1,`policy section #${id}`);
+  const policy=await page.locator(".policy-body").innerText();
+  for(const rule of [/video unboxing/i,/1×24 jam/,/Ongkos kirim retur ditanggung penjual/,/14 hari kerja/,/sebelum pukul 12\.00 WIB/,/Undang-Undang Nomor 27 Tahun 2022/])assert.match(policy,rule);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),"policy page has no sideways scroll");
   await page.close();
 }
 

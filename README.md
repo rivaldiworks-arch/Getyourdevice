@@ -33,6 +33,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 18. `supabase/migrations/018_restore_stock_on_cancel.sql` — mengembalikan stok saat order dibatalkan dari `pending`/`confirmed`/`processing` (tepat sekali, ditandai `orders.stock_restored_at`). Order yang sudah dikirim/selesai tidak di-restock. Membuka kembali order yang dibatalkan memotong stok lagi dan ditolak bila stok tidak cukup. Termasuk perbaikan satu kali untuk order yang sudah dibatalkan sebelum trigger ada.
 19. `supabase/migrations/019_virtual_account_payments.sql` — menambah `payments.va_bank`, `va_number`, dan `biller_code` untuk instruksi Transfer Bank via Midtrans Virtual Account. Additive. **Jalankan 019 sebelum deploy kode Phase 8A.**
 20. `supabase/migrations/020_order_status_flow.sql` — status pesanan mengikuti alur (transisi di luar alur ditolak database), COD hanya untuk Ambil di Toko, dan pembatalan otomatis pesanan QRIS/Transfer Bank yang tidak dibayar (pg_cron tiap 15 menit, stok dikembalikan). **Jalankan 020 sebelum deploy kode Phase 8C.**
+21. `supabase/migrations/021_product_warranty.sql` — kolom `products.warranty` (`resmi`, `tam`, `blibli`, atau kosong) untuk jenis garansi per produk. Aditif dan boleh kosong. **Jalankan 021 sebelum deploy kode Phase 8F**, karena `/api/products` membaca kolom ini.
 
 ## Payment infrastructure (Phase 5)
 
@@ -207,6 +208,13 @@ Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status 
 - Panel admin **Alur pesanan** hanya menampilkan langkah yang sah untuk tahap pesanan itu, beserta penjelasan langkah berikutnya.
 - **COD hanya untuk Ambil di Toko** (bayar tunai saat mengambil). Kurir tidak bisa dibooking sebelum pesanan dibayar dan tidak diinstruksikan menagih tunai, sehingga COD via kurir tidak dapat dipenuhi. Checkout menonaktifkan COD untuk opsi kurir; database menolaknya (`COD_REQUIRES_PICKUP`).
 - Pesanan yang dibatalkan otomatis diberi `orders.auto_cancelled_at`. Pembayaran yang tetap masuk setelahnya tetap dicatat dan email penjual menandainya **PERLU REFUND**.
+
+## Menu, footer, dan Bantuan & Kebijakan (Phase 8F)
+
+- **Menu samping (☰)** di kiri atas: kategori, Pesanan Saya, Bantu Saya Pilih, tautan ke halaman Bantuan, dan WhatsApp. Menu hanya berisi fitur yang sudah ada. Promo, member, edukasi, dan login pembeli belum dipasang.
+- **Footer**: Belanja, Bantuan, Kebijakan, jam operasional, dan WhatsApp `0812-8845-1500`. Email dukungan belum dipasang sampai alamat email yang aktif dikonfirmasi.
+- **`bantuan.html`**: cara belanja, FAQ, kebijakan pengiriman (sebelum 12.00 dikirim hari itu, Minggu libur), pembayaran, pengembalian & garansi (video unboxing, lapor 1×24 jam, ongkir retur ditanggung penjual, refund 14 hari kerja), privasi (UU 27/2022), serta syarat & ketentuan. Midtrans dan UU PDP mensyaratkan halaman ini ada.
+- **Garansi per produk**: admin memilih jenis garansi di form produk. Halaman produk hanya menampilkan garansi jika sudah diisi. Klaim "Garansi resmi" dan "7 Hari Pengembalian" di beranda diganti agar sesuai kebijakan tertulis.
 
 ## Label pengiriman (Phase 8D)
 
