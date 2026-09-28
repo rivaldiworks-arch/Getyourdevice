@@ -63,7 +63,7 @@ if (/^(<<<<<<<|=======|>>>>>>>)/m.test(combined)) {
 for (const marker of ["loginForm", "dashboardView", "productTable", "ordersPanel", "productDialog", "imageFile", "imagePreview", "orderSearch", "orderStatusFilter", "orderDialog", "orderDetailContent"]) {
   if (!adminHtml.includes(`id="${marker}"`)) throw new Error(`Admin element missing: #${marker}`);
 }
-for (const marker of ["/auth/v1/token", "admin_profiles", "/rest/v1/products", "/rest/v1/orders", "/rest/v1/order_items", "/storage/v1/object/", "MAX_IMAGE_BYTES", "storageObjectPath"]) {
+for (const marker of ["/auth/v1/token", "admin_profiles", "/rest/v1/products", "/rest/v1/orders", "order_items(", "/storage/v1/object/", "MAX_IMAGE_BYTES", "storageObjectPath"]) {
   if (!adminJavascript.includes(marker)) throw new Error(`Admin integration missing: ${marker}`);
 }
 

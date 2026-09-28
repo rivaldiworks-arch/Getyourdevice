@@ -55,9 +55,12 @@ async function openAdmin(width,{rejectPatch=false}={}) {
       order.status=body.status;
       return route.fulfill({status:204,body:""});
     }
-    if(table==="orders") return route.fulfill({json:orders});
-    if(table==="order_items") return route.fulfill({json:[{order_id:"o-pickup",product_id:"p-1",product_name:"iPhone 15 128GB",quantity:1,subtotal:1000},{order_id:"o-courier",product_id:"p-2",product_name:"Galaxy Tab S9 FE",quantity:2,subtotal:800},{order_id:"o-courier",product_id:"p-3",product_name:"Case",quantity:1,subtotal:200}]});
-    if(table==="products") return route.fulfill({json:[{id:"p-1",image_url:"https://img.example.test/iphone.jpg"}]});
+    if(table==="orders"){
+      // Items are embedded in the orders request, like PostgREST does for select=*,order_items(*).
+      const items=[{order_id:"o-pickup",product_id:"p-1",product_name:"iPhone 15 128GB",quantity:1,subtotal:1000},{order_id:"o-courier",product_id:"p-2",product_name:"Galaxy Tab S9 FE",quantity:2,subtotal:800},{order_id:"o-courier",product_id:"p-3",product_name:"Case",quantity:1,subtotal:200}];
+      return route.fulfill({json:orders.map(order=>({...order,order_items:items.filter(item=>item.order_id===order.id),payments:[]}))});
+    }
+    if(table==="products") return route.fulfill({json:[{id:"p-1",image_url:"https://img.example.test/iphone.png"},{id:"p-2",image_url:"https://img.example.test/missing.png"}]});
     return route.fulfill({json:[]});
   });
   await page.addInitScript(()=>localStorage.setItem("gyd_admin_session",JSON.stringify({refresh_token:"ref"})));
@@ -145,8 +148,10 @@ await run(1280);
 await run(390);
 // The order list shows products, both statuses, the next step and its button, so
 // routine work happens without opening the detail dialog.
+const PIXEL=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==","base64");
 async function orderList(width){
   const {page,patches}=await openAdmin(width);
+  await page.route("https://img.example.test/**",route=>route.request().url().endsWith("/iphone.png")?route.fulfill({contentType:"image/png",body:PIXEL}):route.fulfill({status:404,body:""}));
   await page.goto(`${origin}/admin.html#pesanan`);
   await page.waitForSelector(".order-row");
   const stats=await page.locator(".order-stat").allInnerTexts();
@@ -156,7 +161,9 @@ async function orderList(width){
   const pickup=await row("o-pickup").innerText();
   assert.match(pickup,/iPhone 15 128GB/,"product name in the row");
   assert.match(pickup,/Dikonfirmasi/);assert.match(pickup,/Lunas/);assert.match(pickup,/Ambil di toko/);
-  assert.equal(await row("o-pickup").locator('img[src="https://img.example.test/iphone.jpg"]').count(),1,"product photo in the row");
+  assert.equal(await row("o-pickup").locator('img[src="https://img.example.test/iphone.png"]').count(),1,"product photo in the row");
+  await page.waitForFunction(()=>document.querySelector('[data-order-row="o-courier"] .thumb-fallback'));
+  assert.equal(await row("o-courier").locator(".order-products img").count(),0,"a photo that fails to load becomes the placeholder");
   assert.match(await row("o-courier").innerText(),/\+1 produk lain/);
   assert.equal(await row("o-courier").locator("[data-shipping-book]").count(),1,"courier orders can be booked from the list");
   assert.equal(await page.locator('.order-row [data-order-action="cancel"]').count(),0,"cancelling stays in the detail dialog");
@@ -178,6 +185,47 @@ async function orderList(width){
   await page.close();
 }
 for(const width of [1440,1180,834,390])await orderList(width);
+// Status shows once, the phone number stays off the list, filters and 50-per-page paging.
+async function listFilters(width){
+  const {page,orders}=await openAdmin(width);
+  const done=orders.find(order=>order.id==="o-pickup");done.status="completed";
+  for(let n=0;n<60;n++)orders.push({...orders[0],id:`o-bulk-${n}`,order_number:`GYD-20260920-${String(n+1).padStart(4,"0")}`,created_at:new Date(Date.UTC(2026,8,20,8,0,60-n)).toISOString(),status:"completed",payment_status:"paid"});
+  const queries=[];page.on("request",request=>{if(/\/rest\/v1\/orders\?select=\*,order_items/.test(request.url()))queries.push(decodeURIComponent(request.url()));});
+  await page.goto(`${origin}/admin.html#pesanan`);
+  await page.waitForSelector(".order-row");
+  const completed=await page.locator('[data-order-row="o-pickup"] .order-state').innerText();
+  assert.equal(completed.match(/Selesai/g).length,1,"a completed order says Selesai once");
+  assert.doesNotMatch(await page.locator(".order-list").innerText(),/6281288451500/,"phone numbers stay off the list");
+  assert.equal(await page.locator('[data-order-row="o-pickup"] a.wa-chip[href="https://wa.me/6281288451500"]').count(),1,"one WhatsApp button per customer");
+  // 66 orders: 50 on the first page, 16 on the second.
+  assert.equal(await page.locator(".order-row").count(),50);
+  assert.match(await page.locator("#orderMessage").innerText(),/1–50 dari 66/);
+  await page.locator("#orderPager").getByRole("button",{name:"Berikutnya ›"}).click();
+  assert.equal(await page.locator(".order-row").count(),16);
+  assert.match(await page.locator("#orderPager").innerText(),/Halaman 2 dari 2/);
+  assert.equal(await page.locator("#orderPager").getByRole("button",{name:"Berikutnya ›"}).isDisabled(),true);
+  // Status tabs carry counts and filter; switching resets to page 1.
+  await page.locator('[data-status-tab="pending"]').click();
+  assert.match(await page.locator('[data-status-tab="pending"]').innerText(),/Menunggu\s*2/);
+  assert.deepEqual((await page.locator(".order-row").evaluateAll(rows=>rows.map(r=>r.dataset.orderRow))).sort(),["o-cod","o-unpaid"]);
+  assert.equal(await page.locator("#orderPager button").count(),0,"no pager for one page");
+  await page.locator('[data-status-tab="all"]').click();
+  // Date presets narrow the request itself.
+  await page.selectOption("#orderDateFilter","7d");
+  await page.waitForFunction(n=>document.querySelector("#orderMessage")?.textContent&&true,queries.length);
+  await page.waitForTimeout(200);
+  assert.match(queries.at(-1),/&and=\(created_at\.gte\.[^,)]+\)$/,"7-day preset asks for orders since six days ago");
+  await page.selectOption("#orderDateFilter","custom");
+  assert.equal(await page.locator("#orderDateCustom").isVisible(),true);
+  await page.fill("#orderDateFrom","2026-09-01");
+  await page.fill("#orderDateTo","2026-09-28");
+  await page.locator("#orderDateTo").dispatchEvent("change");
+  await page.waitForTimeout(200);
+  assert.match(queries.at(-1),/&and=\(created_at\.gte\.[^,]+,created_at\.lt\.[^)]+\)$/,"custom range bounds both ends");
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,`no horizontal scroll at ${width}px`);
+  await page.close();
+}
+for(const width of [1180,390])await listFilters(width);
 await notifications(1280);
 await notifications(390);
 assert.deepEqual(errors,[],"no page errors");

@@ -45,8 +45,8 @@ async function openAdmin(width,labelResponse){
     const path=new URL(route.request().url()).pathname;
     if(path.includes("/token")) return route.fulfill({json:{access_token:"tok",refresh_token:"ref",expires_in:3600,user:{id:"admin-1"}}});
     if(path.endsWith("/admin_profiles")) return route.fulfill({json:[{id:"admin-1",role:"admin"}]});
-    if(path.endsWith("/orders")) return route.fulfill({json:[order]});
-    if(path.endsWith("/order_items")) return route.fulfill({json:[{order_id:order.id,product_name:"Galaxy A56 5G",quantity:1,product_price:1000}]});
+    // Items come embedded in the orders request (select=*,order_items(*)).
+    if(path.endsWith("/orders")) return route.fulfill({json:[{...order,order_items:[{order_id:order.id,product_name:"Galaxy A56 5G",quantity:1,product_price:1000}],payments:[]}]});
     return route.fulfill({json:[]});
   });
   await page.addInitScript(()=>{localStorage.setItem("gyd_admin_session",JSON.stringify({refresh_token:"ref"}));window.__prints=0;window.print=()=>{window.__prints++;};});
