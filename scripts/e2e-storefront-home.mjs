@@ -189,12 +189,18 @@ for(const width of [320,360,390,414,834,1024,1180]){
   await page.goto(`${origin}/#produk/${products.find(product=>product.warranty==="tam").id}`);
   await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
   assert.match(await page.locator(".detail-assurance").innerText(),/Garansi distributor TAM/);
+  // In-stock products show the delivery promise next to the price.
+  const shipping=await page.locator(".detail-shipping").innerText();
+  assert.match(shipping,/1–3 hari kerja untuk Jabodetabek/,"delivery estimate shown with its scope");
+  assert.match(shipping,/sebelum 12\.00 WIB/);
+  assert.match(shipping,/dihitung otomatis saat checkout/,"other cities are not promised 1–3 days");
   await page.goto(`${origin}/#produk/${products.find(product=>!product.warranty).id}`);
   await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
   const assurance=await page.locator(".detail-assurance").innerText();
   assert.doesNotMatch(assurance,/Garansi/,"no warranty claim when none is set");
   assert.doesNotMatch(assurance,/Retur/,"the return promise is not repeated under the buy buttons");
-  assert.match(assurance,/Dikirim hari ini/);
+  assert.equal(await page.locator(".detail-shipping").count(),0,"no delivery promise for an out-of-stock product");
+  assert.doesNotMatch(assurance,/Dikirim hari ini/,"the delivery promise is not repeated in the cards");
   assert.match(assurance,/Pembayaran aman/);
   assert.match(await page.locator('.detail-assurance a[href^="https://wa.me/6281288451500?text="]').getAttribute("href"),/tanya/i,"one tap to ask about this product on WhatsApp");
   // Help & policy page.
