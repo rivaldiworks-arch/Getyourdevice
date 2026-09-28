@@ -99,4 +99,36 @@ for(const phone of ["081288451500","+62 812-8845-1500","6281288451500","81288451
   assert.equal((await lookup({orderNumber:order.order_number,orderAccessToken:"c".repeat(64)})).statusCode,404);
 }
 
+// 5. Opening a paid order re-sends a "paid" email that failed earlier, once.
+{
+  Object.assign(process.env,{RESEND_API_KEY:"re_test",ORDER_NOTIFY_EMAIL:"seller@example.test",CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"});
+  Object.assign(order,{payment_status:"paid",paid_notified_at:null,customer_paid_notified_at:null,created_at:new Date().toISOString(),customer_email:"budi@example.com"});
+  const sent=[];const logged=[];
+  const base=globalThis.fetch;
+  globalThis.fetch=async (url,init={})=>{
+    const {host,pathname,searchParams}=new URL(url);
+    const json=(status,body)=>new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}});
+    if(host==="api.resend.com"){sent.push(JSON.parse(init.body));return json(200,{id:`re-${sent.length}`});}
+    const path=pathname.replace("/rest/v1/","");
+    if(path==="email_log"){logged.push(JSON.parse(init.body));return new Response(null,{status:201});}
+    if(path==="orders"&&init.method==="PATCH"){
+      const column=["paid_notified_at","customer_paid_notified_at"].find(name=>searchParams.get(name)==="is.null");
+      if(column&&order[column]) return json(200,[]);
+      Object.assign(order,JSON.parse(init.body));
+      return json(200,[order]);
+    }
+    if(path==="orders"&&searchParams.get("id")) return json(200,[order]);
+    if(path==="order_items"&&searchParams.get("select")==="product_name,quantity,subtotal") return json(200,[{product_name:"Test",quantity:2,subtotal:2000}]);
+    return base(url,init);
+  };
+  const res=await lookup({orderNumber:order.order_number,orderAccessToken:TOKEN});
+  assert.equal(res.statusCode,200);
+  assert.deepEqual(sent.map(mail=>mail.to[0]).sort(),["budi@example.com","seller@example.test"],"both missed emails are sent");
+  assert.ok(order.paid_notified_at&&order.customer_paid_notified_at);
+  await lookup({orderNumber:order.order_number,orderAccessToken:TOKEN});
+  assert.equal(sent.length,2,"a later visit sends nothing again");
+  assert.equal(logged.filter(row=>row.status==="sent").length,2);
+  globalThis.fetch=base;
+}
+
 console.log("Phase 8H guest order lookup verification passed.");

@@ -23,7 +23,7 @@ function resetEnv(overrides={}) {
   });
 }
 
-const db={orders:new Map(),items:[],payments:[]};
+const db={orders:new Map(),items:[],payments:[],emailLog:[]};
 const sent=[];
 let resendFailures=0;
 let rpcCalls=0;
@@ -60,12 +60,15 @@ globalThis.fetch=async (url,init={})=>{
   if(host!=="db.test") throw new Error(`Unexpected network call to ${host}`);
   const path=pathname.replace("/rest/v1/","");
   if(path==="rpc/consume_api_rate_limit") return json(200,{allowed:true});
+  if(path==="email_log" && init.method==="POST") { db.emailLog.push(body); return new Response(null,{status:201}); }
   if(path==="rpc/create_storefront_order_v5") {
     rpcCalls++;
     const order=addOrder({payment_method:body.p_payment_method,payment_status:"unpaid"});
     return json(200,{order_number:order.order_number,created_at:order.created_at,subtotal:130000,shipping_cost:20000,total:150000,reused:false});
   }
   if(path==="orders" && (init.method||"GET")==="GET") {
+    const id=param(url,"id")?.replace(/^eq\./,"");
+    if(id) return json(200,[...db.orders.values()].filter(order=>order.id===id));
     const number=param(url,"order_number")?.replace(/^eq\./,"");
     return json(200,[...db.orders.values()].filter(order=>order.order_number===number));
   }
@@ -96,7 +99,7 @@ async function invoke(handler,{body,headers={}}={}) {
   return res;
 }
 function reset() {
-  db.orders.clear(); db.items.length=0; db.payments.length=0; sent.length=0; resendFailures=0; rpcCalls=0;
+  db.orders.clear(); db.items.length=0; db.payments.length=0; db.emailLog.length=0; sent.length=0; resendFailures=0; rpcCalls=0;
 }
 
 console.error=()=>{}; console.warn=()=>{};
@@ -132,6 +135,9 @@ reset();
   assert.match(sent[0].html,/https:\/\/wa\.me\/6281234567890/);
   assert.match(sent[0].html,/admin\.html#pesanan/);
   assert.ok(order.paid_notified_at,"the order is marked as notified");
+  const seller=db.emailLog.filter(row=>row.kind==="seller-paid");
+  assert.deepEqual(seller.map(row=>[row.order_number,row.status,row.recipient]),[[order.order_number,"sent","seller@example.test"]],"each send is recorded in email_log");
+  assert.ok(seller[0].provider_id,"the Resend id is kept for tracing");
   const retry=await midtransNotification(payment,"settlement");
   assert.equal(retry.body.duplicate,true);
   assert.equal(sent.length,1,"a retried notification must not email again");
@@ -147,6 +153,10 @@ reset();
   assert.equal(res.statusCode,200,"a mail outage must never fail the payment webhook");
   assert.equal(sent.length,0);
   assert.equal(order.paid_notified_at,null,"the claim is released after a failed send");
+  const failed=db.emailLog.find(row=>row.kind==="seller-paid");
+  assert.equal(failed.status,"failed");
+  assert.equal(failed.detail,"temporary failure","Resend's error is recorded so a missing email can be diagnosed");
+  assert.equal(failed.order_number,order.order_number);
   await midtransNotification(payment,"settlement");
   assert.equal(sent.length,1);
 }
@@ -169,10 +179,15 @@ resetEnv({RESEND_API_KEY:""}); reset();
   assert.equal(res.statusCode,200);
   assert.equal(sent.length,0);
   assert.equal(order.paid_notified_at,null,"an unconfigured notifier must not claim the order");
+  const skipped=db.emailLog.find(row=>row.kind==="seller-paid");
+  assert.equal(skipped.status,"skipped");
+  assert.match(skipped.detail,/ORDER_NOTIFY_EMAIL/,"a missing setting is recorded, not silently ignored");
+  assert.equal(skipped.order_number,order.order_number,"the order is identified even when only its id is known");
 }
 
-// 5. Checkout: COD emails on creation, gateway methods wait for payment, and methods
-//    removed from CHECKOUT_PAYMENT_METHODS are refused before reaching the database.
+// 5. Checkout: the seller is emailed about every new order (COD needs action, gateway
+//    orders are marked unpaid), and methods removed from CHECKOUT_PAYMENT_METHODS are
+//    refused before reaching the database.
 resetEnv(); reset();
 {
   const cod=await checkout("COD");
@@ -181,10 +196,13 @@ resetEnv(); reset();
   assert.match(sent[0].subject,/Pesanan COD baru/);
   const qris=await checkout("QRIS");
   assert.equal(qris.statusCode,201);
-  assert.equal(sent.length,1,"QRIS orders are announced when paid, not when created");
+  assert.equal(sent.length,2,"the seller hears about a new QRIS order right away");
+  assert.match(sent[1].subject,/Pesanan baru GYD-\d{8}-\d{4} · menunggu pembayaran/);
+  assert.deepEqual(sent[1].to,["seller@example.test"]);
   const transfer=await checkout("Transfer Bank");
   assert.equal(transfer.statusCode,201,"Transfer Bank is offered through Midtrans Virtual Account");
-  assert.equal(sent.length,1,"Transfer Bank orders are announced when paid, not when created");
+  assert.equal(sent.length,3);
+  assert.match(sent[2].subject,/menunggu pembayaran/);
   resetEnv({CHECKOUT_PAYMENT_METHODS:"Transfer Bank,COD"});
   const hidden=await checkout("QRIS");
   assert.equal(hidden.statusCode,400,"a method hidden by CHECKOUT_PAYMENT_METHODS is refused");
@@ -219,7 +237,11 @@ resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); rese
   assert.equal(qris.statusCode,201);
   const created=sent.find(mail=>mail.to[0]==="budi@example.com");
   assert.ok(created,"the customer gets an email when the order is created");
-  assert.equal(sent.length,1,"the seller still hears about gateway orders only once paid");
+  assert.equal(sent.length,2,"the seller and the customer are both emailed about the new order");
+  assert.ok(sent.find(mail=>mail.to[0]==="seller@example.test"&&/menunggu pembayaran/.test(mail.subject)));
+  const logged=db.emailLog.find(row=>row.kind==="customer-created");
+  assert.equal(logged.status,"sent");
+  assert.equal(logged.recipient,"bu***@example.com","customer addresses are masked in the log");
   assert.equal(created.from,"getyourdevice <support@getyourdevice.id>");
   assert.equal(created.reply_to,"support@getyourdevice.id","customer replies reach the store mailbox");
   assert.match(created.subject,/menunggu pembayaran/);
@@ -258,6 +280,7 @@ resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); rese
   const noEmail=addOrder({customer_email:"bukan-email"});
   await midtransNotification(addPendingPayment(noEmail),"settlement");
   assert.equal(sent.filter(mail=>mail.to[0]!=="seller@example.test").length,0);
+  assert.ok(db.emailLog.some(row=>row.kind==="customer-paid"&&row.status==="skipped"&&/tidak valid/.test(row.detail)));
   sent.length=0;
   db.orders.clear(); db.items.length=0;
   const cod=await checkout("COD");
@@ -265,6 +288,26 @@ resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); rese
   const codMail=sent.find(mail=>mail.to[0]==="budi@example.com");
   assert.match(codMail.subject,/diterima/);
   assert.match(codMail.html,/Bayar tunai saat mengambil barang/);
+}
+
+// Without CUSTOMER_EMAIL_FROM the customer email is skipped, and that is recorded.
+resetEnv(); reset();
+{
+  const qris=await checkout("QRIS");
+  assert.equal(qris.statusCode,201);
+  const skipped=db.emailLog.find(row=>row.kind==="customer-created");
+  assert.equal(skipped.status,"skipped");
+  assert.match(skipped.detail,/CUSTOMER_EMAIL_FROM/);
+}
+// A failing email log never breaks checkout or the webhook.
+resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); reset();
+{
+  const realFetch=globalThis.fetch;
+  globalThis.fetch=async (url,init)=>new URL(url).pathname.endsWith("/email_log")?new Response("{}",{status:500}):realFetch(url,init);
+  const qris=await checkout("QRIS");
+  assert.equal(qris.statusCode,201);
+  assert.equal(sent.length,2);
+  globalThis.fetch=realFetch;
 }
 
 console.log("Phase 7E order notification verification passed.");

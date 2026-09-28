@@ -76,9 +76,9 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({error:"Pesanan belum dapat diproses. Silakan coba kembali."});
     }
     const reused=Boolean(data.reused);
-    // QRIS orders are announced once paid (webhook); COD needs the seller right away.
+    // The seller hears about every new order; the "Lunas" email follows on payment.
     if(!reused) await Promise.all([
-      body.payment==="COD"?notifyOrderCreated(data.order_number,{requestId}):null,
+      notifyOrderCreated(data.order_number,{requestId}),
       notifyCustomerOrderCreated(data.order_number,orderAccessToken,{requestId})
     ]);
     res.setHeader("Idempotency-Replayed",reused?"true":"false");

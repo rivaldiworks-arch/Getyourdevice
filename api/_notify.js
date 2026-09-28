@@ -85,29 +85,55 @@ async function sendEmail(cfg,{subject,html,text,to=cfg.to}) {
     body:JSON.stringify({from:cfg.from,to,subject,html,text,...(cfg.replyTo?{reply_to:cfg.replyTo}:{})}),
     signal:AbortSignal.timeout(SEND_TIMEOUT_MS)
   });
-  if(!response.ok) {
-    const data=await response.json().catch(()=>({}));
-    throw new Error(data?.message||`Resend request failed (${response.status})`);
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data?.message||`Resend request failed (${response.status})`);
+  return data?.id||null;
+}
+
+// Every attempt is recorded in email_log (migration 023) so a missing email can be traced
+// from the database: sent (with the Resend id), failed (with Resend's error) or skipped
+// (configuration missing). Customer addresses are masked. Logging never throws.
+function maskEmail(email) {
+  const [local,domain]=String(email||"").split("@");
+  return domain?`${local.slice(0,2)}***@${domain}`:null;
+}
+async function logEmail({orderNumber=null,orderId=null,kind,status,recipient=null,detail=null,providerId=null}) {
+  try {
+    if(!orderNumber && orderId) orderNumber=(await adminJson(`orders?select=order_number&id=eq.${encodeURIComponent(orderId)}&limit=1`))?.[0]?.order_number||null;
+    await supabaseAdmin("email_log",{method:"POST",headers:{Prefer:"return=minimal"},
+      body:JSON.stringify({order_number:orderNumber,kind,status,recipient,detail:detail?String(detail).slice(0,500):null,provider_id:providerId})});
+  } catch(error) {
+    console.error("Email log failed",{kind,message:error.message});
   }
 }
+const SELLER_MISSING="RESEND_API_KEY atau ORDER_NOTIFY_EMAIL belum diisi";
+const CUSTOMER_MISSING="RESEND_API_KEY atau CUSTOMER_EMAIL_FROM belum diisi";
 
 async function loadItems(orderId) {
   return adminJson(`order_items?select=product_name,quantity,subtotal&order_id=eq.${encodeURIComponent(orderId)}`)||[];
 }
 
-// COD orders need the seller's action as soon as they are placed.
+// The seller hears about every new order: COD needs their action right away, and a
+// gateway order that is still unpaid is worth a follow-up on WhatsApp.
 async function notifyOrderCreated(orderNumber,{requestId}={}) {
   const cfg=notifyConfig();
-  if(!cfg) return false;
+  if(!cfg) { await logEmail({orderNumber,kind:"seller-created",status:"skipped",detail:SELLER_MISSING}); return false; }
   try {
     const order=(await adminJson(`orders?select=${ORDER_FIELDS}&order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`))?.[0];
     if(!order) throw new Error("Order not found for notification");
     const items=await loadItems(order.id);
-    const content=orderEmail(order,items,{headline:"Pesanan COD baru",intro:"Pesanan bayar di tempat baru masuk dan menunggu konfirmasi toko.",siteUrl:cfg.siteUrl});
-    await sendEmail(cfg,{subject:`[GETYOURDEVICE] Pesanan COD baru ${order.order_number} · ${rupiah(order.total)}`,...content});
+    const cod=order.payment_method==="COD";
+    const content=orderEmail(order,items,cod
+      ?{headline:"Pesanan COD baru",intro:"Pesanan bayar di tempat baru masuk dan menunggu konfirmasi toko.",siteUrl:cfg.siteUrl}
+      :{headline:"Pesanan baru, menunggu pembayaran",intro:"Pesanan baru masuk. Pembeli belum membayar; email \"Lunas\" menyusul setelah pembayaran diterima.",siteUrl:cfg.siteUrl});
+    const providerId=await sendEmail(cfg,{subject:cod
+      ?`[GETYOURDEVICE] Pesanan COD baru ${order.order_number} · ${rupiah(order.total)}`
+      :`[GETYOURDEVICE] Pesanan baru ${order.order_number} · menunggu pembayaran · ${rupiah(order.total)}`,...content});
+    await logEmail({orderNumber,kind:"seller-created",status:"sent",recipient:cfg.to.join(", "),providerId});
     return true;
   } catch(error) {
     console.error("Order notification failed",{requestId,kind:"created",message:error.message});
+    await logEmail({orderNumber,kind:"seller-created",status:"failed",recipient:cfg.to.join(", "),detail:error.message});
     return false;
   }
 }
@@ -116,7 +142,7 @@ async function notifyOrderCreated(orderNumber,{requestId}={}) {
 // callers (webhook retries, payment API status sync) email the seller only once.
 async function notifySellerPaid(orderId,{requestId}={}) {
   const cfg=notifyConfig();
-  if(!cfg) return false;
+  if(!cfg) { await logEmail({orderId,kind:"seller-paid",status:"skipped",detail:SELLER_MISSING}); return false; }
   try {
     const claimed=await adminJson(`orders?id=eq.${encodeURIComponent(orderId)}&paid_notified_at=is.null&select=${ORDER_FIELDS}`,{
       method:"PATCH",
@@ -132,7 +158,8 @@ async function notifySellerPaid(orderId,{requestId}={}) {
       ?{headline:"Perlu refund: pesanan dibatalkan tetapi sudah dibayar",intro:"Pembayaran masuk untuk pesanan yang sudah dibatalkan. Hubungi pelanggan dan proses refund.",siteUrl:cfg.siteUrl}
       :{headline:"Pembayaran diterima",intro:"Pembayaran pesanan sudah masuk. Pesanan otomatis dikonfirmasi dan siap diproses.",siteUrl:cfg.siteUrl});
     try {
-      await sendEmail(cfg,{subject:cancelled?`[GETYOURDEVICE] PERLU REFUND ${order.order_number} · ${rupiah(order.total)}`:`[GETYOURDEVICE] Lunas ${order.order_number} · ${rupiah(order.total)}`,...content});
+      const providerId=await sendEmail(cfg,{subject:cancelled?`[GETYOURDEVICE] PERLU REFUND ${order.order_number} · ${rupiah(order.total)}`:`[GETYOURDEVICE] Lunas ${order.order_number} · ${rupiah(order.total)}`,...content});
+      await logEmail({orderNumber:order.order_number,kind:"seller-paid",status:"sent",recipient:cfg.to.join(", "),providerId});
     } catch(error) {
       // Release the claim so a later webhook retry or status sync can try again.
       await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({paid_notified_at:null})}).catch(()=>{});
@@ -141,6 +168,7 @@ async function notifySellerPaid(orderId,{requestId}={}) {
     return true;
   } catch(error) {
     console.error("Order notification failed",{requestId,kind:"paid",message:error.message});
+    await logEmail({orderId,kind:"seller-paid",status:"failed",recipient:cfg.to.join(", "),detail:error.message});
     return false;
   }
 }
@@ -183,11 +211,13 @@ function validRecipient(email) {
 // order from any device for 365 days.
 async function notifyCustomerOrderCreated(orderNumber,accessToken,{requestId}={}) {
   const cfg=customerConfig();
-  if(!cfg) return false;
+  if(!cfg) { await logEmail({orderNumber,kind:"customer-created",status:"skipped",detail:CUSTOMER_MISSING}); return false; }
+  let recipient=null;
   try {
     const order=(await adminJson(`orders?select=${ORDER_FIELDS}&order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`))?.[0];
     if(!order) throw new Error("Order not found for customer notification");
-    if(!validRecipient(order.customer_email)) return false;
+    if(!validRecipient(order.customer_email)) { await logEmail({orderNumber,kind:"customer-created",status:"skipped",detail:"Email pembeli tidak valid"}); return false; }
+    recipient=maskEmail(order.customer_email);
     const items=await loadItems(order.id);
     const cod=order.payment_method==="COD";
     const deadline=order.payment_access_expires_at?new Date(order.payment_access_expires_at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})+" WIB":"24 jam";
@@ -197,10 +227,12 @@ async function notifyCustomerOrderCreated(orderNumber,accessToken,{requestId}={}
         notes:["Bayar tunai saat mengambil barang di toko.","Alamat dan jadwal pengambilan kami kirim lewat WhatsApp setelah pesanan dikonfirmasi."]}
       :{headline:"Selesaikan pembayaran Anda",intro:"terima kasih sudah berbelanja. Pesanan Anda sudah kami catat dan menunggu pembayaran.",ctaLabel:"Lihat Pesanan",ctaUrl,
         notes:[`Selesaikan pembayaran sebelum ${deadline}. Setelah itu pesanan dibatalkan otomatis.`,"Pembayaran terkonfirmasi otomatis; Anda tidak perlu mengirim bukti transfer.","Kami tidak pernah meminta transfer ke rekening pribadi atau kode OTP."]});
-    await sendEmail(cfg,{to:[order.customer_email],subject:`Pesanan ${order.order_number} · ${cod?"diterima":"menunggu pembayaran"}`,...content});
+    const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pesanan ${order.order_number} · ${cod?"diterima":"menunggu pembayaran"}`,...content});
+    await logEmail({orderNumber,kind:"customer-created",status:"sent",recipient,providerId});
     return true;
   } catch(error) {
     console.error("Order notification failed",{requestId,kind:"customer-created",message:error.message});
+    await logEmail({orderNumber,kind:"customer-created",status:"failed",recipient,detail:error.message});
     return false;
   }
 }
@@ -209,7 +241,8 @@ async function notifyCustomerOrderCreated(orderNumber,accessToken,{requestId}={}
 // retry never re-sends the customer's receipt and vice versa.
 async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
   const cfg=customerConfig();
-  if(!cfg) return false;
+  if(!cfg) { await logEmail({orderId,kind:"customer-paid",status:"skipped",detail:CUSTOMER_MISSING}); return false; }
+  let recipient=null;
   try {
     const claimed=await adminJson(`orders?id=eq.${encodeURIComponent(orderId)}&customer_paid_notified_at=is.null&select=${ORDER_FIELDS}`,{
       method:"PATCH",
@@ -219,7 +252,9 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
     const order=claimed?.[0];
     if(!order) return false;
     // A payment on a cancelled order is handled by the seller (refund), not receipted.
-    if(String(order.status||"").toLowerCase()==="cancelled"||!validRecipient(order.customer_email)) return false;
+    if(String(order.status||"").toLowerCase()==="cancelled") return false;
+    if(!validRecipient(order.customer_email)) { await logEmail({orderNumber:order.order_number,kind:"customer-paid",status:"skipped",detail:"Email pembeli tidak valid"}); return false; }
+    recipient=maskEmail(order.customer_email);
     const items=await loadItems(order.id);
     const pickup=order.shipping_method==="pickup";
     const content=customerEmail(order,items,{headline:"Pembayaran diterima",intro:"pembayaran Anda sudah kami terima dan pesanan sedang diproses.",
@@ -228,7 +263,8 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
         ?["Alamat dan jadwal pengambilan kami kirim lewat WhatsApp."]
         :["Pembayaran sebelum pukul 12.00 WIB (Senin–Sabtu) dikirim hari yang sama; setelahnya hari kerja berikutnya.","Nomor resi muncul di halaman pesanan setelah paket diserahkan ke kurir.","Rekam video unboxing saat paket tiba; laporan barang rusak atau salah kirim maksimal 1×24 jam."]});
     try {
-      await sendEmail(cfg,{to:[order.customer_email],subject:`Pembayaran diterima · ${order.order_number}`,...content});
+      const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pembayaran diterima · ${order.order_number}`,...content});
+      await logEmail({orderNumber:order.order_number,kind:"customer-paid",status:"sent",recipient,providerId});
     } catch(error) {
       await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({customer_paid_notified_at:null})}).catch(()=>{});
       throw error;
@@ -236,6 +272,7 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
     return true;
   } catch(error) {
     console.error("Order notification failed",{requestId,kind:"customer-paid",message:error.message});
+    await logEmail({orderId,kind:"customer-paid",status:"failed",recipient,detail:error.message});
     return false;
   }
 }
