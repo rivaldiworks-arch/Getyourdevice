@@ -135,7 +135,7 @@ for(const width of [1440,834,390]){
 
 // Nothing is clipped on a small phone or an iPad: struck-through prices stay inside their
 // card, and the product detail info column stays inside the dialog.
-for(const width of [360,390,414,834,1024,1180]){
+for(const width of [320,360,390,414,834,1024,1180]){
   const page=await browser.newPage({viewport:{width,height:860}});
   await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
   await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
@@ -147,6 +147,8 @@ for(const width of [360,390,414,834,1024,1180]){
   // The menu button + logo keep their full width and never run under the search bar or header actions.
   const header=await page.evaluate(()=>{const start=document.querySelector(".header-start"),R=el=>el.getBoundingClientRect(),row=el=>Math.abs(R(el).top-R(start).top)<30;return {fits:start.scrollWidth<=start.clientWidth+1,gaps:[".search-wrap",".header-actions"].map(sel=>document.querySelector(sel)).filter(row).map(el=>Math.round(R(el).left-R(start).right))};});
   assert.ok(header.fits,`logo is not cut off at ${width}px`);
+  // The gyd mark is part of the logo on every screen, phones included.
+  assert.ok(await page.evaluate(()=>{const r=document.querySelector(".header-start .brand-mark").getBoundingClientRect();return r.width>=24&&r.height>=24;}),`gyd mark is shown at ${width}px`);
   assert.ok(header.gaps.every(gap=>gap>=4),`logo does not overlap the search bar or actions at ${width}px: ${header.gaps}`);
   await page.locator("#productGrid .product-card").first().click();
   await page.waitForSelector("#productModal:not(.hidden) .detail-info");
@@ -165,6 +167,7 @@ for(const width of [360,390,414,834,1024,1180]){
   await page.locator(".menu-button").click();
   await page.waitForSelector("#menuDrawer:not(.hidden)");
   assert.equal(await page.locator("#menuDrawer [data-category]").count(),6,"menu lists every category");
+  assert.ok(await page.locator("#menuDrawer .menu-brand .brand-mark").isVisible(),"menu header shows the gyd mark");
   assert.deepEqual(await page.locator("#menuDrawer .menu-label").allInnerTexts(),["KATEGORI","BELANJA","BANTUAN"]);
   assert.equal(await page.locator('#menuDrawer a[href="https://wa.me/6281288451500"]').count(),1,"menu links to WhatsApp");
   // No menu entry for features that do not exist yet.
