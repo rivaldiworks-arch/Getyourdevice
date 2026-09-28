@@ -216,7 +216,7 @@ Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status 
   - Aktif hanya bila env `CUSTOMER_EMAIL_FROM` diisi, misalnya `getyourdevice <support@getyourdevice.id>`. Syarat: domain `getyourdevice.id` **terverifikasi di Resend** (Resend → Domains → Add Domain, lalu pasang record DNS yang diberikan di Rumahweb). Pengirim bawaan `onboarding@resend.dev` hanya bisa mengirim ke pemilik akun Resend.
   - Email penjual ikut memakai pengirim ini bila `ORDER_NOTIFY_FROM` kosong.
 - **Lacak Pesanan** (`#lacak`, juga di menu ☰ dan halaman Pesanan Saya): nomor pesanan + nomor WhatsApp checkout (08…, 62…, atau +62 diterima). Batas 12 percobaan per 15 menit per perangkat, dan menolak bila pembatas tidak tersedia, supaya nomor pesanan yang berurutan tidak bisa ditebak. Nomor WhatsApp tidak pernah dikirim balik oleh server.
-- **Kembali ke toko setelah bayar di aplikasi GoPay/ShopeePay**: request Snap membawa `gopay.callback_url` dan `shopeepay.callback_url`, selain `callbacks.finish`.
+- **Kembali ke toko setelah bayar di aplikasi GoPay**: request Snap membawa `gopay.callback_url` selain `callbacks.finish`. `shopeepay.callback_url` sengaja tidak dikirim: selama ShopeePay belum aktif di akun Midtrans, field itu membuat seluruh transaksi ditolak (SNAP Validation Error).
 - **Notifikasi di panel admin**: ikon lonceng memeriksa pesanan tiap 20 detik selama admin terbuka. Pesanan baru, pembayaran diterima, dan pembatalan otomatis tampil sebagai badge, daftar, bunyi singkat, jumlah di judul tab, dan notifikasi perangkat bila diizinkan. Saat halaman admin tertutup, andalkan email penjual (`ORDER_NOTIFY_EMAIL`).
 
 ## Domain toko (Phase 8G)

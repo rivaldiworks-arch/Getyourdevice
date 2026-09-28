@@ -502,9 +502,10 @@ snapEnv(); resetBackend();
   assert.equal(request.body.transaction_details.gross_amount,150000);
   assert.deepEqual(request.body.expiry,{unit:"hour",duration:24});
   assert.equal(request.body.callbacks.finish,"https://www.getyourdevice.id/#pesanan");
-  // Phones pay in the GoPay/ShopeePay app; both must send the customer back to the store.
+  // Phones pay in the GoPay app, which must send the customer back to the store.
   assert.deepEqual(request.body.gopay,{enable_callback:true,callback_url:"https://www.getyourdevice.id/#pesanan"});
-  assert.deepEqual(request.body.shopeepay,{callback_url:"https://www.getyourdevice.id/#pesanan"});
+  // A ShopeePay callback makes Midtrans reject the transaction while ShopeePay is not activated.
+  assert.equal(request.body.shopeepay,undefined);
   const payment=db.payments[0];
   assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
   assert.equal(request.body.transaction_details.order_id,payment.provider_reference);
