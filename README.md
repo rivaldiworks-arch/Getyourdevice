@@ -35,6 +35,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 20. `supabase/migrations/020_order_status_flow.sql` — status pesanan mengikuti alur (transisi di luar alur ditolak database), COD hanya untuk Ambil di Toko, dan pembatalan otomatis pesanan QRIS/Transfer Bank yang tidak dibayar (pg_cron tiap 15 menit, stok dikembalikan). **Jalankan 020 sebelum deploy kode Phase 8C.**
 21. `supabase/migrations/021_product_warranty.sql` — kolom `products.warranty` (`resmi`, `tam`, `blibli`, atau kosong) untuk jenis garansi per produk. Aditif dan boleh kosong. **Jalankan 021 sebelum deploy kode Phase 8F**, karena `/api/products` membaca kolom ini.
 22. `supabase/migrations/022_customer_paid_notification.sql` — kolom `orders.customer_paid_notified_at` supaya email "Pembayaran diterima" ke pembeli terkirim sekali. Aditif. **Jalankan 022 sebelum mengisi `CUSTOMER_EMAIL_FROM`.**
+23. `supabase/migrations/023_email_log.sql` — tabel `email_log`: setiap percobaan email pesanan (penjual/pembeli, dibuat/lunas) dicatat sebagai `sent` (dengan id Resend), `failed` (dengan pesan error Resend) atau `skipped` (env belum diisi). Server-only (RLS aktif, tanpa policy). Aditif.
 
 ## Payment infrastructure (Phase 5)
 
@@ -430,3 +431,9 @@ Untuk sekadar memeriksa storefront fallback: `python3 -m http.server 4173` lalu 
 Checkout memvalidasi setiap field di browser dan API, menormalisasi nomor Indonesia secara konservatif, mengunci tombol selama request, dan baru menghapus keranjang sesudah respons `201`. Ringkasan browser hanya bersifat tampilan; RPC tetap mengambil harga produk aktif, mengunci row stok, menghitung total, dan mengurangi stok dalam transaksi yang sama. Metode pembayaran canonical Phase 4 adalah Transfer Bank, COD, dan QRIS; QRIS hanya menangkap pilihan order dan tidak menandai pembayaran berhasil. Tarif pengiriman Phase 6A berasal dari shipping quote server-side dengan TTL 30 menit. Provider masih internal/static sampai adapter kurir nyata diaktifkan, tetapi browser tidak lagi menjadi sumber kebenaran ongkir.
 
 Customer guest tetap dibuat satu record per order. Deduplication sengaja tidak diterapkan karena tidak ada identitas customer terautentikasi dan penggabungan berdasarkan email/telepon berisiko mencampur pelanggan berbeda.
+
+## Email penjual untuk setiap pesanan baru + log email (Phase 8I)
+
+- Penjual kini menerima email untuk **setiap** pesanan baru, bukan hanya COD. Pesanan QRIS/Transfer Bank berjudul "Pesanan baru … · menunggu pembayaran"; email "Lunas" menyusul setelah dibayar.
+- Setiap percobaan email dicatat di `email_log` (migration 023), sehingga email yang tidak sampai bisa dilacak dari database tanpa membuka log Vercel: `sent` + id Resend, `failed` + pesan error Resend, atau `skipped` bila `RESEND_API_KEY`/`ORDER_NOTIFY_EMAIL`/`CUSTOMER_EMAIL_FROM` belum diisi. Alamat pembeli disamarkan (`bu***@gmail.com`).
+- Email penjual dikirim ke `ORDER_NOTIFY_EMAIL`. Isi dengan alamat yang benar-benar dibaca penjual, mis. `support@getyourdevice.id`; pengirimnya ikut `CUSTOMER_EMAIL_FROM` (domain terverifikasi di Resend).
