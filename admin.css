@@ -18,3 +18,24 @@
 .admin-brand .brand-mark::after{content:"";position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:#FFC629}
 .admin-brand .brand-mark{padding:0 0 2px}
 .admin-brand .brand-mark::after{top:-3px;right:-3px;width:8px;height:8px;box-shadow:0 0 0 2px #fff}
+/* Order notifications (bell) */
+.topbar-actions{display:flex;align-items:center;gap:10px}
+.notify-wrap{position:relative}
+.notify-button{position:relative;display:grid;place-items:center;width:44px;height:44px;border:1px solid #dce1e7;border-radius:50%;background:#fff;color:#172033;cursor:pointer}
+.notify-button b{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:999px;background:#d92d20;color:#fff;font-size:11px;line-height:20px;text-align:center;padding:0 5px}
+.notify-panel{position:absolute;right:0;top:52px;z-index:60;width:min(360px,calc(100vw - 32px));border:1px solid #dce1e7;border-radius:16px;background:#fff;box-shadow:0 16px 40px rgba(16,35,63,.16);overflow:hidden}
+.notify-panel header,.notify-panel footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px}
+.notify-panel header{border-bottom:1px solid #eef1f5}
+.notify-panel footer{flex-direction:column;align-items:flex-start;border-top:1px solid #eef1f5;background:#f8fafc}
+.notify-panel header button,.notify-panel footer button{border:0;background:none;color:#1446a0;font-weight:600;cursor:pointer;padding:6px 0}
+.notify-panel small{color:#5f6b7a}
+.notify-panel ul{max-height:360px;margin:0;padding:0;list-style:none;overflow-y:auto}
+.notify-panel li a{display:grid;gap:2px;padding:12px 16px;border-bottom:1px solid #f1f3f6;color:#172033;text-decoration:none}
+.notify-panel li a:hover{background:#f5f8ff}
+.notify-panel li.unread a{background:#f2f7ff}
+.notify-panel li.unread strong::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:#1446a0;vertical-align:middle}
+.notify-panel li.paid strong{color:#16834b}
+.notify-panel li.cancelled strong{color:#b42318}
+.notify-panel li span{font-size:13px}
+.notify-panel li time{color:#8a94a3;font-size:12px}
+.notify-empty{padding:18px 16px;color:#5f6b7a;font-size:14px}

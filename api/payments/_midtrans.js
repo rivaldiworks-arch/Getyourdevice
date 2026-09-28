@@ -263,7 +263,13 @@ async function createSnapTransaction({orderId,amount,method,order,finishUrl=null
     customer_details:snapCustomer(order),
     expiry:{unit:"hour",duration:SNAP_EXPIRY_HOURS}
   };
-  if(finishUrl) body.callbacks={finish:finishUrl};
+  if(finishUrl) {
+    body.callbacks={finish:finishUrl};
+    // On phones Snap hands GoPay/ShopeePay payments to the e-wallet app; without these
+    // the customer stays in that app after paying instead of returning to the store.
+    body.gopay={enable_callback:true,callback_url:finishUrl};
+    body.shopeepay={callback_url:finishUrl};
+  }
   const response=await fetch(`${snapUrl}/snap/v1/transactions`,{
     method:"POST",
     headers:{Accept:"application/json",Authorization:authHeader(serverKey),"Content-Type":"application/json"},

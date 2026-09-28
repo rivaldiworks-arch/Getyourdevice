@@ -98,8 +98,16 @@ function rememberOrderAccess(orderNumber,token,paymentToken,bank){
   orderAccessRecords=[record,...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
   storage.set("gyd_order_access",orderAccessRecords);
 }
+// A record found by "Lacak Pesanan" on another device carries the checkout WhatsApp
+// number instead of an access token; the server accepts either.
+function rememberOrderLookup(orderNumber,phone){
+  if(!/^GYD-\d{8}-\d{4,}$/.test(String(orderNumber||""))||orderAccessRecord(orderNumber)?.token)return;
+  orderAccessRecords=[{orderNumber,phone:String(phone||""),savedAt:new Date().toISOString()},...orderAccessRecords.filter(entry=>entry?.orderNumber!==orderNumber)].slice(0,20);
+  storage.set("gyd_order_access",orderAccessRecords);
+}
 async function fetchCustomerOrderAccess(entry){
-  const response=await fetch("/api/orders/detail",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({orderNumber:entry.orderNumber,orderAccessToken:entry.token})});
+  const credentials=entry.token?{orderAccessToken:entry.token}:{phone:entry.phone};
+  const response=await fetch("/api/orders/detail",{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({orderNumber:entry.orderNumber,...credentials})});
   const data=await response.json().catch(()=>({}));
   if(!response.ok)throw Object.assign(new Error(data.error||"Pesanan belum dapat dimuat."),{status:response.status});
   return data;
@@ -178,6 +186,19 @@ function applyRoute(initial=false) {
   try{
     closeStoreModals();
     const parts=routeParts(),root=(parts[0]||"beranda").toLowerCase();
+    if(root==="pesanan"&&parts[1]==="akses"){
+      // "Lihat Pesanan" link from the confirmation email; the token stays in the fragment
+      // and is never sent to the server except to the order detail endpoint.
+      rememberOrderAccess(parts[2],parts[3]);
+      history.replaceState(null,"",routeHash("pesanan"));
+    }
+    if(root==="lacak"){
+      showOrdersBase();
+      renderCustomerOrders();
+      if(/^GYD-\d{8}-\d{4,}$/.test(parts[1]||""))$("lookupOrderNumber").value=parts[1];
+      setTimeout(()=>{$("orderLookup").scrollIntoView({behavior:initial?"auto":"smooth",block:"center"});($("lookupOrderNumber").value?$("lookupPhone"):$("lookupOrderNumber")).focus({preventScroll:true});},0);
+      return;
+    }
     if(root==="pesanan"){
       showOrdersBase();
       renderCustomerOrders();
@@ -668,9 +689,25 @@ function customerOrderModel(order){
   return {...order,shippingStatus:order.shippingStatus||null,trackingNumber:order.trackingNumber||null,trackingUrl:/^https:\/\//i.test(String(order.trackingUrl||""))?order.trackingUrl:null};
 }
 function renderCustomerOrderCards(target,list){
-  if(!list.length){target.innerHTML='<div class="orders-empty"><span>▤</span><h2>Belum ada pesanan</h2><p>Pesanan yang dibuat dari browser ini akan muncul di sini.</p><button class="primary" type="button" data-action="show-store">Mulai Belanja</button></div>';return;}
+  if(!list.length){target.innerHTML='<div class="orders-empty"><span>▤</span><h2>Belum ada pesanan</h2><p>Pesanan dari perangkat ini muncul otomatis. Belanja dari perangkat lain? Gunakan <b>Lacak Pesanan</b> di atas.</p><button class="primary" type="button" data-action="show-store">Mulai Belanja</button></div>';return;}
   customerOrderCache=new Map(list.map(raw=>{const order=customerOrderModel(raw);return [order.id,order];}));
   target.innerHTML=list.map(raw=>{const order=customerOrderModel(raw);return `<article class="customer-order-card"><header><div><span>Nomor pesanan</span><strong>${escapeHTML(order.id)}</strong></div><div><span>Tanggal</span><strong>${new Date(order.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"})}</strong></div><span class="order-status status-${String(order.status||"pending").toLowerCase()}">${escapeHTML(customerOrderStatus(order.status))}</span></header><div class="customer-order-body"><div class="customer-order-items">${(order.items||[]).map(item=>`<div><span>${escapeHTML(item.name)} <small>× ${item.qty}</small></span><strong>${money(item.subtotal??item.price*item.qty)}</strong></div>`).join("")}</div><div class="customer-order-summary"><dl><div><dt>Pengiriman</dt><dd>${escapeHTML(order.shipping||"Reguler")}</dd></div>${order.shippingStatus?`<div><dt>Status kiriman</dt><dd>${escapeHTML(order.shippingStatus)}</dd></div>`:""}${order.trackingNumber?`<div><dt>Resi</dt><dd>${escapeHTML(order.trackingNumber)}</dd></div>`:""}<div><dt>Pembayaran</dt><dd>${escapeHTML(order.payment||"-")} · ${escapeHTML(paymentStatusLabel(order.paymentStatus))}</dd></div><div><dt>Total</dt><dd>${money(order.total)}</dd></div></dl>${customerOrderActions(order)}</div></div></article>`;}).join("");
+}
+async function lookupCustomerOrder(event){
+  event.preventDefault();
+  const number=$("lookupOrderNumber").value.trim().toUpperCase(),phone=$("lookupPhone").value.trim(),message=$("lookupMessage"),button=event.submitter||event.target.querySelector("button[type=submit]");
+  message.className="lookup-message";message.textContent="";
+  if(!/^GYD-\d{8}-\d{4,}$/.test(number)){message.classList.add("error");message.textContent="Nomor pesanan diawali GYD-, contoh GYD-20260928-0001.";$("lookupOrderNumber").focus();return;}
+  if(String(phone).replace(/\D/g,"").length<9){message.classList.add("error");message.textContent="Masukkan nomor WhatsApp yang dipakai saat checkout.";$("lookupPhone").focus();return;}
+  button.disabled=true;button.textContent="Mencari…";
+  try{
+    await fetchCustomerOrderAccess({orderNumber:number,phone});
+    rememberOrderLookup(number,phone);
+    event.target.reset();
+    message.classList.add("success");message.textContent=`Pesanan ${number} ditemukan dan disimpan di perangkat ini.`;
+    await renderCustomerOrders();
+  }catch(error){message.classList.add("error");message.textContent=error.message||"Pesanan belum dapat dimuat.";}
+  finally{button.disabled=false;button.textContent="Lacak";}
 }
 async function renderCustomerOrders(){
   const target=$("customerOrderList");
@@ -688,6 +725,7 @@ function handleAction(action) {
   switch(action){
     case "show-store": navigateRoute("beranda"); break;
     case "show-orders": navigateRoute("pesanan"); break;
+    case "track-order": navigateRoute("lacak"); break;
     case "show-admin": window.location.href="./admin.html#produk"; break;
     case "open-menu": setModal("menuDrawer",true); break;
     case "close-menu": setModal("menuDrawer",false); break;
@@ -728,6 +766,7 @@ function initializeMotion() {
   window.addEventListener("scroll", () => { if (!ticking) requestAnimationFrame(() => { header?.classList.toggle("scrolled", window.scrollY > 24); if (!matchMedia("(prefers-reduced-motion: reduce)").matches && window.innerWidth > 680) { const heroImage = document.querySelector(".hero-device"); if (heroImage && window.scrollY < 600) heroImage.style.transform = `translateY(${Math.min(window.scrollY * .035, 14)}px) scale(1.01)`; } ticking = false; }); ticking = true; }, { passive:true });
 }
 
+$("orderLookup")?.addEventListener("submit",lookupCustomerOrder);
 window.addEventListener("hashchange",queueRouteApply);
 window.addEventListener("popstate",queueRouteApply);
 

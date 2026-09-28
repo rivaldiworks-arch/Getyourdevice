@@ -86,4 +86,4 @@ async function guardPublicJson(req,res,{bucket,limit,windowSeconds,maxBytes}){
   return {ok:true,requestId};
 }
 
-module.exports={guardPublicJson,noStore};
+module.exports={guardPublicJson,noStore,consumeRateLimit};

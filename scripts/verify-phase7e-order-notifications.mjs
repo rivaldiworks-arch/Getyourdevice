@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const SERVER_KEY="SB-Mid-server-test-sandbox-key";
 
 function resetEnv(overrides={}) {
-  for(const key of ["RESEND_API_KEY","ORDER_NOTIFY_EMAIL","ORDER_NOTIFY_FROM","SITE_URL","CHECKOUT_PAYMENT_METHODS"]) delete process.env[key];
+  for(const key of ["RESEND_API_KEY","ORDER_NOTIFY_EMAIL","ORDER_NOTIFY_FROM","CUSTOMER_EMAIL_FROM","SITE_URL","CHECKOUT_PAYMENT_METHODS"]) delete process.env[key];
   Object.assign(process.env,{
     SUPABASE_URL:"https://db.test",
     SUPABASE_ANON_KEY:"anon-test-key",
@@ -38,7 +38,7 @@ function addOrder(fields={}) {
   const order={id:randomUUID(),order_number:`GYD-20260925-${String(db.orders.size+1).padStart(4,"0")}`,created_at:new Date().toISOString(),
     status:"pending",payment_method:"QRIS",payment_status:"pending",total:150000,shipping_cost:20000,customer_name:"Budi Santoso",
     customer_phone:"6281234567890",customer_email:"budi@example.com",shipping_address:"Jalan Merdeka No. 10",city:"Jakarta",postal_code:"10110",
-    shipping_service_name:"JNE REG",paid_notified_at:null,...fields};
+    shipping_service_name:"JNE REG",shipping_method:"courier",payment_access_expires_at:new Date(Date.now()+86400000).toISOString(),paid_notified_at:null,customer_paid_notified_at:null,...fields};
   db.orders.set(order.id,order);
   db.items.push({order_id:order.id,product_name:"Galaxy A55",quantity:1,subtotal:130000});
   return order;
@@ -71,7 +71,7 @@ globalThis.fetch=async (url,init={})=>{
   }
   if(path==="orders" && init.method==="PATCH") {
     const order=db.orders.get(param(url,"id").replace(/^eq\./,""));
-    if(param(url,"paid_notified_at")==="is.null" && order.paid_notified_at!==null) return json(200,[]);
+    for(const column of ["paid_notified_at","customer_paid_notified_at"]) if(param(url,column)==="is.null" && order[column]!==null) return json(200,[]);
     Object.assign(order,body);
     return json(200,[order]);
   }
@@ -210,6 +210,61 @@ resetEnv(); reset();
   assert.equal(sent.length,1);
   assert.match(sent[0].subject,/PERLU REFUND/);
   assert.doesNotMatch(sent[0].html,/otomatis dikonfirmasi/);
+}
+
+// 8. Customer emails (Phase 8H) stay off until CUSTOMER_EMAIL_FROM is set.
+resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); reset();
+{
+  const qris=await checkout("QRIS");
+  assert.equal(qris.statusCode,201);
+  const created=sent.find(mail=>mail.to[0]==="budi@example.com");
+  assert.ok(created,"the customer gets an email when the order is created");
+  assert.equal(sent.length,1,"the seller still hears about gateway orders only once paid");
+  assert.equal(created.from,"getyourdevice <support@getyourdevice.id>");
+  assert.equal(created.reply_to,"support@getyourdevice.id","customer replies reach the store mailbox");
+  assert.match(created.subject,/menunggu pembayaran/);
+  assert.match(created.html,/#pesanan\/akses\/GYD-\d{8}-\d{4}\/[a-f0-9]{64}/,"the link opens the order on any device");
+  assert.match(created.html,/tidak pernah meminta transfer ke rekening pribadi/);
+  const order=[...db.orders.values()][0];
+  const payment=addPendingPayment(order);
+  sent.length=0;
+  await midtransNotification(payment,"settlement");
+  assert.equal(sent.length,2,"seller and customer are both emailed once paid");
+  const receipt=sent.find(mail=>mail.to[0]==="budi@example.com");
+  assert.match(receipt.subject,new RegExp(`Pembayaran diterima · ${order.order_number}`));
+  assert.match(receipt.html,/#lacak\//);
+  assert.ok(order.customer_paid_notified_at);
+  await midtransNotification(payment,"settlement");
+  assert.equal(sent.length,2,"retries do not email the customer again");
+}
+// A seller-mail failure does not re-send the customer's receipt on retry.
+resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); reset();
+{
+  const order=addOrder();
+  const payment=addPendingPayment(order);
+  resendFailures=1;
+  await midtransNotification(payment,"settlement");
+  await midtransNotification(payment,"settlement");
+  assert.equal(sent.filter(mail=>mail.to[0]==="budi@example.com").length,1,"one receipt for the customer");
+  assert.equal(sent.filter(mail=>mail.to[0]==="seller@example.test").length,1,"one email for the seller");
+}
+// No receipt for a payment on a cancelled order, or without a usable address; COD says pickup.
+resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); reset();
+{
+  const cancelled=addOrder({status:"cancelled"});
+  await midtransNotification(addPendingPayment(cancelled),"settlement");
+  assert.equal(sent.filter(mail=>mail.to[0]==="budi@example.com").length,0);
+  sent.length=0;
+  const noEmail=addOrder({customer_email:"bukan-email"});
+  await midtransNotification(addPendingPayment(noEmail),"settlement");
+  assert.equal(sent.filter(mail=>mail.to[0]!=="seller@example.test").length,0);
+  sent.length=0;
+  db.orders.clear(); db.items.length=0;
+  const cod=await checkout("COD");
+  assert.equal(cod.statusCode,201);
+  const codMail=sent.find(mail=>mail.to[0]==="budi@example.com");
+  assert.match(codMail.subject,/diterima/);
+  assert.match(codMail.html,/Bayar tunai saat mengambil barang/);
 }
 
 console.log("Phase 7E order notification verification passed.");
