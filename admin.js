@@ -146,6 +146,29 @@ function showFormError(message){$("formError").textContent=message;$("formError"
 const GALLERY_MIN=3,GALLERY_MAX=8,SOURCE_MAX_BYTES=20*1024*1024;
 const GALLERY_SHAPES={square:{width:1200,height:1200,label:"Kotak"},landscape:{width:1600,height:1200,label:"Landscape"}};
 let gallery=[];
+// Category and brand come from fixed lists so every product lands in a storefront tab and
+// one brand is always spelled one way. Categories match app.js CATEGORIES. Brands are the
+// ones sold in Indonesia per category; "Lainnya" allows a brand that is not listed yet.
+const PRODUCT_CATEGORIES=["Smartphone","Laptop","Tablet","Smartwatch","Audio","Accessories"];
+const BRANDS_BY_CATEGORY={
+  Smartphone:["Apple","ASUS","Google","Honor","Huawei","Infinix","itel","Motorola","Nokia","Nothing","OnePlus","OPPO","POCO","realme","Redmi","Samsung","Sony","Tecno","vivo","Xiaomi","ZTE"],
+  Laptop:["Acer","Advan","Apple","ASUS","Axioo","Dell","Gigabyte","HP","Huawei","Infinix","Lenovo","LG","Microsoft","MSI","Razer","Samsung","Xiaomi","Zyrex"],
+  Tablet:["Advan","Apple","Honor","Huawei","Infinix","Lenovo","Microsoft","OnePlus","OPPO","POCO","realme","Redmi","Samsung","Xiaomi"],
+  Smartwatch:["Amazfit","Apple","Fitbit","Garmin","Google","Huawei","Samsung","Xiaomi"],
+  Audio:["Apple","Audio-Technica","Bang & Olufsen","Beats","Bose","Edifier","Harman Kardon","Jabra","JBL","Marshall","Nothing","Samsung","Sennheiser","Skullcandy","Sony","Soundcore","Xiaomi"],
+  Accessories:["Anker","Apple","Baseus","Belkin","ESR","Logitech","Robot","Samsung","SanDisk","Spigen","Ugreen","Vivan","Xiaomi"]
+};
+const BRAND_OTHER="__other";
+function fillBrandOptions(category,current=""){
+  const brands=BRANDS_BY_CATEGORY[category]||[],match=brands.find(brand=>brand.toLowerCase()===String(current).trim().toLowerCase());
+  $("brand").innerHTML=`<option value="">${category?"Pilih brand":"Pilih kategori dulu"}</option>${brands.map(brand=>`<option value="${escapeHTML(brand)}">${escapeHTML(brand)}</option>`).join("")}${category?`<option value="${BRAND_OTHER}">Lainnya…</option>`:""}`;
+  $("brand").disabled=!category;
+  const other=Boolean(category&&current&&!match);
+  $("brand").value=match||(other?BRAND_OTHER:"");
+  // With no category yet, the old brand waits in the hidden field until one is chosen.
+  $("brandOther").value=other||!category?String(current).trim():"";
+  $("brandOther").classList.toggle("hidden",!other);
+}
 function galleryFromProduct(product){
   const list=Array.isArray(product?.images)?product.images.filter(item=>item?.url).map(item=>({kind:"existing",url:item.url,shape:item.shape==="landscape"?"landscape":"square"})):[];
   return list.length?list:product?.image_url?[{kind:"existing",url:product.image_url,shape:"square"}]:[];
@@ -194,8 +217,13 @@ function specLines(specifications){
 }
 function openForm(product){
   $("productForm").reset();$("productId").value=product?.id||"";$("formTitle").textContent=product?"Edit produk":"Tambah produk";
-  for(const [id,key] of [["name","name"],["brand","brand"],["category","category"],["price","price"],["originalPrice","original_price"],["stock","stock"],["rating","rating"],["warranty","warranty"],["weightGrams","weight_grams"],["lengthCm","length_cm"],["widthCm","width_cm"],["heightCm","height_cm"],["description","description"]])$(id).value=product?.[key]??"";
+  for(const [id,key] of [["name","name"],["price","price"],["originalPrice","original_price"],["stock","stock"],["rating","rating"],["warranty","warranty"],["weightGrams","weight_grams"],["lengthCm","length_cm"],["widthCm","width_cm"],["heightCm","height_cm"],["description","description"]])$(id).value=product?.[key]??"";
   $("specifications").value=specLines(product?.specifications).join("\n");$("isActive").checked=product?.is_active!==false;$("formError").classList.add("hidden");
+  const category=PRODUCT_CATEGORIES.includes(product?.category)?product.category:"";
+  $("category").value=category;
+  $("categoryHint").textContent=product?.category&&!category?`Kategori lama "${product.category}" tidak dikenal toko. Pilih kategori yang sesuai.`:"";
+  $("categoryHint").classList.toggle("hidden",!$("categoryHint").textContent);
+  fillBrandOptions(category,product?.brand||"");
   gallery.forEach(releaseGalleryItem);gallery=galleryFromProduct(product);$("imageFile").value="";renderGallery();$("productDialog").showModal();
 }
 function validateImage(file){
@@ -225,6 +253,9 @@ function productPayload(){
     width_cm:$("widthCm").value?Number($("widthCm").value):null,
     height_cm:$("heightCm").value?Number($("heightCm").value):null
   };
+  const category=$("category").value,brand=$("brand").value===BRAND_OTHER?$("brandOther").value.trim():$("brand").value;
+  if(!PRODUCT_CATEGORIES.includes(category))throw new Error("Pilih kategori produk.");
+  if(!brand)throw new Error($("brand").value===BRAND_OTHER?"Tulis nama brand.":"Pilih brand produk.");
   if(!Number.isInteger(stock)||stock<0)throw new Error("Stok harus berupa bilangan bulat nol atau lebih.");
   if(!Number.isFinite(price)||price<0||originalPrice!==null&&(!Number.isFinite(originalPrice)||originalPrice<0))throw new Error("Harga tidak boleh negatif.");
   if(!Number.isFinite(rating)||rating<0||rating>5)throw new Error("Rating harus berada di antara 0 dan 5.");
@@ -232,7 +263,7 @@ function productPayload(){
   if(provided.length&&provided.length!==4)throw new Error("Untuk tarif kurir live, isi berat, panjang, lebar, dan tinggi sekaligus.");
   if(provided.some(value=>!Number.isFinite(value)||value<=0))throw new Error("Berat dan dimensi paket harus lebih dari nol.");
   if(physical.weight_grams!==null&&!Number.isInteger(physical.weight_grams))throw new Error("Berat paket harus dalam gram bulat.");
-  return {name:$("name").value.trim(),brand:$("brand").value.trim(),category:$("category").value.trim(),description:$("description").value.trim(),specifications,price,original_price:originalPrice,stock,rating,warranty:$("warranty").value||null,...physical,is_active:$("isActive").checked};
+  return {name:$("name").value.trim(),brand,category,description:$("description").value.trim(),specifications,price,original_price:originalPrice,stock,rating,warranty:$("warranty").value||null,...physical,is_active:$("isActive").checked};
 }
 async function saveProduct(event){
   event.preventDefault();$("formError").classList.add("hidden");const button=$("saveProductButton");
@@ -579,6 +610,8 @@ $("signOut").addEventListener("click",async()=>{try{await request("/auth/v1/logo
 $("addProduct").addEventListener("click",()=>navigateAdminRoute("produk/baru"));$("closeDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("cancelDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("productDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("produk");});$("productForm").addEventListener("submit",saveProduct);$("productSearch").addEventListener("input",renderProducts);$("statusFilter").addEventListener("change",renderProducts);
 $("productTable").addEventListener("click",async event=>{const edit=event.target.dataset.edit,toggle=event.target.dataset.toggle,del=event.target.dataset.delete;if(edit)navigateAdminRoute(`produk/${edit}`);if(toggle){const p=products.find(item=>item.id===toggle);await updateProduct(toggle,{is_active:!p.is_active},p.is_active?"Produk dinonaktifkan.":"Produk diaktifkan.");}if(del&&confirm("Hapus produk ini secara permanen? Tindakan ini tidak dapat dibatalkan.")){try{const product=products.find(item=>item.id===del);await request(`/rest/v1/products?id=eq.${encodeURIComponent(del)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});let warning=false;try{if(product?.image_url)await removeStoredImage(product.image_url);}catch(error){console.error("Deleted product image cleanup failed",error);warning=true;}toast(warning?"Produk dihapus, tetapi file gambar belum dapat dihapus.":"Produk dihapus.");await loadProducts();}catch(error){toast(error.message);}}});
 $("productTable").addEventListener("change",async event=>{if(!event.target.dataset.stock)return;const stock=Number(event.target.value);if(!Number.isInteger(stock)||stock<0){toast("Stok harus berupa bilangan bulat nol atau lebih.");await loadProducts();return;}event.target.disabled=true;await updateProduct(event.target.dataset.stock,{stock},"Stok diperbarui.");});
+$("category").addEventListener("change",()=>{const current=$("brand").value&&$("brand").value!==BRAND_OTHER?$("brand").value:$("brandOther").value;fillBrandOptions($("category").value,current);$("categoryHint").classList.add("hidden");});
+$("brand").addEventListener("change",()=>{const other=$("brand").value===BRAND_OTHER;$("brandOther").classList.toggle("hidden",!other);if(other)$("brandOther").focus();});
 $("imageFile").addEventListener("change",async event=>{$("formError").classList.add("hidden");const files=[...event.target.files];event.target.value="";await addGalleryFiles(files);});
 $("imagePreview").addEventListener("click",event=>{
   const shape=event.target.closest("[data-gallery-shape]");if(shape){const item=gallery[Number(shape.dataset.galleryItem)];if(item&&item.shape!==shape.dataset.galleryShape)setGalleryShape(item,shape.dataset.galleryShape);return;}

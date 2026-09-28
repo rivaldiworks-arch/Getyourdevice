@@ -56,7 +56,7 @@ async function openAdmin(width,existing){
   return {page,uploads,saves,deletes};
 }
 const fill=async page=>{
-  await page.fill("#name","Galaxy Tab S9 FE");await page.fill("#brand","Samsung");await page.fill("#category","Tablet");
+  await page.fill("#name","Galaxy Tab S9 FE");await page.selectOption("#category","Tablet");await page.selectOption("#brand","Samsung");
   await page.fill("#price","6499000");await page.fill("#stock","5");
   await page.fill("#specifications","10,9 inci\n6 GB / 128 GB\nS Pen");
 };
@@ -95,6 +95,7 @@ for(const width of [1180,390]){
   assert.equal(saves[0].method,"POST");
   assert.deepEqual(body.images.map(image=>image.shape),["square","landscape","landscape"]);
   assert.equal(body.image_url,body.images[0].url,"the cover is also the image_url");
+  assert.equal(body.category,"Tablet");assert.equal(body.brand,"Samsung");
   assert.deepEqual(body.specifications,{summary:"10,9 inci · 6 GB / 128 GB · S Pen"});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,`no horizontal scroll at ${width}px`);
   await page.close();
@@ -121,6 +122,39 @@ for(const width of [1180,390]){
   assert.equal(saves[0].body.images.length,3);
   assert.deepEqual(deletes,["/storage/v1/object/product-images/products/p1/gone.jpg"],"the removed photo is deleted from storage");
   await page.close();
+}
+{
+  // Category and brand are dropdowns: the storefront's six categories, brands per category,
+  // "Lainnya" for an unlisted brand, and a product with an unknown category must pick one.
+  const odd={id:"p2",name:"Test product",brand:"yoyo",category:"HP",description:"",specifications:{},price:1000,original_price:null,stock:2,image_url:null,images:[],rating:0,is_active:true,warranty:null};
+  const {page,saves}=await openAdmin(1180,odd);
+  await page.goto(`${origin}/admin.html#produk/baru`);
+  await page.waitForSelector("#productDialog[open]");
+  assert.deepEqual(await page.locator("#category option").evaluateAll(options=>options.map(o=>o.value)),["","Smartphone","Laptop","Tablet","Smartwatch","Audio","Accessories"]);
+  assert.equal(await page.locator("#category option[value=Accessories]").innerText(),"Aksesori");
+  assert.equal(await page.locator("#brand").isDisabled(),true,"brand waits for the category");
+  await page.selectOption("#category","Smartphone");
+  const phoneBrands=await page.locator("#brand option").evaluateAll(options=>options.map(o=>o.value));
+  for(const brand of ["Apple","Samsung","Xiaomi","OPPO","vivo","realme","Infinix","Tecno"])assert.ok(phoneBrands.includes(brand),`${brand} is listed for Smartphone`);
+  assert.ok(!phoneBrands.includes("Lenovo"),"laptop brands are not listed for phones");
+  await page.selectOption("#brand","Samsung");
+  await page.selectOption("#category","Tablet");
+  assert.equal(await page.inputValue("#brand"),"Samsung","a brand that exists in the new category is kept");
+  await page.selectOption("#category","Laptop");
+  for(const brand of ["Lenovo","ASUS","Acer","HP","Dell","MSI"])assert.ok(await page.locator(`#brand option[value="${brand}"]`).count(),`${brand} is listed for Laptop`);
+  await page.selectOption("#brand","__other");
+  assert.equal(await page.locator("#brandOther").isVisible(),true);
+  await page.close();
+  // A product saved with a free-typed category loads with no category and a hint.
+  const edit=await openAdmin(1180,odd);
+  await edit.page.goto(`${origin}/admin.html#produk/p2`);
+  await edit.page.waitForSelector("#productDialog[open]");
+  assert.equal(await edit.page.inputValue("#category"),"");
+  assert.match(await edit.page.locator("#categoryHint").innerText(),/Kategori lama "HP" tidak dikenal/);
+  await edit.page.selectOption("#category","Smartphone");
+  assert.equal(await edit.page.inputValue("#brand"),"__other","an unlisted brand is kept as Lainnya");
+  assert.equal(await edit.page.inputValue("#brandOther"),"yoyo");
+  await edit.page.close();
 }
 assert.deepEqual(errors,[],`no page errors: ${errors.join(" | ")}`);
 await browser.close();server.close();
