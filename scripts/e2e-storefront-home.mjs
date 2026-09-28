@@ -134,7 +134,7 @@ for(const width of [1440,834,390]){
 
 // Nothing is clipped on a small phone or an iPad: struck-through prices stay inside their
 // card, and the product detail info column stays inside the dialog.
-for(const width of [360,834]){
+for(const width of [360,834,1024,1180]){
   const page=await browser.newPage({viewport:{width,height:860}});
   await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
   await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
@@ -143,6 +143,10 @@ for(const width of [360,834]){
   const cut=await page.evaluate(()=>[...document.querySelectorAll("#productGrid .product-card del")].filter(del=>del.getBoundingClientRect().right>del.closest(".product-card").getBoundingClientRect().right+1).length);
   assert.equal(cut,0,`struck-through prices fit their card at ${width}px`);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`no sideways scroll at ${width}px`);
+  // The menu button + logo keep their full width and never run under the search bar or header actions.
+  const header=await page.evaluate(()=>{const start=document.querySelector(".header-start"),R=el=>el.getBoundingClientRect(),row=el=>Math.abs(R(el).top-R(start).top)<30;return {fits:start.scrollWidth<=start.clientWidth+1,gaps:[".search-wrap",".header-actions"].map(sel=>document.querySelector(sel)).filter(row).map(el=>Math.round(R(el).left-R(start).right))};});
+  assert.ok(header.fits,`logo is not cut off at ${width}px`);
+  assert.ok(header.gaps.every(gap=>gap>=4),`logo does not overlap the search bar or actions at ${width}px: ${header.gaps}`);
   await page.locator("#productGrid .product-card").first().click();
   await page.waitForSelector("#productModal:not(.hidden) .detail-info");
   const overflow=await page.evaluate(()=>{const card=document.querySelector(".product-detail-card").getBoundingClientRect();return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-buttons button")].map(el=>Math.round(el.getBoundingClientRect().right-card.right)).filter(d=>d>1);});
