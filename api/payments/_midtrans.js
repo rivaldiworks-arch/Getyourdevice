@@ -37,8 +37,11 @@ const QRIS_ACQUIRERS=Object.freeze(["gopay","airpay shopee"]);
 const QRIS_MAX_AMOUNT=10000000;
 // Virtual Account banks supported by this integration. Mandiri is charged as
 // "echannel" (Bill Payment: biller code + bill key); the others as bank_transfer VAs.
-const VA_BANKS=Object.freeze({bni:"BNI",bri:"BRI",mandiri:"Mandiri",permata:"Permata",cimb:"CIMB Niaga"});
-const DEFAULT_VA_BANKS="bni,bri,mandiri,permata,cimb";
+const VA_BANKS=Object.freeze({bni:"BNI",bri:"BRI",mandiri:"Mandiri",bsi:"BSI",permata:"Permata",cimb:"CIMB Niaga"});
+const DEFAULT_VA_BANKS="bni,bri,mandiri,bsi,permata,cimb";
+// Offered only on the Snap page (bsi_va). The store's Core API charge path has no verified
+// BSI request format, so Core checkouts leave it out instead of issuing a broken charge.
+const SNAP_ONLY_VA_BANKS=Object.freeze(["bsi"]);
 const VA_EXPIRY_HOURS=24;
 // How the store charges Midtrans. "snap" (default) sends the customer to the Midtrans
 // hosted payment page, which works for every channel activated on the account. "core"
@@ -47,7 +50,7 @@ const INTEGRATIONS=Object.freeze(["snap","core"]);
 const SNAP_EXPIRY_HOURS=24;
 // Snap channel names per store payment method. A channel the merchant has not activated
 // is simply left off the Snap page by Midtrans.
-const SNAP_VA_CHANNELS=Object.freeze({bni:"bni_va",bri:"bri_va",mandiri:"echannel",permata:"permata_va",cimb:"cimb_va"});
+const SNAP_VA_CHANNELS=Object.freeze({bni:"bni_va",bri:"bri_va",mandiri:"echannel",bsi:"bsi_va",permata:"permata_va",cimb:"cimb_va"});
 const SNAP_QRIS_CHANNELS=Object.freeze(["other_qris","gopay","shopeepay"]);
 // Store order_ids sent to Midtrans. Anything else (Payment Links, manual dashboard
 // transactions) belongs to the same merchant account but not to this store.
@@ -59,7 +62,8 @@ function enabledVaBanks() {
   const banks=String(process.env.MIDTRANS_VA_BANKS||DEFAULT_VA_BANKS).split(",").map(value=>value.trim().toLowerCase()).filter(Boolean);
   const unknown=banks.filter(bank=>!Object.hasOwn(VA_BANKS,bank));
   if(unknown.length) throw new ServerConfigError(`MIDTRANS_VA_BANKS has unsupported banks: ${unknown.join(", ")}`);
-  return [...new Set(banks)];
+  const unique=[...new Set(banks)];
+  return midtransIntegration()==="core"?unique.filter(bank=>!SNAP_ONLY_VA_BANKS.includes(bank)):unique;
 }
 
 function midtransConfig() {

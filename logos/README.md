@@ -11,6 +11,7 @@ the store accepts.
 | bni.svg | File:Bank Negara Indonesia logo (2004).svg |
 | bri.svg | File:BANK BRI logo.svg |
 | mandiri.svg | File:Bank Mandiri logo 2016.svg |
+| bsi.svg | File:Bank Syariah Indonesia.svg (only the BSI mark; the "Bank Syariah Indonesia" line is cropped off so it reads at tile size) |
 | permata.svg | File:Permata Bank (2024).svg |
 | cimb.svg | File:CIMB Niaga logo.svg |
 | jnt.svg | File:J&T Express logo.svg |
