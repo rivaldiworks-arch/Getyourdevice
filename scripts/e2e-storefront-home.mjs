@@ -189,6 +189,22 @@ for(const width of [320,360,390,414,834,1024,1180]){
   await page.goto(`${origin}/#produk/${products.find(product=>product.warranty==="tam").id}`);
   await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
   assert.match(await page.locator(".detail-assurance").innerText(),/Garansi distributor TAM/);
+  // Products saved with a gallery get thumbnails; a thumbnail swaps the main photo and its fit.
+  {
+    const gallery=products.find(product=>product.warranty==="tam");
+    assert.equal(await page.locator(".detail-thumbs button").count(),0,"a single photo shows no thumbnail strip");
+    gallery.images=[{url:"https://images.example.test/g1.jpg",shape:"square"},{url:"https://images.example.test/g2.jpg",shape:"landscape"},{url:"http://insecure.example.test/g3.jpg",shape:"square"}];
+    await page.goto(`${origin}/`);await page.goto(`${origin}/#produk/${gallery.id}`);
+    await page.waitForSelector("#productModal:not(.hidden) .detail-thumbs");
+    assert.equal(await page.locator(".detail-thumbs button").count(),2,"non-https photos are dropped");
+    await page.locator('[data-gallery-index="1"]').click();
+    assert.equal(await page.locator("#detailMainPhoto").getAttribute("src"),"https://images.example.test/g2.jpg");
+    assert.equal(await page.locator("#detailMainPhoto").getAttribute("class"),"shape-landscape","landscape photos fit instead of being cropped");
+    assert.equal(await page.locator('[data-gallery-index="1"]').getAttribute("class"),"active");
+    delete gallery.images;
+    await page.goto(`${origin}/`);await page.goto(`${origin}/#produk/${gallery.id}`);
+    await page.waitForSelector("#productModal:not(.hidden) .detail-shipping");
+  }
   // In-stock products show the delivery promise next to the price.
   const shipping=await page.locator(".detail-shipping").innerText();
   assert.match(shipping,/1–3 hari kerja untuk Jabodetabek/,"delivery estimate shown with its scope");

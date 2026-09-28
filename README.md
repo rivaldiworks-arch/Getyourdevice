@@ -36,6 +36,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 21. `supabase/migrations/021_product_warranty.sql` — kolom `products.warranty` (`resmi`, `tam`, `blibli`, atau kosong) untuk jenis garansi per produk. Aditif dan boleh kosong. **Jalankan 021 sebelum deploy kode Phase 8F**, karena `/api/products` membaca kolom ini.
 22. `supabase/migrations/022_customer_paid_notification.sql` — kolom `orders.customer_paid_notified_at` supaya email "Pembayaran diterima" ke pembeli terkirim sekali. Aditif. **Jalankan 022 sebelum mengisi `CUSTOMER_EMAIL_FROM`.**
 23. `supabase/migrations/023_email_log.sql` — tabel `email_log`: setiap percobaan email pesanan (penjual/pembeli, dibuat/lunas) dicatat sebagai `sent` (dengan id Resend), `failed` (dengan pesan error Resend) atau `skipped` (env belum diisi). Server-only (RLS aktif, tanpa policy). Aditif.
+24. `supabase/migrations/024_product_gallery.sql` — kolom `products.images` (jsonb array `[{url, shape}]`, maks. 8) untuk galeri foto produk. `image_url` tetap berisi foto sampul (foto pertama). Aditif.
 
 ## Payment infrastructure (Phase 5)
 
@@ -447,3 +448,10 @@ Customer guest tetap dibuat satu record per order. Deduplication sengaja tidak d
 - Langkah berikutnya bisa dijalankan langsung dari baris (Konfirmasi, Tandai Sudah Diambil/Dikirim/Selesai, Buat Pengiriman Biteship, Cetak Label) tanpa membuka detail. **Batalkan Pesanan** sengaja hanya ada di dialog detail. Aturan alur status tetap sama (migration 020).
 - Pencarian mencakup nama produk, kota dan nomor resi.
 - **Phase 8K:** filter **Tanggal** (Semua, Hari ini, 7 hari, 30 hari, Bulan ini, atau rentang pilihan) membatasi query ke database (`created_at`); **tab status** dengan jumlah per status; **50 pesanan per halaman** dengan tombol Sebelumnya/Berikutnya. Pesanan dimuat sekali bersama item dan pembayarannya (`select=*,order_items(*),payments(...)`, maks. 1.000 pesanan terbaru per rentang tanggal; bila tercapai, halaman memberi tahu untuk mempersempit tanggal). Nomor WhatsApp tidak lagi ditampilkan di daftar, cukup tombol **WhatsApp**. Status yang sudah final (Selesai/Dibatalkan) tidak diulang di baris keterangan.
+
+## Galeri foto & spesifikasi produk (Phase 8L)
+
+- Form produk di admin menerima **minimal 3, maksimal 8 foto**. Setiap foto dipotong di browser ke salah satu dari dua ukuran: **Kotak 1:1 (1200×1200)** atau **Landscape 4:3 (1600×1200)**, lalu diunggah sebagai JPEG. Bentuk awal dipilih dari orientasi foto dan bisa diganti per foto; urutan bisa digeser, foto pertama menjadi **sampul** (`image_url`).
+- Foto yang dihapus dari galeri dihapus dari storage setelah produk tersimpan; bila penyimpanan gagal, foto yang baru diunggah dibatalkan.
+- Halaman produk menampilkan galeri dengan thumbnail. Foto kotak memenuhi bingkai, foto landscape ditampilkan utuh tanpa terpotong. Produk lama tanpa galeri tetap memakai `image_url`.
+- **Spesifikasi utama** diisi satu per baris (maks. 12 baris, 80 karakter per baris) dan disimpan sebagai `{"summary": "a · b · c"}`, format yang sudah dipakai storefront.

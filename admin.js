@@ -6,7 +6,7 @@ const escapeHTML = (value="") => String(value).replace(/[&<>'"]/g, char => ({"&"
 const IMAGE_BUCKET="product-images";
 const MAX_IMAGE_BYTES=5*1024*1024;
 const IMAGE_TYPES={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
-let config, session, products=[], orders=[], orderItems=[], payments=[], productThumbs=new Map(), orderFilter="all", orderPage=1, ordersTruncated=false, previewObjectUrl="", adminReady=false, applyingAdminRoute=false, adminRouteQueued=false;
+let config, session, products=[], orders=[], orderItems=[], payments=[], productThumbs=new Map(), orderFilter="all", orderPage=1, ordersTruncated=false, adminReady=false, applyingAdminRoute=false, adminRouteQueued=false;
 const ORDER_STATUSES=["pending","confirmed","processing","shipped","completed","cancelled"];
 const PAYMENT_STATUSES=["unpaid","pending","paid","failed","expired","refunded"];
 
@@ -136,21 +136,67 @@ async function refreshSession(refreshToken){return request("/auth/v1/token?grant
 function storeSession(value){session=value;if(value)localStorage.setItem("gyd_admin_session",JSON.stringify(value));else localStorage.removeItem("gyd_admin_session");}
 async function verifyAdmin(candidate){session=candidate;const profiles=await request(`/rest/v1/admin_profiles?select=id,full_name,role&id=eq.${encodeURIComponent(candidate.user.id)}`);if(profiles?.[0]?.role!=="admin")throw new Error("Akun ini tidak memiliki akses admin.");return profiles[0];}
 async function enterDashboard(profile){$("loginView").classList.add("hidden");$("dashboardView").classList.remove("hidden");$("adminIdentity").textContent=`${profile.full_name||session.user.email} · Admin`;adminReady=true;startOrderNotifications();await applyAdminRoute(true);}
-async function loadProducts(){$("productMessage").textContent="Memuat produk…";try{products=await request("/rest/v1/products?select=id,name,brand,category,description,specifications,price,original_price,stock,image_url,rating,is_active,warranty,weight_grams,length_cm,width_cm,height_cm,created_at,updated_at&order=updated_at.desc");renderProducts();$("productMessage").textContent=`${products.length} produk ditemukan.`;}catch(error){$("productMessage").textContent=error.message;}}
+async function loadProducts(){$("productMessage").textContent="Memuat produk…";try{products=await request("/rest/v1/products?select=id,name,brand,category,description,specifications,price,original_price,stock,image_url,images,rating,is_active,warranty,weight_grams,length_cm,width_cm,height_cm,created_at,updated_at&order=updated_at.desc");renderProducts();$("productMessage").textContent=`${products.length} produk ditemukan.`;}catch(error){$("productMessage").textContent=error.message;}}
 function filteredProducts(){const query=$("productSearch").value.trim().toLowerCase(),status=$("statusFilter").value;return products.filter(p=>(status==="all"||(status==="active")===p.is_active)&&(!query||[p.name,p.brand,p.category].some(v=>String(v||"").toLowerCase().includes(query))));}
 function renderProducts(){const rows=filteredProducts();$("productTable").innerHTML=rows.length?`<table><thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${rows.map(p=>`<tr><td><div class="product-cell"><img src="${escapeHTML(p.image_url||"https://placehold.co/80x80?text=GYD")}" alt=""><span><strong>${escapeHTML(p.name)}</strong><small>${escapeHTML(p.brand||"")}</small></span></div></td><td>${escapeHTML(p.category||"-")}</td><td>${money(p.price)}</td><td><input class="quick-number" type="number" min="0" value="${Number(p.stock)||0}" data-stock="${p.id}" aria-label="Stok ${escapeHTML(p.name)}"></td><td><button class="status-pill ${p.is_active?"active":""}" data-toggle="${p.id}">${p.is_active?"Aktif":"Nonaktif"}</button></td><td><div class="row-actions"><button data-edit="${p.id}">Edit</button><button class="delete" data-delete="${p.id}">Hapus</button></div></td></tr>`).join("")}</tbody></table>`:'<div class="empty-admin">Tidak ada produk yang sesuai.</div>';}
 function showFormError(message){$("formError").textContent=message;$("formError").classList.remove("hidden");}
-function setImagePreview(source=""){
-  if(previewObjectUrl){URL.revokeObjectURL(previewObjectUrl);previewObjectUrl="";}
-  const preview=$("imagePreview");
-  if(source instanceof File){previewObjectUrl=URL.createObjectURL(source);preview.src=previewObjectUrl;}
-  else preview.src=source;
-  const visible=Boolean(source);preview.classList.toggle("hidden",!visible);$("imagePreviewEmpty").classList.toggle("hidden",visible);
+// Product gallery (Phase 8L). Every new photo is centre-cropped in the browser to one of two
+// sizes, square 1200x1200 or landscape 1600x1200, and uploaded as JPEG; at least 3 photos
+// are required to save. The first photo is the cover and is also written to image_url.
+const GALLERY_MIN=3,GALLERY_MAX=8,SOURCE_MAX_BYTES=20*1024*1024;
+const GALLERY_SHAPES={square:{width:1200,height:1200,label:"Kotak"},landscape:{width:1600,height:1200,label:"Landscape"}};
+let gallery=[];
+function galleryFromProduct(product){
+  const list=Array.isArray(product?.images)?product.images.filter(item=>item?.url).map(item=>({kind:"existing",url:item.url,shape:item.shape==="landscape"?"landscape":"square"})):[];
+  return list.length?list:product?.image_url?[{kind:"existing",url:product.image_url,shape:"square"}]:[];
+}
+async function cropPhoto(file,shape){
+  const {width,height}=GALLERY_SHAPES[shape],bitmap=await createImageBitmap(file);
+  const scale=Math.max(width/bitmap.width,height/bitmap.height),sw=width/scale,sh=height/scale;
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
+  const context=canvas.getContext("2d");context.fillStyle="#fff";context.fillRect(0,0,width,height);
+  context.drawImage(bitmap,(bitmap.width-sw)/2,(bitmap.height-sh)/2,sw,sh,0,0,width,height);bitmap.close?.();
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.86));
+  if(!blob)throw new Error("Foto tidak dapat diproses. Coba file lain.");
+  return blob;
+}
+function releaseGalleryItem(item){if(item?.preview)URL.revokeObjectURL(item.preview);}
+async function setGalleryShape(item,shape){
+  item.shape=shape;item.busy=true;renderGallery();
+  try{const blob=await cropPhoto(item.file,shape);releaseGalleryItem(item);item.blob=blob;item.preview=URL.createObjectURL(blob);}
+  catch(error){gallery=gallery.filter(entry=>entry!==item);showFormError(error.message);}
+  finally{item.busy=false;renderGallery();}
+}
+async function addGalleryFiles(files){
+  for(const file of files){
+    if(gallery.length>=GALLERY_MAX){showFormError(`Maksimal ${GALLERY_MAX} foto per produk.`);break;}
+    if(!IMAGE_TYPES[file.type]){showFormError("Format foto harus JPG, PNG, atau WebP.");continue;}
+    if(file.size>SOURCE_MAX_BYTES){showFormError("Ukuran foto asli maksimal 20 MB.");continue;}
+    let shape="square";
+    try{const bitmap=await createImageBitmap(file);shape=bitmap.width>=bitmap.height*1.15?"landscape":"square";bitmap.close?.();}catch{showFormError("Foto tidak dapat dibaca. Coba file lain.");continue;}
+    const item={kind:"new",file,shape};gallery.push(item);await setGalleryShape(item,shape);
+  }
+}
+function renderGallery(){
+  const grid=$("imagePreview");
+  grid.innerHTML=gallery.map((item,index)=>{
+    const src=item.kind==="new"?item.preview||"":item.url;
+    const shapes=item.kind==="new"?`<div class="gallery-shapes" role="group" aria-label="Ukuran foto">${Object.entries(GALLERY_SHAPES).map(([key,shape])=>`<button type="button" class="${item.shape===key?"active":""}" data-gallery-shape="${key}" data-gallery-item="${index}" ${item.busy?"disabled":""}>${shape.label}</button>`).join("")}</div>`:`<small class="gallery-note">Foto tersimpan</small>`;
+    return `<figure class="gallery-item shape-${item.shape}">${index===0?'<span class="gallery-cover">Sampul</span>':""}<div class="gallery-thumb">${src?`<img src="${escapeHTML(src)}" alt="Foto ${index+1}">`:'<span>Memproses…</span>'}</div>${shapes}<div class="gallery-actions"><button type="button" data-gallery-move="-1" data-gallery-item="${index}" ${index===0?"disabled":""} aria-label="Geser ke kiri">←</button><button type="button" data-gallery-move="1" data-gallery-item="${index}" ${index===gallery.length-1?"disabled":""} aria-label="Geser ke kanan">→</button><button type="button" class="gallery-remove" data-gallery-remove="${index}" aria-label="Hapus foto">Hapus</button></div></figure>`;
+  }).join("")+`<p class="gallery-count ${gallery.length<GALLERY_MIN?"short":""}">${gallery.length} dari minimal ${GALLERY_MIN} foto${gallery.length<GALLERY_MIN?` · tambah ${GALLERY_MIN-gallery.length} lagi`:""}</p>`;
+}
+function specLines(specifications){
+  if(!specifications)return [];
+  if(typeof specifications==="string")return specifications.split(/·|\n/).map(line=>line.trim()).filter(Boolean);
+  if(Array.isArray(specifications))return specifications.map(String);
+  if(specifications.summary)return String(specifications.summary).split("·").map(line=>line.trim()).filter(Boolean);
+  return Object.entries(specifications).map(([key,value])=>`${key}: ${value}`);
 }
 function openForm(product){
   $("productForm").reset();$("productId").value=product?.id||"";$("formTitle").textContent=product?"Edit produk":"Tambah produk";
-  for(const [id,key] of [["name","name"],["brand","brand"],["category","category"],["price","price"],["originalPrice","original_price"],["stock","stock"],["rating","rating"],["warranty","warranty"],["weightGrams","weight_grams"],["lengthCm","length_cm"],["widthCm","width_cm"],["heightCm","height_cm"],["imageUrl","image_url"],["description","description"]])$(id).value=product?.[key]??"";
-  $("specifications").value=JSON.stringify(product?.specifications||{},null,2);$("isActive").checked=product?.is_active!==false;$("formError").classList.add("hidden");setImagePreview(product?.image_url||"");$("productDialog").showModal();
+  for(const [id,key] of [["name","name"],["brand","brand"],["category","category"],["price","price"],["originalPrice","original_price"],["stock","stock"],["rating","rating"],["warranty","warranty"],["weightGrams","weight_grams"],["lengthCm","length_cm"],["widthCm","width_cm"],["heightCm","height_cm"],["description","description"]])$(id).value=product?.[key]??"";
+  $("specifications").value=specLines(product?.specifications).join("\n");$("isActive").checked=product?.is_active!==false;$("formError").classList.add("hidden");
+  gallery.forEach(releaseGalleryItem);gallery=galleryFromProduct(product);$("imageFile").value="";renderGallery();$("productDialog").showModal();
 }
 function validateImage(file){
   if(!IMAGE_TYPES[file.type])throw new Error("Format gambar harus JPG, PNG, atau WebP.");
@@ -168,7 +214,10 @@ async function uploadProductImage(file){
 }
 async function removeStoredImage(url){const path=storageObjectPath(url);if(path)await request(`/storage/v1/object/${IMAGE_BUCKET}/${encodedPath(path)}`,{method:"DELETE"});return Boolean(path);}
 function productPayload(){
-  let specifications;try{specifications=JSON.parse($("specifications").value||"{}");}catch{throw new Error("Spesifikasi harus berupa JSON yang valid.");}
+  const lines=$("specifications").value.split("\n").flatMap(line=>line.split("·")).map(line=>line.trim()).filter(Boolean);
+  if(lines.length>12)throw new Error("Spesifikasi utama maksimal 12 baris.");
+  if(lines.some(line=>line.length>80))throw new Error("Setiap baris spesifikasi maksimal 80 karakter.");
+  const specifications=lines.length?{summary:lines.join(" · ")}:{};
   const stock=Number($("stock").value),rating=$("rating").value?Number($("rating").value):0,price=Number($("price").value),originalPrice=$("originalPrice").value?Number($("originalPrice").value):null;
   const physical={
     weight_grams:$("weightGrams").value?Number($("weightGrams").value):null,
@@ -183,17 +232,29 @@ function productPayload(){
   if(provided.length&&provided.length!==4)throw new Error("Untuk tarif kurir live, isi berat, panjang, lebar, dan tinggi sekaligus.");
   if(provided.some(value=>!Number.isFinite(value)||value<=0))throw new Error("Berat dan dimensi paket harus lebih dari nol.");
   if(physical.weight_grams!==null&&!Number.isInteger(physical.weight_grams))throw new Error("Berat paket harus dalam gram bulat.");
-  return {name:$("name").value.trim(),brand:$("brand").value.trim(),category:$("category").value.trim(),description:$("description").value.trim(),specifications,price,original_price:originalPrice,stock,image_url:$("imageUrl").value.trim()||null,rating,warranty:$("warranty").value||null,...physical,is_active:$("isActive").checked};
+  return {name:$("name").value.trim(),brand:$("brand").value.trim(),category:$("category").value.trim(),description:$("description").value.trim(),specifications,price,original_price:originalPrice,stock,rating,warranty:$("warranty").value||null,...physical,is_active:$("isActive").checked};
 }
 async function saveProduct(event){
-  event.preventDefault();$("formError").classList.add("hidden");const button=$("saveProductButton");button.disabled=true;button.textContent="Menyimpan…";
-  const id=$("productId").value,oldProduct=products.find(product=>product.id===id),file=$("imageFile").files[0];let uploaded;
+  event.preventDefault();$("formError").classList.add("hidden");const button=$("saveProductButton");
+  const id=$("productId").value,oldProduct=products.find(product=>product.id===id),uploaded=[];
   try{
-    const body=productPayload();if(file){uploaded=await uploadProductImage(file);body.image_url=uploaded.url;}
+    const body=productPayload();
+    if(gallery.some(item=>item.busy))throw new Error("Tunggu hingga semua foto selesai diproses.");
+    if(gallery.length<GALLERY_MIN)throw new Error(`Tambahkan minimal ${GALLERY_MIN} foto produk (sekarang ${gallery.length}).`);
+    button.disabled=true;button.textContent="Mengunggah foto…";
+    const images=[];
+    for(const item of gallery){
+      if(item.kind==="existing"){images.push({url:item.url,shape:item.shape});continue;}
+      const result=await uploadProductImage(item.blob);uploaded.push(result.url);images.push({url:result.url,shape:item.shape});
+    }
+    body.images=images;body.image_url=images[0].url;button.textContent="Menyimpan…";
     await request(`/rest/v1/products${id?`?id=eq.${encodeURIComponent(id)}`:""}`,{method:id?"PATCH":"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify(body)});
-    let cleanupWarning=false;if(file&&oldProduct?.image_url&&oldProduct.image_url!==body.image_url){try{await removeStoredImage(oldProduct.image_url);}catch(error){console.error("Old product image cleanup failed",error);cleanupWarning=true;}}
-    $("productDialog").close();toast(cleanupWarning?"Produk diperbarui, tetapi gambar lama belum dapat dihapus.":id?"Produk diperbarui.":"Produk ditambahkan.");navigateAdminRoute("produk",{replace:true});
-  }catch(error){if(uploaded){try{await removeStoredImage(uploaded.url);}catch(cleanupError){console.error("Uploaded image rollback failed",cleanupError);}}showFormError(error.message);}
+    // Photos removed from the gallery are deleted from storage once the product is saved.
+    const kept=new Set(images.map(image=>image.url)),previous=new Set([...galleryFromProduct(oldProduct).map(item=>item.url)]);
+    let cleanupWarning=false;
+    for(const url of previous){if(kept.has(url))continue;try{await removeStoredImage(url);}catch(error){console.error("Old product image cleanup failed",error);cleanupWarning=true;}}
+    $("productDialog").close();toast(cleanupWarning?"Produk tersimpan, tetapi sebagian foto lama belum dapat dihapus.":id?"Produk diperbarui.":"Produk ditambahkan.");navigateAdminRoute("produk",{replace:true});
+  }catch(error){for(const url of uploaded){try{await removeStoredImage(url);}catch(cleanupError){console.error("Uploaded image rollback failed",cleanupError);}}showFormError(error.message);}
   finally{button.disabled=false;button.textContent="Simpan";}
 }
 async function updateProduct(id,changes,message){try{await request(`/rest/v1/products?id=eq.${encodeURIComponent(id)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(changes)});toast(message);await loadProducts();}catch(error){toast(error.message);}}
@@ -518,8 +579,12 @@ $("signOut").addEventListener("click",async()=>{try{await request("/auth/v1/logo
 $("addProduct").addEventListener("click",()=>navigateAdminRoute("produk/baru"));$("closeDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("cancelDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("productDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("produk");});$("productForm").addEventListener("submit",saveProduct);$("productSearch").addEventListener("input",renderProducts);$("statusFilter").addEventListener("change",renderProducts);
 $("productTable").addEventListener("click",async event=>{const edit=event.target.dataset.edit,toggle=event.target.dataset.toggle,del=event.target.dataset.delete;if(edit)navigateAdminRoute(`produk/${edit}`);if(toggle){const p=products.find(item=>item.id===toggle);await updateProduct(toggle,{is_active:!p.is_active},p.is_active?"Produk dinonaktifkan.":"Produk diaktifkan.");}if(del&&confirm("Hapus produk ini secara permanen? Tindakan ini tidak dapat dibatalkan.")){try{const product=products.find(item=>item.id===del);await request(`/rest/v1/products?id=eq.${encodeURIComponent(del)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});let warning=false;try{if(product?.image_url)await removeStoredImage(product.image_url);}catch(error){console.error("Deleted product image cleanup failed",error);warning=true;}toast(warning?"Produk dihapus, tetapi file gambar belum dapat dihapus.":"Produk dihapus.");await loadProducts();}catch(error){toast(error.message);}}});
 $("productTable").addEventListener("change",async event=>{if(!event.target.dataset.stock)return;const stock=Number(event.target.value);if(!Number.isInteger(stock)||stock<0){toast("Stok harus berupa bilangan bulat nol atau lebih.");await loadProducts();return;}event.target.disabled=true;await updateProduct(event.target.dataset.stock,{stock},"Stok diperbarui.");});
-$("imageFile").addEventListener("change",event=>{const file=event.target.files[0];if(!file){setImagePreview($("imageUrl").value.trim());return;}try{validateImage(file);setImagePreview(file);$("formError").classList.add("hidden");}catch(error){event.target.value="";showFormError(error.message);setImagePreview($("imageUrl").value.trim());}});
-$("imageUrl").addEventListener("input",event=>{if(!$("imageFile").files.length)setImagePreview(event.target.value.trim());});
+$("imageFile").addEventListener("change",async event=>{$("formError").classList.add("hidden");const files=[...event.target.files];event.target.value="";await addGalleryFiles(files);});
+$("imagePreview").addEventListener("click",event=>{
+  const shape=event.target.closest("[data-gallery-shape]");if(shape){const item=gallery[Number(shape.dataset.galleryItem)];if(item&&item.shape!==shape.dataset.galleryShape)setGalleryShape(item,shape.dataset.galleryShape);return;}
+  const move=event.target.closest("[data-gallery-move]");if(move){const from=Number(move.dataset.galleryItem),to=from+Number(move.dataset.galleryMove);if(to>=0&&to<gallery.length){[gallery[from],gallery[to]]=[gallery[to],gallery[from]];renderGallery();}return;}
+  const remove=event.target.closest("[data-gallery-remove]");if(remove){const [item]=gallery.splice(Number(remove.dataset.galleryRemove),1);releaseGalleryItem(item);renderGallery();}
+});
 $("orderSearch").addEventListener("input",()=>{orderPage=1;renderOrders();});
 $("orderStatusFilter").addEventListener("click",event=>{const tab=event.target.closest("[data-status-tab]")?.dataset.statusTab;if(!tab)return;orderFilter=tab;orderPage=1;renderOrders();});
 $("orderDateFilter").addEventListener("change",()=>{const custom=$("orderDateFilter").value==="custom";$("orderDateCustom").classList.toggle("hidden",!custom);orderPage=1;if(!custom||$("orderDateFrom").value||$("orderDateTo").value)loadOrders();});
