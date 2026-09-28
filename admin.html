@@ -31,7 +31,7 @@
         <p id="productMessage" class="admin-message" role="status"></p><div id="productTable" class="admin-table-wrap"></div>
       </section>
       <section id="ordersPanel" class="hidden">
-        <div class="admin-toolbar"><input id="orderSearch" type="search" placeholder="Cari nomor pesanan atau pelanggan…"><select id="orderStatusFilter"><option value="all">Semua status</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+        <div id="orderStats" class="order-stats" aria-label="Ringkasan pesanan"></div><div class="admin-toolbar"><input id="orderSearch" type="search" placeholder="Cari nomor pesanan, pelanggan, produk, atau resi…"><select id="orderStatusFilter" aria-label="Filter pesanan"><option value="all">Semua pesanan</option><optgroup label="Tampilan cepat"><option value="todo">Perlu diproses</option><option value="awaiting">Menunggu bayar</option><option value="transit">Dalam pengiriman</option></optgroup><optgroup label="Status"><option value="pending">Menunggu</option><option value="confirmed">Dikonfirmasi</option><option value="processing">Dijadwalkan kurir</option><option value="shipped">Dikirim</option><option value="completed">Selesai</option><option value="cancelled">Dibatalkan</option></optgroup></select></div>
         <p id="orderMessage" class="admin-message" role="status"></p><div id="orderTable" class="admin-table-wrap"></div>
       </section>
     </section>
