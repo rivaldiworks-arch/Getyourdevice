@@ -435,6 +435,13 @@ resetEnv(); resetBackend();
   assert.equal(disabled.statusCode,400,"banks removed from MIDTRANS_VA_BANKS are refused");
   resetEnv({MIDTRANS_VA_BANKS:"bni,bca"});
   assert.throws(()=>require("../api/payments/_midtrans.js").enabledVaBanks(),error=>isServerConfigError(error));
+  // BSI is Snap-only: Core API checkouts neither offer nor charge it.
+  resetEnv();
+  assert.deepEqual(require("../api/payments/_midtrans.js").enabledVaBanks(),["bni","bri","mandiri","permata","cimb"]);
+  const bsi=await payVa(order,"bsi");
+  assert.equal(bsi.statusCode,400);
+  assert.equal(bsi.body.code,"BANK_UNAVAILABLE");
+  assert.equal(midtrans.charges.length,0,"no Core API charge is attempted for BSI");
 }
 resetEnv(); resetBackend();
 {
@@ -523,6 +530,15 @@ snapEnv(); resetBackend();
   assert.equal((await signedNotification(reference,"150000.00")).body.paymentStatus,"paid");
   assert.equal(payment.status,"paid");
   assert.equal((await pay(order)).statusCode,409,"a paid order cannot open a new Snap page");
+}
+snapEnv(); resetBackend();
+{
+  // Snap offers every default bank, BSI included, in store order.
+  assert.deepEqual(require("../api/payments/_midtrans.js").enabledVaBanks(),["bni","bri","mandiri","bsi","permata","cimb"]);
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order);
+  assert.equal(res.statusCode,201);
+  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","bri_va","echannel","bsi_va","permata_va","cimb_va","other_va"]);
 }
 snapEnv({MIDTRANS_VA_BANKS:"bni,mandiri"}); resetBackend();
 {

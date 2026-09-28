@@ -119,6 +119,7 @@ for(const width of [1440,834,390]){
   // Every payment and courier logo is served and decodes; a broken logo would show as an empty tile.
   const logos=page.locator(".trust-section .brand-tile img");
   assert.ok(await logos.count()>=7,"bank, e-wallet and courier logos are shown");
+  assert.equal(await page.locator('.trust-section .brand-tile img[src="./logos/bsi.svg"][alt="Virtual Account BSI"]').count(),1,"BSI Virtual Account is listed");
   for(const img of await logos.all()){
     await img.scrollIntoViewIfNeeded();
     await page.waitForFunction(el=>el.complete,await img.elementHandle());

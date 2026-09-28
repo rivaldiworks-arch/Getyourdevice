@@ -41,7 +41,7 @@ if(!Array.isArray(orderAccessRecords)) orderAccessRecords=[];
 let customerOrderCache = new Map();
 const PAYMENT_POLL_SECONDS = 8;
 let paymentSession = null;
-const VA_BANK_NAMES = {bni:"BNI",bri:"BRI",mandiri:"Mandiri",permata:"Permata",cimb:"CIMB Niaga"};
+const VA_BANK_NAMES = {bni:"BNI",bri:"BRI",mandiri:"Mandiri",bsi:"BSI",permata:"Permata",cimb:"CIMB Niaga"};
 const QRIS_MAX_AMOUNT = 10000000;
 // Public checkout config from /api/config: which methods and VA banks are live.
 let checkoutConfig = null;
