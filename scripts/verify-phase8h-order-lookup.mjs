@@ -33,7 +33,11 @@ globalThis.fetch=async (url,init={})=>{
     const number=searchParams.get("order_number").replace(/^eq\./,"");
     return json(200,number===order.order_number?[order]:[]);
   }
-  if(path==="order_items") return json(200,[{product_name:"Test",quantity:1,product_price:1000,subtotal:1000}]);
+  if(path==="order_items") return json(200,[{product_id:"11111111-1111-4111-8111-111111111111",product_name:"Test",quantity:2,product_price:1000,subtotal:2000},{product_id:"22222222-2222-4222-8222-222222222222",product_name:"Dihapus",quantity:1,product_price:500,subtotal:500}]);
+  if(path==="products"){
+    assert.equal(searchParams.get("id"),"in.(11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222)");
+    return json(200,[{id:"11111111-1111-4111-8111-111111111111",image_url:"https://cdn.example.test/test.jpg"}]);
+  }
   throw new Error(`Unexpected Supabase call ${path}`);
 };
 
@@ -54,6 +58,9 @@ for(const phone of ["081288451500","+62 812-8845-1500","6281288451500","81288451
   assert.equal(res.statusCode,200,`${phone} opens the order`);
   assert.equal(res.body.orderNumber,order.order_number);
   assert.equal(res.body.items[0].name,"Test");
+  assert.equal(res.body.items[0].quantity,2);
+  assert.equal(res.body.items[0].image,"https://cdn.example.test/test.jpg","each line carries the product photo");
+  assert.equal(res.body.items[1].image,null,"a deleted product just has no photo");
   assert.equal(res.body.customerPhone,undefined,"the phone number is never echoed back");
 }
 

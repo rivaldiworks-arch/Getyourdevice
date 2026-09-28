@@ -200,7 +200,7 @@ for(const width of [360,834,1024,1180]){
 // Lacak Pesanan: guest lookup from another device, and the "Lihat Pesanan" email link.
 {
   const page=await browser.newPage({viewport:{width:390,height:860}});
-  const detail={orderNumber:"GYD-20260928-0001",createdAt:"2026-09-28T08:26:16Z",status:"confirmed",paymentMethod:"QRIS",paymentStatus:"paid",shippingServiceName:"Ambil di toko",shippingCost:0,subtotal:1000,total:1000,customerName:"Rivaldi",city:"Jakarta",items:[{name:"Test",quantity:1,unitPrice:1000,subtotal:1000}]};
+  const detail={orderNumber:"GYD-20260928-0001",createdAt:"2026-09-28T08:26:16Z",status:"confirmed",paymentMethod:"QRIS",paymentStatus:"paid",shippingServiceName:"Ambil di toko",shippingCost:0,subtotal:1000,total:1000,customerName:"Rivaldi",city:"Jakarta",items:[{name:"Test product",quantity:2,unitPrice:1000,subtotal:2000,image:null}]};
   const lookups=[];
   await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
   await page.route(`${origin}/api/**`,route=>{
@@ -224,6 +224,11 @@ for(const width of [360,834,1024,1180]){
   await page.click("#orderLookup button[type=submit]");
   await page.waitForSelector("#customerOrderList .customer-order-card");
   assert.match(await page.locator("#customerOrderList").innerText(),/GYD-20260928-0001/);
+  // Each line shows the product photo, name and quantity.
+  const line=page.locator("#customerOrderList .order-line").first();
+  assert.equal(await line.locator("img.order-line-img").count(),1,"order line has a product photo");
+  assert.match(await page.locator("#customerOrderList .customer-order-card header").innerText(),/Atas nama[\s\S]*Rivaldi/,"the card shows who the order is for");
+  assert.match(await line.innerText(),/Test product[\s\S]*Jumlah: 2[\s\S]*Rp\s?2\.000/);
   assert.equal(lookups.at(-1).phone,"+62 812-8845-1500","the server normalises the number");
   // Found orders stay on this device: reopening Pesanan Saya loads them again.
   await page.goto(`${origin}/#beranda`);await page.goto(`${origin}/#pesanan`);

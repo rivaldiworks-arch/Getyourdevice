@@ -20,7 +20,7 @@ assert.match(ordersApi,/orderAccessToken/);
 
 assert.match(detailApi,/timingSafeEqual/);
 assert.match(detailApi,/order_access_expires_at/);
-assert.match(detailApi,/order_items\?select=product_name,quantity,product_price,subtotal/);
+assert.match(detailApi,/order_items\?select=(product_id,)?product_name,quantity,product_price,subtotal&/);
 assert.doesNotMatch(detailApi,/payment_access_token_hash/);
 assert.doesNotMatch(detailApi,/provider_payload/);
 
