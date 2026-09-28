@@ -135,7 +135,7 @@ for(const width of [1440,834,390]){
 
 // Nothing is clipped on a small phone or an iPad: struck-through prices stay inside their
 // card, and the product detail info column stays inside the dialog.
-for(const width of [360,834,1024,1180]){
+for(const width of [360,390,414,834,1024,1180]){
   const page=await browser.newPage({viewport:{width,height:860}});
   await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
   await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
@@ -150,7 +150,7 @@ for(const width of [360,834,1024,1180]){
   assert.ok(header.gaps.every(gap=>gap>=4),`logo does not overlap the search bar or actions at ${width}px: ${header.gaps}`);
   await page.locator("#productGrid .product-card").first().click();
   await page.waitForSelector("#productModal:not(.hidden) .detail-info");
-  const overflow=await page.evaluate(()=>{const card=document.querySelector(".product-detail-card").getBoundingClientRect();return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-buttons button")].map(el=>Math.round(el.getBoundingClientRect().right-card.right)).filter(d=>d>1);});
+  const overflow=await page.evaluate(()=>{const info=document.querySelector(".detail-info");const edge=info.getBoundingClientRect().right-parseFloat(getComputedStyle(info).paddingRight);return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-buttons button,.detail-assurance li")].map(el=>Math.round(el.getBoundingClientRect().right-edge)).filter(d=>d>1);});
   assert.deepEqual(overflow,[],`product detail fits the dialog at ${width}px`);
   await page.close();
 }
@@ -188,7 +188,12 @@ for(const width of [360,834,1024,1180]){
   assert.match(await page.locator(".detail-assurance").innerText(),/Garansi distributor TAM/);
   await page.goto(`${origin}/#produk/${products.find(product=>!product.warranty).id}`);
   await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
-  assert.doesNotMatch(await page.locator(".detail-assurance").innerText(),/Garansi/,"no warranty claim when none is set");
+  const assurance=await page.locator(".detail-assurance").innerText();
+  assert.doesNotMatch(assurance,/Garansi/,"no warranty claim when none is set");
+  assert.doesNotMatch(assurance,/Retur/,"the return promise is not repeated under the buy buttons");
+  assert.match(assurance,/Dikirim hari ini/);
+  assert.match(assurance,/Pembayaran aman/);
+  assert.match(await page.locator('.detail-assurance a[href^="https://wa.me/6281288451500?text="]').getAttribute("href"),/tanya/i,"one tap to ask about this product on WhatsApp");
   // Help & policy page.
   await page.goto(`${origin}/bantuan.html`);
   for(const id of ["cara-belanja","faq","pengiriman","pembayaran","pengembalian","privasi","syarat","hubungi"])assert.equal(await page.locator(`section#${id}`).count(),1,`policy section #${id}`);
