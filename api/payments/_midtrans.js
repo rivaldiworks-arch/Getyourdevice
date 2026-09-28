@@ -269,11 +269,13 @@ async function createSnapTransaction({orderId,amount,method,order,finishUrl=null
   };
   if(finishUrl) {
     body.callbacks={finish:finishUrl};
-    // On phones Snap hands GoPay payments to the GoPay app; without this the customer
-    // stays in that app after paying instead of returning to the store. No ShopeePay
-    // callback: Midtrans rejects the whole transaction (Validation Error) when it is sent
-    // and ShopeePay is not activated on the account.
-    body.gopay={enable_callback:true,callback_url:finishUrl};
+    // On phones Snap hands GoPay payments to the GoPay app; without this callback the
+    // customer stays in that app after paying instead of returning to the store.
+    // Midtrans rejects the whole transaction (Validation Error) when a channel's callback
+    // is sent without that channel being offered, so it is only sent when GoPay is on
+    // the page (not for Transfer Bank), and there is no ShopeePay callback at all while
+    // ShopeePay is not activated on the account.
+    if(body.enabled_payments.includes("gopay"))body.gopay={enable_callback:true,callback_url:finishUrl};
   }
   const response=await fetch(`${snapUrl}/snap/v1/transactions`,{
     method:"POST",

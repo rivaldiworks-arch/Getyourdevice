@@ -539,6 +539,10 @@ snapEnv(); resetBackend();
   const res=await payVa(order);
   assert.equal(res.statusCode,201);
   assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","bri_va","echannel","bsi_va","permata_va","cimb_va","other_va"]);
+  // A GoPay callback without GoPay on the page makes Midtrans reject the transaction.
+  assert.equal(midtrans.snapRequests[0].body.gopay,undefined,"Transfer Bank sends no GoPay callback");
+  assert.equal(midtrans.snapRequests[0].body.shopeepay,undefined);
+  assert.equal(midtrans.snapRequests[0].body.callbacks.finish,"https://www.getyourdevice.id/#pesanan","the finish redirect still applies");
 }
 snapEnv({MIDTRANS_VA_BANKS:"bni,mandiri"}); resetBackend();
 {
