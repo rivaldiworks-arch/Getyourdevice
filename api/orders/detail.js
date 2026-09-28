@@ -2,6 +2,7 @@
 const { createHash, timingSafeEqual } = require("node:crypto");
 const { supabaseAdmin } = require("../_supabase");
 const { guardPublicJson, consumeRateLimit } = require("../_guard");
+const { notifyOrderPaid } = require("../_notify");
 
 const ORDER_NUMBER=/^GYD-\d{8}-\d{4,}$/;
 const TOKEN=/^[a-f0-9]{64}$/i;
@@ -13,6 +14,15 @@ function localPhone(value){
   if(digits.startsWith("62"))digits="0"+digits.slice(2);
   else if(digits.startsWith("8"))digits="0"+digits;
   return digits;
+}
+
+// A "paid" email that failed (Resend outage, unverified sender domain) has its claim
+// released but nothing re-sends it: Midtrans does not retry an acknowledged webhook.
+// Opening a recently paid order retries it; the claims keep each email to one delivery.
+const PAID_EMAIL_RETRY_MS=7*24*60*60*1000;
+function paidEmailPending(order){
+  return order.payment_status==="paid"&&(!order.paid_notified_at||!order.customer_paid_notified_at)
+    &&Date.now()-new Date(order.created_at).getTime()<PAID_EMAIL_RETRY_MS;
 }
 
 function hash(value){return createHash("sha256").update(value).digest("hex");}
@@ -46,7 +56,7 @@ module.exports=async function handler(req,res){
       if(rate.allowed===false){res.setHeader("Retry-After",String(Math.max(1,Number(rate.retryAfter)||60)));return res.status(429).json({error:"Terlalu banyak percobaan. Coba lagi beberapa menit lagi."});}
     }else if(!ORDER_NUMBER.test(orderNumber)||!TOKEN.test(token)) return res.status(400).json({error:"Nomor pesanan atau akses pesanan tidak valid."});
 
-    const order=(await rows(`orders?select=id,order_number,created_at,status,payment_method,payment_status,shipping_provider,shipping_service_code,shipping_service_name,shipping_status,shipping_cost,shipping_eta_min_days,shipping_eta_max_days,tracking_number,tracking_url,shipped_at,delivered_at,subtotal,total,customer_name,city,payment_access_expires_at,order_access_token_hash,order_access_expires_at,customer_phone&order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`))[0];
+    const order=(await rows(`orders?select=id,order_number,created_at,status,payment_method,payment_status,shipping_provider,shipping_service_code,shipping_service_name,shipping_status,shipping_cost,shipping_eta_min_days,shipping_eta_max_days,tracking_number,tracking_url,shipped_at,delivered_at,subtotal,total,customer_name,city,payment_access_expires_at,order_access_token_hash,order_access_expires_at,customer_phone,paid_notified_at,customer_paid_notified_at&order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`))[0];
     const allowed=byPhone
       ?Boolean(order)&&secureEqual(localPhone(order.customer_phone),phone)
       :Boolean(order)&&secureEqual(hash(token),order.order_access_token_hash)&&Boolean(order.order_access_expires_at)&&new Date(order.order_access_expires_at).getTime()>Date.now();
@@ -54,6 +64,7 @@ module.exports=async function handler(req,res){
       return res.status(404).json({error:byPhone?"Pesanan tidak ditemukan. Periksa nomor pesanan dan nomor WhatsApp yang dipakai saat checkout.":"Pesanan tidak ditemukan atau akses sudah kedaluwarsa."});
     }
 
+    if(paidEmailPending(order)) await notifyOrderPaid(order.id,{requestId}).catch(()=>{});
     const items=await rows(`order_items?select=product_id,product_name,quantity,product_price,subtotal&order_id=eq.${encodeURIComponent(order.id)}`);
     // Current product photo for each line, so the customer recognises what they bought.
     // A missing or deleted product just shows no photo; the order data never depends on it.
