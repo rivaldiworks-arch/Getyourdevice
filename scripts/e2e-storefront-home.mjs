@@ -197,6 +197,51 @@ for(const width of [360,834,1024,1180]){
   await page.close();
 }
 
+// Lacak Pesanan: guest lookup from another device, and the "Lihat Pesanan" email link.
+{
+  const page=await browser.newPage({viewport:{width:390,height:860}});
+  const detail={orderNumber:"GYD-20260928-0001",createdAt:"2026-09-28T08:26:16Z",status:"confirmed",paymentMethod:"QRIS",paymentStatus:"paid",shippingServiceName:"Ambil di toko",shippingCost:0,subtotal:1000,total:1000,customerName:"Rivaldi",city:"Jakarta",items:[{name:"Test",quantity:1,unitPrice:1000,subtotal:1000}]};
+  const lookups=[];
+  await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await page.route(`${origin}/api/**`,route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path==="/api/products")return route.fulfill({json:{products}});
+    if(path==="/api/orders/detail"){
+      const body=route.request().postDataJSON();lookups.push(body);
+      const ok=body.orderNumber===detail.orderNumber&&(body.phone?.replace(/\D/g,"").endsWith("81288451500")||body.orderAccessToken==="a".repeat(64));
+      return ok?route.fulfill({json:detail}):route.fulfill({status:404,json:{error:"Pesanan tidak ditemukan. Periksa nomor pesanan dan nomor WhatsApp yang dipakai saat checkout."}});
+    }
+    return route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}});
+  });
+  await page.goto(`${origin}/#lacak/GYD-20260928-0001`);
+  await page.waitForSelector("#orderLookup");
+  assert.equal(await page.locator("#lookupOrderNumber").inputValue(),"GYD-20260928-0001","email link pre-fills the order number");
+  await page.fill("#lookupPhone","0899 0000 000");
+  await page.click("#orderLookup button[type=submit]");
+  await page.waitForSelector("#lookupMessage.error");
+  assert.match(await page.locator("#lookupMessage").innerText(),/tidak ditemukan/);
+  await page.fill("#lookupPhone","+62 812-8845-1500");
+  await page.click("#orderLookup button[type=submit]");
+  await page.waitForSelector("#customerOrderList .customer-order-card");
+  assert.match(await page.locator("#customerOrderList").innerText(),/GYD-20260928-0001/);
+  assert.equal(lookups.at(-1).phone,"+62 812-8845-1500","the server normalises the number");
+  // Found orders stay on this device: reopening Pesanan Saya loads them again.
+  await page.goto(`${origin}/#beranda`);await page.goto(`${origin}/#pesanan`);
+  await page.waitForSelector("#customerOrderList .customer-order-card");
+  assert.ok(await page.evaluate(()=>JSON.parse(localStorage.getItem("gyd_order_access")).some(entry=>entry.orderNumber==="GYD-20260928-0001"&&entry.phone)));
+  assert.equal(await page.locator('#menuDrawer [data-action="track-order"]').count(),1,"menu links to Lacak Pesanan");
+  await page.close();
+  // The confirmation email's link stores the access token and cleans it from the address bar.
+  const linkPage=await browser.newPage({viewport:{width:390,height:860}});
+  await linkPage.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await linkPage.route(`${origin}/api/**`,route=>{const path=new URL(route.request().url()).pathname;if(path==="/api/products")return route.fulfill({json:{products}});if(path==="/api/orders/detail")return route.fulfill({json:detail});return route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}});});
+  await linkPage.goto(`${origin}/#pesanan/akses/GYD-20260928-0001/${"a".repeat(64)}`);
+  await linkPage.waitForSelector("#customerOrderList .customer-order-card");
+  assert.equal(new URL(linkPage.url()).hash,"#pesanan","the token is removed from the address bar");
+  assert.ok(await linkPage.evaluate(()=>JSON.parse(localStorage.getItem("gyd_order_access"))[0].token==="a".repeat(64)));
+  await linkPage.close();
+}
+
 // Reduced motion: nothing animates.
 {
   const page=await browser.newPage({viewport:{width:390,height:900},reducedMotion:"reduce"});

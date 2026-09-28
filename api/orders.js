@@ -3,7 +3,7 @@ const { createHash, randomBytes } = require("node:crypto");
 const { supabaseAdmin } = require("./_supabase");
 const { guardPublicJson } = require("./_guard");
 const { isServerConfigError, serverHmac } = require("./_secrets");
-const { notifyOrderCreated } = require("./_notify");
+const { notifyOrderCreated, notifyCustomerOrderCreated } = require("./_notify");
 
 const { checkoutPaymentMethods } = require("./_checkout");
 const PAYMENT_METHODS = new Set(["Transfer Bank", "COD", "QRIS"]);
@@ -77,7 +77,10 @@ module.exports = async function handler(req, res) {
     }
     const reused=Boolean(data.reused);
     // QRIS orders are announced once paid (webhook); COD needs the seller right away.
-    if(!reused && body.payment==="COD") await notifyOrderCreated(data.order_number,{requestId});
+    if(!reused) await Promise.all([
+      body.payment==="COD"?notifyOrderCreated(data.order_number,{requestId}):null,
+      notifyCustomerOrderCreated(data.order_number,orderAccessToken,{requestId})
+    ]);
     res.setHeader("Idempotency-Replayed",reused?"true":"false");
     return res.status(reused?200:201).json({orderNumber:data.order_number,createdAt:data.created_at,subtotal:Number(data.subtotal),shippingCost:Number(data.shipping_cost),shippingProvider:data.shipping_provider||null,shippingServiceCode:data.shipping_service_code||null,shippingServiceName:data.shipping_service_name||null,shippingEtaMinDays:data.shipping_eta_min_days??null,shippingEtaMaxDays:data.shipping_eta_max_days??null,total:Number(data.total ?? data.grand_total),orderAccessToken,reused,...(body.payment!=="COD"?{paymentToken}: {})});
   } catch(error) {

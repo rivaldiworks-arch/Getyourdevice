@@ -112,8 +112,37 @@ async function run(width){
   }
 }
 
+// Order notifications: the first poll records a baseline; later polls announce new
+// orders and payments with a badge and a list linking to the order.
+async function notifications(width){
+  const {page,orders}=await openAdmin(width);
+  await page.goto(`${origin}/admin.html#pesanan`);
+  await page.waitForSelector("#notifyButton");
+  await page.waitForFunction(()=>/Diperbarui/.test(document.querySelector("#notifyStatus")?.textContent||""));
+  assert.equal(await page.locator("#notifyCount").isHidden(),true,"existing orders do not raise notifications");
+  orders.push({...orders[0],id:"o-new",order_number:"GYD-20260928-0201",created_at:new Date().toISOString(),status:"pending",payment_method:"QRIS",payment_status:"unpaid",customer_name:"Sari"});
+  orders.find(order=>order.id==="o-unpaid").payment_status="paid";
+  await page.evaluate(()=>pollOrderNotifications());
+  await page.waitForSelector("#notifyCount:not(.hidden)");
+  assert.equal(await page.locator("#notifyCount").innerText(),"2");
+  assert.match(await page.title(),/^\(2\) /,"unread count shows in the tab title");
+  await page.locator("#notifyButton").click();
+  const items=await page.locator("#notifyList li").allInnerTexts();
+  assert.ok(items.some(text=>/Pesanan baru/.test(text)&&/GYD-20260928-0201/.test(text)&&/Sari/.test(text)),"new order listed");
+  assert.ok(items.some(text=>/Pembayaran diterima/.test(text)&&/GYD-20260926-0101/.test(text)),"payment listed");
+  assert.equal(await page.locator('#notifyList a[href="#pesanan/o-new"]').count(),1,"entries link to the order");
+  await page.locator("#notifyMarkRead").click();
+  assert.equal(await page.locator("#notifyCount").isHidden(),true,"mark as read clears the badge");
+  await page.evaluate(()=>pollOrderNotifications());
+  assert.equal(await page.locator("#notifyList li.unread").count(),0,"an unchanged poll adds nothing");
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,"no horizontal scroll with the bell");
+  await page.close();
+}
+
 await run(1280);
 await run(390);
+await notifications(1280);
+await notifications(390);
 assert.deepEqual(errors,[],"no page errors");
 await browser.close(); server.close();
 console.log("Admin order flow browser test passed.");

@@ -97,7 +97,7 @@ const AUTH_VIEWS={
 };
 function setMessage(id,text){const element=$(id);if(!element)return;element.textContent=text||"";element.classList.toggle("hidden",!text);}
 function showAuthView(name){
-  adminReady=false;$("dashboardView").classList.add("hidden");$("loginView").classList.remove("hidden");
+  adminReady=false;stopOrderNotifications();$("dashboardView").classList.add("hidden");$("loginView").classList.remove("hidden");
   const view=AUTH_VIEWS[name];
   Object.values(AUTH_VIEWS).forEach(entry=>$(entry.form).classList.toggle("hidden",entry!==view));
   $("loginTitle").textContent=view.title;$("loginSubtitle").innerHTML=view.subtitle;
@@ -135,7 +135,7 @@ async function authenticate(email,password){return request("/auth/v1/token?grant
 async function refreshSession(refreshToken){return request("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:refreshToken})});}
 function storeSession(value){session=value;if(value)localStorage.setItem("gyd_admin_session",JSON.stringify(value));else localStorage.removeItem("gyd_admin_session");}
 async function verifyAdmin(candidate){session=candidate;const profiles=await request(`/rest/v1/admin_profiles?select=id,full_name,role&id=eq.${encodeURIComponent(candidate.user.id)}`);if(profiles?.[0]?.role!=="admin")throw new Error("Akun ini tidak memiliki akses admin.");return profiles[0];}
-async function enterDashboard(profile){$("loginView").classList.add("hidden");$("dashboardView").classList.remove("hidden");$("adminIdentity").textContent=`${profile.full_name||session.user.email} · Admin`;adminReady=true;await applyAdminRoute(true);}
+async function enterDashboard(profile){$("loginView").classList.add("hidden");$("dashboardView").classList.remove("hidden");$("adminIdentity").textContent=`${profile.full_name||session.user.email} · Admin`;adminReady=true;startOrderNotifications();await applyAdminRoute(true);}
 async function loadProducts(){$("productMessage").textContent="Memuat produk…";try{products=await request("/rest/v1/products?select=id,name,brand,category,description,specifications,price,original_price,stock,image_url,rating,is_active,warranty,weight_grams,length_cm,width_cm,height_cm,created_at,updated_at&order=updated_at.desc");renderProducts();$("productMessage").textContent=`${products.length} produk ditemukan.`;}catch(error){$("productMessage").textContent=error.message;}}
 function filteredProducts(){const query=$("productSearch").value.trim().toLowerCase(),status=$("statusFilter").value;return products.filter(p=>(status==="all"||(status==="active")===p.is_active)&&(!query||[p.name,p.brand,p.category].some(v=>String(v||"").toLowerCase().includes(query))));}
 function renderProducts(){const rows=filteredProducts();$("productTable").innerHTML=rows.length?`<table><thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${rows.map(p=>`<tr><td><div class="product-cell"><img src="${escapeHTML(p.image_url||"https://placehold.co/80x80?text=GYD")}" alt=""><span><strong>${escapeHTML(p.name)}</strong><small>${escapeHTML(p.brand||"")}</small></span></div></td><td>${escapeHTML(p.category||"-")}</td><td>${money(p.price)}</td><td><input class="quick-number" type="number" min="0" value="${Number(p.stock)||0}" data-stock="${p.id}" aria-label="Stok ${escapeHTML(p.name)}"></td><td><button class="status-pill ${p.is_active?"active":""}" data-toggle="${p.id}">${p.is_active?"Aktif":"Nonaktif"}</button></td><td><div class="row-actions"><button data-edit="${p.id}">Edit</button><button class="delete" data-delete="${p.id}">Hapus</button></div></td></tr>`).join("")}</tbody></table>`:'<div class="empty-admin">Tidak ada produk yang sesuai.</div>';}
@@ -337,6 +337,69 @@ $("resetForm").addEventListener("submit",async event=>{
   }catch(error){setMessage("resetError",authErrorMessage(error));}
   finally{button.disabled=false;}
 });
+// Order notifications: the dashboard polls orders every 20 s while it is open and
+// raises a badge, a toast, a short chime and (when allowed) a device notification for
+// new orders, payments received and automatic cancellations. The first poll after
+// sign-in only records a baseline so old orders do not flood the list.
+const NOTIFY_INTERVAL_MS=20000,NOTIFY_SEEN_KEY="gyd_admin_order_seen",NOTIFY_LOG_KEY="gyd_admin_notifications";
+let notifyTimer=null,notifyBaseline=null,notifyLog=[],notifyAudio=null;
+function readStore(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
+function writeStore(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
+function orderSignature(order){return `${order.status}|${order.payment_status}`;}
+function notifyEvents(previous,rows){
+  const events=[];
+  for(const order of rows){
+    const before=previous[order.id];
+    const label=`${order.order_number} · ${money(order.total)}`;
+    if(!before){if(Date.now()-new Date(order.created_at).getTime()<48*3600e3)events.push({id:order.id,kind:"new",title:order.payment_method==="COD"?"Pesanan COD baru":"Pesanan baru",text:`${label} · ${order.customer_name||"Pelanggan"}`});continue;}
+    const [status,payment]=before.split("|");
+    if(order.payment_status==="paid"&&payment!=="paid")events.push({id:order.id,kind:"paid",title:"Pembayaran diterima",text:label});
+    else if(order.status==="cancelled"&&status!=="cancelled")events.push({id:order.id,kind:"cancelled",title:order.auto_cancelled_at?"Dibatalkan otomatis (tidak dibayar)":"Pesanan dibatalkan",text:label});
+  }
+  return events;
+}
+function renderNotifications(){
+  const unread=notifyLog.filter(entry=>!entry.read).length;
+  $("notifyCount").textContent=unread>9?"9+":String(unread);$("notifyCount").classList.toggle("hidden",!unread);
+  document.title=`${unread?`(${unread}) `:""}Admin — getyourdevice`;
+  $("notifyList").innerHTML=notifyLog.length?notifyLog.slice(0,30).map(entry=>`<li class="${entry.read?"":"unread"} ${entry.kind}"><a href="#pesanan/${encodeURIComponent(entry.id)}"><strong>${escapeHTML(entry.title)}</strong><span>${escapeHTML(entry.text)}</span><time>${new Date(entry.at).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</time></a></li>`).join(""):'<li class="notify-empty">Belum ada notifikasi. Pesanan baru dan pembayaran akan muncul di sini.</li>';
+  $("notifyEnable").classList.toggle("hidden",!("Notification" in window)||Notification.permission!=="default");
+}
+function chime(){
+  try{notifyAudio=notifyAudio||new (window.AudioContext||window.webkitAudioContext)();const now=notifyAudio.currentTime;[880,1320].forEach((freq,index)=>{const osc=notifyAudio.createOscillator(),gain=notifyAudio.createGain();osc.frequency.value=freq;gain.gain.setValueAtTime(.0001,now+index*.16);gain.gain.exponentialRampToValueAtTime(.18,now+index*.16+.02);gain.gain.exponentialRampToValueAtTime(.0001,now+index*.16+.3);osc.connect(gain).connect(notifyAudio.destination);osc.start(now+index*.16);osc.stop(now+index*.16+.32);});}catch{}
+}
+async function pollOrderNotifications(){
+  if(!session||!adminReady)return;
+  try{
+    const rows=await request("/rest/v1/orders?select=id,order_number,created_at,status,payment_status,payment_method,total,customer_name,auto_cancelled_at&order=updated_at.desc&limit=40")||[];
+    const seen=readStore(NOTIFY_SEEN_KEY,null);
+    const next={...(seen||{})};rows.forEach(order=>{next[order.id]=orderSignature(order);});
+    writeStore(NOTIFY_SEEN_KEY,Object.fromEntries(Object.entries(next).slice(-400)));
+    $("notifyStatus").textContent=`Diperbarui ${new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",second:"2-digit"})} · otomatis setiap 20 detik.`;
+    if(!seen){notifyBaseline=true;return;}
+    const events=notifyEvents(seen,rows);
+    if(!events.length)return;
+    const at=new Date().toISOString();
+    notifyLog=[...events.map(event=>({...event,at,read:false})),...notifyLog].slice(0,50);
+    writeStore(NOTIFY_LOG_KEY,notifyLog);renderNotifications();chime();
+    toast(events.length===1?`${events[0].title}: ${events[0].text}`:`${events.length} pembaruan pesanan baru.`);
+    if("Notification" in window&&Notification.permission==="granted")events.slice(0,3).forEach(event=>{try{new Notification(event.title,{body:event.text,tag:`${event.id}-${event.kind}`});}catch{}});
+    if(adminRouteParts()[0]==="pesanan"&&!document.querySelector("dialog[open]"))loadOrders();
+  }catch(error){$("notifyStatus").textContent=`Notifikasi tertunda: ${error.message}`;}
+}
+function startOrderNotifications(){
+  notifyLog=readStore(NOTIFY_LOG_KEY,[]);if(!Array.isArray(notifyLog))notifyLog=[];
+  renderNotifications();
+  clearInterval(notifyTimer);pollOrderNotifications();notifyTimer=setInterval(pollOrderNotifications,NOTIFY_INTERVAL_MS);
+}
+function stopOrderNotifications(){clearInterval(notifyTimer);notifyTimer=null;}
+function toggleNotifyPanel(open=$("notifyPanel").classList.contains("hidden")){$("notifyPanel").classList.toggle("hidden",!open);$("notifyButton").setAttribute("aria-expanded",String(open));}
+$("notifyButton").addEventListener("click",event=>{event.stopPropagation();toggleNotifyPanel();try{notifyAudio?.resume();}catch{}});
+$("notifyMarkRead").addEventListener("click",()=>{notifyLog=notifyLog.map(entry=>({...entry,read:true}));writeStore(NOTIFY_LOG_KEY,notifyLog);renderNotifications();});
+$("notifyList").addEventListener("click",event=>{const link=event.target.closest("a");if(!link)return;const index=[...$("notifyList").querySelectorAll("a")].indexOf(link);if(notifyLog[index]){notifyLog[index].read=true;writeStore(NOTIFY_LOG_KEY,notifyLog);renderNotifications();}toggleNotifyPanel(false);});
+$("notifyEnable").addEventListener("click",async()=>{try{await Notification.requestPermission();}catch{}renderNotifications();});
+document.addEventListener("click",event=>{if(!event.target.closest(".notify-wrap"))toggleNotifyPanel(false);});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&notifyTimer)pollOrderNotifications();});
 $("signOut").addEventListener("click",async()=>{try{await request("/auth/v1/logout",{method:"POST"});}catch{}storeSession(null);session=null;showLogin("Anda telah keluar.");});
 $("addProduct").addEventListener("click",()=>navigateAdminRoute("produk/baru"));$("closeDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("cancelDialog").addEventListener("click",()=>navigateAdminRoute("produk"));$("productDialog").addEventListener("cancel",event=>{event.preventDefault();navigateAdminRoute("produk");});$("productForm").addEventListener("submit",saveProduct);$("productSearch").addEventListener("input",renderProducts);$("statusFilter").addEventListener("change",renderProducts);
 $("productTable").addEventListener("click",async event=>{const edit=event.target.dataset.edit,toggle=event.target.dataset.toggle,del=event.target.dataset.delete;if(edit)navigateAdminRoute(`produk/${edit}`);if(toggle){const p=products.find(item=>item.id===toggle);await updateProduct(toggle,{is_active:!p.is_active},p.is_active?"Produk dinonaktifkan.":"Produk diaktifkan.");}if(del&&confirm("Hapus produk ini secara permanen? Tindakan ini tidak dapat dibatalkan.")){try{const product=products.find(item=>item.id===del);await request(`/rest/v1/products?id=eq.${encodeURIComponent(del)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});let warning=false;try{if(product?.image_url)await removeStoredImage(product.image_url);}catch(error){console.error("Deleted product image cleanup failed",error);warning=true;}toast(warning?"Produk dihapus, tetapi file gambar belum dapat dihapus.":"Produk dihapus.");await loadProducts();}catch(error){toast(error.message);}}});

@@ -34,6 +34,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 19. `supabase/migrations/019_virtual_account_payments.sql` — menambah `payments.va_bank`, `va_number`, dan `biller_code` untuk instruksi Transfer Bank via Midtrans Virtual Account. Additive. **Jalankan 019 sebelum deploy kode Phase 8A.**
 20. `supabase/migrations/020_order_status_flow.sql` — status pesanan mengikuti alur (transisi di luar alur ditolak database), COD hanya untuk Ambil di Toko, dan pembatalan otomatis pesanan QRIS/Transfer Bank yang tidak dibayar (pg_cron tiap 15 menit, stok dikembalikan). **Jalankan 020 sebelum deploy kode Phase 8C.**
 21. `supabase/migrations/021_product_warranty.sql` — kolom `products.warranty` (`resmi`, `tam`, `blibli`, atau kosong) untuk jenis garansi per produk. Aditif dan boleh kosong. **Jalankan 021 sebelum deploy kode Phase 8F**, karena `/api/products` membaca kolom ini.
+22. `supabase/migrations/022_customer_paid_notification.sql` — kolom `orders.customer_paid_notified_at` supaya email "Pembayaran diterima" ke pembeli terkirim sekali. Aditif. **Jalankan 022 sebelum mengisi `CUSTOMER_EMAIL_FROM`.**
 
 ## Payment infrastructure (Phase 5)
 
@@ -208,6 +209,15 @@ Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status 
 - Panel admin **Alur pesanan** hanya menampilkan langkah yang sah untuk tahap pesanan itu, beserta penjelasan langkah berikutnya.
 - **COD hanya untuk Ambil di Toko** (bayar tunai saat mengambil). Kurir tidak bisa dibooking sebelum pesanan dibayar dan tidak diinstruksikan menagih tunai, sehingga COD via kurir tidak dapat dipenuhi. Checkout menonaktifkan COD untuk opsi kurir; database menolaknya (`COD_REQUIRES_PICKUP`).
 - Pesanan yang dibatalkan otomatis diberi `orders.auto_cancelled_at`. Pembayaran yang tetap masuk setelahnya tetap dicatat dan email penjual menandainya **PERLU REFUND**.
+
+## Email pembeli, Lacak Pesanan, notifikasi admin (Phase 8H)
+
+- **Email ke pembeli** (lewat Resend): "Selesaikan pembayaran" / "Pesanan diterima" saat checkout, dengan tombol **Lihat Pesanan** yang membuka pesanan di perangkat mana pun selama 365 hari (token akses di fragmen URL `#pesanan/akses/…`), dan "Pembayaran diterima" saat lunas dengan tautan `#lacak/<nomor>`. Balasan pembeli masuk ke `support@getyourdevice.id`.
+  - Aktif hanya bila env `CUSTOMER_EMAIL_FROM` diisi, misalnya `getyourdevice <support@getyourdevice.id>`. Syarat: domain `getyourdevice.id` **terverifikasi di Resend** (Resend → Domains → Add Domain, lalu pasang record DNS yang diberikan di Rumahweb). Pengirim bawaan `onboarding@resend.dev` hanya bisa mengirim ke pemilik akun Resend.
+  - Email penjual ikut memakai pengirim ini bila `ORDER_NOTIFY_FROM` kosong.
+- **Lacak Pesanan** (`#lacak`, juga di menu ☰ dan halaman Pesanan Saya): nomor pesanan + nomor WhatsApp checkout (08…, 62…, atau +62 diterima). Batas 12 percobaan per 15 menit per perangkat, dan menolak bila pembatas tidak tersedia, supaya nomor pesanan yang berurutan tidak bisa ditebak. Nomor WhatsApp tidak pernah dikirim balik oleh server.
+- **Kembali ke toko setelah bayar di aplikasi GoPay/ShopeePay**: request Snap membawa `gopay.callback_url` dan `shopeepay.callback_url`, selain `callbacks.finish`.
+- **Notifikasi di panel admin**: ikon lonceng memeriksa pesanan tiap 20 detik selama admin terbuka. Pesanan baru, pembayaran diterima, dan pembatalan otomatis tampil sebagai badge, daftar, bunyi singkat, jumlah di judul tab, dan notifikasi perangkat bila diizinkan. Saat halaman admin tertutup, andalkan email penjual (`ORDER_NOTIFY_EMAIL`).
 
 ## Domain toko (Phase 8G)
 
