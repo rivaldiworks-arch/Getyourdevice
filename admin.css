@@ -77,3 +77,24 @@
 .order-total{grid-template-columns:auto 1fr;align-items:center;justify-items:stretch;text-align:left;border-top:1px solid #edf0f3;padding-top:10px}
 .order-total .order-row-actions{justify-content:flex-end;margin-top:0}
 .order-stat{padding:12px}.order-stat strong{font-size:22px}}
+/* Orders: filters, status tabs, WhatsApp chip, pager (Phase 8K). */
+.order-toolbar{flex-wrap:wrap;align-items:end}
+.order-toolbar input[type=search]{flex:1 1 320px}
+.date-filter,.date-range label{display:grid;gap:4px;font-size:12px;font-weight:800;color:#657080}
+.date-filter select{width:190px}
+.date-range{display:flex;gap:8px}
+.date-range input{min-height:44px;border:1px solid #cfd6df;border-radius:8px;padding:0 10px;font:inherit;background:#fff}
+.status-tabs{display:flex;gap:8px;overflow-x:auto;padding:0 0 14px;scrollbar-width:none}
+.status-tabs::-webkit-scrollbar{display:none}
+.status-tabs button{display:inline-flex;align-items:center;gap:8px;min-height:38px;flex:0 0 auto;border:1px solid #dfe3e8;border-radius:999px;background:#fff;padding:6px 14px;color:#172033;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.status-tabs button span{min-width:22px;border-radius:999px;background:#eef1f4;padding:1px 7px;color:#4b5563;font-size:12px;text-align:center}
+.status-tabs button.active{border-color:#1769e0;background:#1769e0;color:#fff}
+.status-tabs button.active span{background:rgba(255,255,255,.22);color:#fff}
+.wa-chip{display:inline-flex!important;align-items:center;gap:5px;width:max-content;margin-top:4px;border:1px solid #bfe8cf;border-radius:999px;background:#effbf3;padding:4px 10px;color:#127a3e!important;font-size:12px!important;font-weight:800}
+.wa-chip svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
+.wa-chip:hover{background:#dff6e8}
+.order-pager{display:flex;align-items:center;justify-content:center;gap:14px;padding:18px 0 4px;color:#657080;font-size:13px;font-weight:700}
+.order-pager:empty{display:none}
+.order-pager button{min-height:40px;padding:8px 16px}
+.order-pager button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:680px){.order-toolbar{display:grid;grid-template-columns:1fr}.date-filter select{width:100%}.date-range{display:grid;grid-template-columns:1fr 1fr}.order-pager{gap:8px}.order-pager span{font-size:12px}}
