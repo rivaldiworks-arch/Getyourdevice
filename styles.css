@@ -535,3 +535,13 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
 @media(max-width:1000px){.detail-main-photo{aspect-ratio:auto;height:min(92vw,560px)}}
 @media(hover:none){.detail-main-photo .gallery-arrow{display:none}}
 .detail-description p{white-space:pre-line}
+/* Share button and menu on the product detail */
+.detail-stock-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 24px}
+.detail-stock-row .detail-stock{margin:0}
+.share-wrap{position:relative;flex:0 0 auto}
+.detail-share{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 12px;border:1px solid #d5dbe4;border-radius:999px;background:#fff;color:#1446a0;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.detail-share .ui-icon{width:17px;height:17px}
+.detail-share:hover,.detail-share[aria-expanded="true"]{border-color:#1446a0;background:#f2f6fd}
+.share-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:20;display:grid;min-width:180px;padding:6px;border:1px solid #e1e6ee;border-radius:12px;background:#fff;box-shadow:0 14px 34px rgba(16,35,63,.16)}
+.share-menu a,.share-menu button{display:block;width:100%;padding:10px 12px;border:0;border-radius:8px;background:none;color:#172033;font:inherit;font-size:14px;font-weight:600;text-align:left;text-decoration:none;cursor:pointer}
+.share-menu a:hover,.share-menu button:hover,.share-menu a:focus-visible,.share-menu button:focus-visible{background:#f2f6fd;color:#1446a0}
