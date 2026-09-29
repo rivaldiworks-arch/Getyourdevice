@@ -152,7 +152,7 @@ for(const width of [320,360,390,414,834,1024,1180]){
   assert.ok(header.gaps.every(gap=>gap>=4),`logo does not overlap the search bar or actions at ${width}px: ${header.gaps}`);
   await page.locator("#productGrid .product-card").first().click();
   await page.waitForSelector("#productModal:not(.hidden) .detail-info");
-  const overflow=await page.evaluate(()=>{const info=document.querySelector(".detail-info");const edge=info.getBoundingClientRect().right-parseFloat(getComputedStyle(info).paddingRight);return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-buttons button,.detail-assurance li")].map(el=>Math.round(el.getBoundingClientRect().right-edge)).filter(d=>d>1);});
+  const overflow=await page.evaluate(()=>{const info=document.querySelector(".detail-info");const edge=info.getBoundingClientRect().right-parseFloat(getComputedStyle(info).paddingRight);return [...document.querySelectorAll(".detail-info h2,.detail-pricing,.detail-share,.detail-buttons button,.detail-assurance li")].map(el=>Math.round(el.getBoundingClientRect().right-edge)).filter(d=>d>1);});
   assert.deepEqual(overflow,[],`product detail fits the dialog at ${width}px`);
   await page.close();
 }
@@ -230,6 +230,31 @@ for(const width of [320,360,390,414,834,1024,1180]){
     delete gallery.images;
     await page.goto(`${origin}/`);await page.goto(`${origin}/#produk/${gallery.id}`);
     await page.waitForSelector("#productModal:not(.hidden) .detail-shipping");
+  }
+  // Share: on desktop a menu with WhatsApp/Facebook/X/Telegram and copy; every link is the
+  // /p/<id> share page (the #route is invisible to link previews).
+  {
+    const shared=products.find(product=>product.warranty==="tam"),shareUrl=`${origin}/p/${shared.id}`;
+    await page.locator(".detail-share").click();
+    await page.waitForSelector(".share-menu");
+    assert.equal(await page.locator(".detail-share").getAttribute("aria-expanded"),"true");
+    assert.deepEqual(await page.locator(".share-menu [role=menuitem]").allInnerTexts(),["WhatsApp","Facebook","X","Telegram","Salin tautan"]);
+    const wa=new URL(await page.locator('.share-menu a',{hasText:"WhatsApp"}).getAttribute("href"));
+    assert.equal(wa.origin+wa.pathname,"https://wa.me/");
+    assert.ok(wa.searchParams.get("text").endsWith(`\n${shareUrl}`),"WhatsApp text ends with the share link");
+    assert.ok(wa.searchParams.get("text").startsWith(`${shared.name} — Rp`),"WhatsApp text starts with name and price");
+    assert.equal(new URL(await page.locator('.share-menu a',{hasText:"Facebook"}).getAttribute("href")).searchParams.get("u"),shareUrl);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".share-menu",{state:"detached"});
+    assert.ok(await page.locator("#productModal:not(.hidden)").count(),"Escape closes only the share menu");
+    await page.locator(".detail-share").click();
+    await page.locator("#detailName").click();
+    await page.waitForSelector(".share-menu",{state:"detached"});
+    await page.locator(".detail-share").click();
+    await page.context().grantPermissions(["clipboard-read","clipboard-write"],{origin}).catch(()=>{});
+    await page.locator("[data-share-copy]").click();
+    await page.waitForSelector(".share-menu",{state:"detached"});
+    await page.waitForFunction(()=>/Tautan produk disalin|Salin manual/.test(document.getElementById("toast").textContent));
   }
   // In-stock products show the delivery promise next to the price.
   const shipping=await page.locator(".detail-shipping").innerText();
@@ -316,5 +341,25 @@ for(const width of [320,360,390,414,834,1024,1180]){
   await page.close();
 }
 assert.deepEqual(errors,[],"no page errors");
+// Phones share through the system share sheet with the /p/<id> link.
+{
+  const context=await browser.newContext({viewport:{width:390,height:860},hasTouch:true,isMobile:true});
+  await context.addInitScript(()=>{window.__shared=[];navigator.share=async data=>{window.__shared.push(data);};});
+  const page=await context.newPage();
+  await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await page.route(`${origin}/api/**`,route=>new URL(route.request().url()).pathname==="/api/products"?route.fulfill({json:{products}}):route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}}));
+  const target=products.find(product=>product.stock>0);
+  await page.goto(`${origin}/#produk/${target.id}`);
+  await page.waitForSelector("#productModal:not(.hidden) .detail-share");
+  await page.locator(".detail-share").tap();
+  await page.waitForFunction(()=>window.__shared.length===1);
+  const [data]=await page.evaluate(()=>window.__shared);
+  assert.equal(data.url,`${origin}/p/${target.id}`);
+  assert.equal(data.title,target.name);
+  assert.match(data.text,/— Rp/);
+  assert.equal(await page.locator(".share-menu").count(),0,"no fallback menu when the share sheet is used");
+  await context.close();
+}
+
 await browser.close(); server.close();
 console.log("Storefront home layout browser test passed.");

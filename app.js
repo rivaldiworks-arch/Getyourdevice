@@ -351,7 +351,8 @@ const ASSURANCE_ICONS = {
   warranty:'<path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.7 7 9 4.1-1.3 7-4.8 7-9V6z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
   ship:'<path d="M3.5 7h10v9h-10zM13.5 10h3.7l2.8 3v3h-6.5"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/>',
   lock:'<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
-  chat:'<path d="M5 18.5 6 15a7.5 7.5 0 1 1 3 3z"/><path d="M9.5 10.5h5M9.5 13h3"/>'
+  chat:'<path d="M5 18.5 6 15a7.5 7.5 0 1 1 3 3z"/><path d="M9.5 10.5h5M9.5 13h3"/>',
+  share:'<circle cx="17.5" cy="5.5" r="2.3"/><circle cx="6.5" cy="12" r="2.3"/><circle cx="17.5" cy="18.5" r="2.3"/><path d="m8.5 10.8 7-4.1M8.5 13.2l7 4.1"/>'
 };
 // Delivery promise next to the price. Only what holds for every order: same-day dispatch
 // and the Jabodetabek estimate; other cities get their courier estimate at checkout.
@@ -383,7 +384,7 @@ function renderProductDetail() {
   const out = product.stock <= 0;
   const specs = (product.spec || product.description).split("·").map(spec => spec.trim()).filter(Boolean);
   const discount = product.originalPrice ? Math.round((1 - product.price / product.originalPrice) * 100) : 0;
-  $("productDetail").innerHTML = `<div class="product-detail-layout">${detailGallery(product)}<div class="detail-info"><span class="product-brand">${escapeHTML(product.brand || product.category)}</span><h2 id="detailName">${escapeHTML(product.name)}</h2><div class="detail-pricing"><strong>${money(product.price)}</strong>${product.originalPrice ? `<del>${money(product.originalPrice)}</del><span>Hemat ${discount}%</span>` : ""}</div><p class="detail-stock ${out ? "out" : ""}">${out ? "Stok sedang habis" : `✓ Stok tersedia — ${product.stock} unit`}</p>${out ? "" : DETAIL_SHIPPING}<div class="detail-specs"><h3>Spesifikasi utama</h3><ul>${specs.map(spec => `<li>${escapeHTML(spec)}</li>`).join("")}</ul></div><div class="detail-description"><h3>Tentang produk</h3><p>${escapeHTML(product.description)}</p></div><div class="detail-purchase"><div><label for="detailQuantity">Jumlah</label><div class="detail-qty"><button type="button" data-detail-qty="-1" aria-label="Kurangi jumlah">−</button><input id="detailQuantity" value="${detailQuantity}" readonly aria-label="Jumlah produk"><button type="button" data-detail-qty="1" aria-label="Tambah jumlah" ${detailQuantity >= product.stock ? "disabled" : ""}>+</button></div></div><div class="detail-buttons"><button class="secondary" type="button" data-detail-add ${out ? "disabled" : ""}>Tambah ke Keranjang</button><button class="primary" type="button" data-detail-buy ${out ? "disabled" : ""}>Beli Sekarang</button></div></div>${detailAssurance(product)}</div></div>`;
+  $("productDetail").innerHTML = `<div class="product-detail-layout">${detailGallery(product)}<div class="detail-info"><span class="product-brand">${escapeHTML(product.brand || product.category)}</span><h2 id="detailName">${escapeHTML(product.name)}</h2><div class="detail-pricing"><strong>${money(product.price)}</strong>${product.originalPrice ? `<del>${money(product.originalPrice)}</del><span>Hemat ${discount}%</span>` : ""}</div><div class="detail-stock-row"><p class="detail-stock ${out ? "out" : ""}">${out ? "Stok sedang habis" : `✓ Stok tersedia — ${product.stock} unit`}</p><div class="share-wrap"><button type="button" class="detail-share" data-share-product="${escapeHTML(product.id)}" aria-haspopup="true" aria-expanded="false"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ASSURANCE_ICONS.share}</svg>Bagikan</button></div></div>${out ? "" : DETAIL_SHIPPING}<div class="detail-specs"><h3>Spesifikasi utama</h3><ul>${specs.map(spec => `<li>${escapeHTML(spec)}</li>`).join("")}</ul></div><div class="detail-description"><h3>Tentang produk</h3><p>${escapeHTML(product.description)}</p></div><div class="detail-purchase"><div><label for="detailQuantity">Jumlah</label><div class="detail-qty"><button type="button" data-detail-qty="-1" aria-label="Kurangi jumlah">−</button><input id="detailQuantity" value="${detailQuantity}" readonly aria-label="Jumlah produk"><button type="button" data-detail-qty="1" aria-label="Tambah jumlah" ${detailQuantity >= product.stock ? "disabled" : ""}>+</button></div></div><div class="detail-buttons"><button class="secondary" type="button" data-detail-add ${out ? "disabled" : ""}>Tambah ke Keranjang</button><button class="primary" type="button" data-detail-buy ${out ? "disabled" : ""}>Beli Sekarang</button></div></div>${detailAssurance(product)}</div></div>`;
   const related = products.filter(item => item.id !== product.id && (item.category === product.category || (item.needs || []).some(need => (product.needs || []).includes(need)))).slice(0,3);
   $("relatedProducts").innerHTML = related.map(item => `<button class="related-card" type="button" data-view-product="${escapeHTML(item.id)}"><img src="${safeImage(item.image)}" alt="" width="300" height="300" loading="lazy"><span><small>${escapeHTML(item.brand || item.category)}</small><strong>${escapeHTML(item.name)}</strong><b>${money(item.price)}</b></span></button>`).join("");
 }
@@ -794,6 +795,63 @@ function handleAction(action) {
     case "reset-product": $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; break;
   }
 }
+// Sharing a product. The link is /p/<id>, a server-rendered page whose Open Graph tags give
+// WhatsApp and social apps the product photo, name and price (they ignore the #route).
+// Phones use the system share sheet (WhatsApp, Instagram, Telegram, …); elsewhere a small
+// menu offers WhatsApp, Facebook, X, Telegram and copying the link.
+function productShareUrl(id) { return `${location.origin}/p/${encodeURIComponent(id)}`; }
+function closeShareMenu() {
+  document.querySelector(".share-menu")?.remove();
+  document.querySelectorAll(".detail-share[aria-expanded='true']").forEach(button => button.setAttribute("aria-expanded", "false"));
+}
+function openShareMenu(button, product) {
+  closeShareMenu();
+  const url = productShareUrl(product.id), text = `${product.name} — ${money(product.price)}`;
+  const links = [
+    ["WhatsApp", `https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`],
+    ["Facebook", `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`],
+    ["X", `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`],
+    ["Telegram", `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`]
+  ];
+  const menu = document.createElement("div");
+  menu.className = "share-menu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = `${links.map(([label, href]) => `<a role="menuitem" href="${escapeHTML(href)}" target="_blank" rel="noopener" data-share-close>${label}</a>`).join("")}<button type="button" role="menuitem" data-share-copy="${escapeHTML(url)}">Salin tautan</button>`;
+  button.after(menu);
+  button.setAttribute("aria-expanded", "true");
+  menu.querySelector("a,button")?.focus();
+}
+async function shareProduct(button) {
+  const product = products.find(item => item.id === button.dataset.shareProduct);
+  if (!product) return;
+  if (button.getAttribute("aria-expanded") === "true") { closeShareMenu(); return; }
+  const url = productShareUrl(product.id);
+  if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+    try { await navigator.share({ title: product.name, text: `${product.name} — ${money(product.price)}`, url }); return; }
+    catch (error) { if (error?.name === "AbortError") return; }
+  }
+  openShareMenu(button, product);
+}
+document.addEventListener("click", event => {
+  const share = event.target.closest("[data-share-product]");
+  if (share) { shareProduct(share); return; }
+  const copy = event.target.closest("[data-share-copy]");
+  if (copy) {
+    const url = copy.dataset.shareCopy;
+    closeShareMenu();
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(() => showToast("Tautan produk disalin.")).catch(() => showToast(`Salin manual: ${url}`));
+    else showToast(`Salin manual: ${url}`);
+    return;
+  }
+  if (event.target.closest("[data-share-close]") || !event.target.closest(".share-menu")) closeShareMenu();
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !document.querySelector(".share-menu")) return;
+  event.stopPropagation();
+  const button = document.querySelector(".detail-share[aria-expanded='true']");
+  closeShareMenu();
+  button?.focus();
+}, true);
 // Gallery behaviour: thumbnails and arrows scroll the slides; scrolling (swipe) updates the
 // active thumbnail and counter; tapping a slide opens the full-screen viewer.
 function galleryGoTo(track, index) {
@@ -868,7 +926,7 @@ function initializeMotion() {
 }
 
 $("orderLookup")?.addEventListener("submit",lookupCustomerOrder);
-window.addEventListener("hashchange",()=>{closePhotoViewer();queueRouteApply();});
+window.addEventListener("hashchange",()=>{closePhotoViewer();closeShareMenu();queueRouteApply();});
 window.addEventListener("popstate",queueRouteApply);
 
 async function initializeApp() {
