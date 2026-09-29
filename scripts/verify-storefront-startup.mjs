@@ -21,8 +21,11 @@ const context=createContext({
   requestAnimationFrame:callback=>callback(),matchMedia:()=>({matches:false}),Intl,FormData:class {}
 });
 new Script(javascript,{filename:"app.js"}).runInContext(context);
-await new Promise(resolve=>setTimeout(resolve,10));
-if(productRequests!==1)throw new Error(`Expected one /api/products request, received ${productRequests}`);
-if(!elements.get("productGrid").innerHTML.includes("product-card"))throw new Error("Fallback products did not render after API failure");
-if(elements.get("resultText").textContent.includes("0 produk"))throw new Error("Fallback catalog incorrectly remained in an empty-filter state");
-console.log("Storefront startup isolation and fallback rendering passed.");
+await new Promise(resolve=>setTimeout(resolve,1700));
+// A failed load is retried once, then shows an error with a retry button. Never demo products.
+if(productRequests!==2)throw new Error(`Expected two /api/products requests (one retry), received ${productRequests}`);
+const grid=elements.get("productGrid").innerHTML;
+if(grid.includes("product-card"))throw new Error("Products rendered although the catalog failed to load");
+if(!grid.includes("Katalog belum dapat dimuat")||!grid.includes('data-action="reload-catalog"'))throw new Error("Catalog failure does not show the error state with a retry button");
+if(/Galaxy Watch7|MacBook Air M3|00000000-0000-4000-8000/.test(javascript))throw new Error("app.js still contains the demo product list");
+console.log("Storefront startup isolation and catalog failure state passed.");

@@ -341,6 +341,31 @@ for(const width of [320,360,390,414,834,1024,1180]){
   await page.close();
 }
 assert.deepEqual(errors,[],"no page errors");
+// Catalog down: an error with "Coba Lagi" (never demo products), the saved cart is kept,
+// and the retry loads the real catalog.
+{
+  const page=await browser.newPage({viewport:{width:390,height:860}});
+  let down=true,catalogCalls=0;
+  const saved=[{id:products[1].id,qty:1}];
+  await page.addInitScript(cart=>{if(!sessionStorage.getItem("seeded")){localStorage.setItem("gyd_cart",JSON.stringify(cart));sessionStorage.setItem("seeded","1");}},saved);
+  await page.route(url=>!url.href.startsWith(origin),route=>route.abort());
+  await page.route(`${origin}/api/**`,route=>{
+    if(new URL(route.request().url()).pathname!=="/api/products")return route.fulfill({json:{supabaseUrl:"x",supabaseAnonKey:"y"}});
+    catalogCalls++;
+    return down?route.fulfill({status:503,json:{error:"Katalog produk belum dapat dimuat."}}):route.fulfill({json:{products}});
+  });
+  await page.goto(origin);
+  await page.waitForSelector('#productGrid [data-action="reload-catalog"]',{timeout:10000});
+  assert.equal(catalogCalls,2,"a failed catalog load is retried once");
+  assert.equal(await page.locator("#productGrid .product-card").count(),0,"no products shown while the catalog is down");
+  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem("gyd_cart"))),saved,"the saved cart survives a failed load");
+  down=false;
+  await page.locator('#productGrid [data-action="reload-catalog"]').click();
+  await page.waitForSelector("#productGrid .product-card");
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem("gyd_cart")).length),1,"the cart is still there after the retry");
+  await page.close();
+}
+
 // Phones share through the system share sheet with the /p/<id> link.
 {
   const context=await browser.newContext({viewport:{width:390,height:860},hasTouch:true,isMobile:true});

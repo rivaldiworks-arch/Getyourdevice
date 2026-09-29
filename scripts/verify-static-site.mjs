@@ -108,7 +108,7 @@ for (const marker of ["try { buildNavigation(); }", "try { persist(); }", "try {
   if (!initializeApp.includes(marker)) throw new Error(`Safe startup marker missing: ${marker}`);
 }
 if (!javascript.includes('fetch("/api/products"') || !javascript.includes("Array.isArray(payload?.products)")) throw new Error("Product API path or response-shape validation drift");
-for (const marker of ["products = [...starterProducts]", "renderProducts();", "Katalog belum dapat dimuat"]) {
+for (const marker of ["catalogLoaded = true", "renderProducts();", "Katalog belum dapat dimuat", "data-action=\"reload-catalog\""]) {
   if (!javascript.includes(marker)) throw new Error(`Product fallback protection missing: ${marker}`);
 }
 if (!javascript.includes('$("sortSelect").value = "featured"')) throw new Error("Reset filters must restore featured sorting");
