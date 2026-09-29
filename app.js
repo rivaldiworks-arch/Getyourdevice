@@ -15,24 +15,15 @@ const CATEGORY_IMAGES = {
 const IMAGE_FALLBACK = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700"><rect width="700" height="700" fill="#f5f5f7"/><path d="M290 250h120a18 18 0 0 1 18 18v164a18 18 0 0 1-18 18H290a18 18 0 0 1-18-18V268a18 18 0 0 1 18-18z" fill="none" stroke="#c7c7cc" stroke-width="8"/><circle cx="350" cy="420" r="8" fill="#c7c7cc"/></svg>');
 const ORDER_STATUSES = ["Pending", "Paid", "Processing", "Shipped", "Completed", "Cancelled"];
 const CHECKOUT_STEPS = ["Pelanggan", "Alamat", "Pengiriman", "Pembayaran", "Tinjau"];
-const starterProducts = [
-  {id:"00000000-0000-4000-8000-000000000002",brand:"Samsung",name:"Galaxy A56 5G",spec:"8 GB / 256 GB · Kamera 50 MP",price:6199000,originalPrice:6799000,rating:4.8,stock:14,category:"Smartphone",description:"Layar Super AMOLED jernih, kamera 50 MP, dan baterai tahan lama.",needs:["Komunikasi","Hiburan"],badge:"TERLARIS",image:"https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000003",brand:"ASUS",name:"Vivobook 14",spec:"Intel Core i5 · 16 GB · 512 GB SSD",price:8999000,originalPrice:9499000,rating:4.7,stock:8,category:"Laptop",description:"Laptop tipis untuk bekerja dan belajar dengan layar 14 inci.",needs:["Produktivitas","Hiburan"],badge:"PILIHAN",image:"https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000004",brand:"Samsung",name:"Galaxy Tab S9 FE",spec:"10,9 inci · 6 GB / 128 GB · S Pen",price:6499000,rating:4.8,stock:10,category:"Tablet",description:"Tablet serbaguna dengan S Pen untuk catatan, kreasi, dan hiburan.",needs:["Produktivitas","Hiburan"],image:"https://images.unsplash.com/photo-1561154464-82e9adf32764?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000005",brand:"Samsung",name:"Galaxy Watch7",spec:"Bluetooth · 40 mm · GPS",price:3999000,rating:4.7,stock:6,category:"Smartwatch",description:"Pantau aktivitas, tidur, dan kesehatan langsung dari pergelangan.",needs:["Kesehatan"],badge:"BARU",image:"https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000006",brand:"Sony",name:"WH-CH720N",spec:"Wireless · Noise Cancelling · 35 jam",price:1699000,originalPrice:1999000,rating:4.9,stock:18,category:"Audio",description:"Headphone nirkabel ringan dengan peredam bising aktif.",needs:["Hiburan","Produktivitas"],image:"https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000007",brand:"Logitech",name:"Pebble 2 Combo",spec:"Bluetooth · Multi-device · Silent keys",price:949000,rating:4.7,stock:22,category:"Accessories",description:"Keyboard dan mouse ringkas, senyap, dan mudah dibawa.",needs:["Produktivitas"],image:"https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000008",brand:"Apple",name:"iPhone 15 128GB",spec:"128 GB · Kamera 48 MP · USB-C",price:12999000,originalPrice:13999000,rating:4.9,stock:5,category:"Smartphone",description:"Performa cepat, kamera andal, dan desain yang nyaman digunakan.",needs:["Komunikasi","Hiburan"],image:"https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000009",brand:"Apple",name:"MacBook Air M3",spec:"Apple M3 · 8 GB · 256 GB SSD",price:17999000,rating:4.9,stock:4,category:"Laptop",description:"Ringan, senyap, dan bertenaga untuk produktivitas sepanjang hari.",needs:["Produktivitas"],badge:"PREMIUM",image:"https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000010",brand:"JBL",name:"Flip 6",spec:"Bluetooth · Tahan air IP67 · 12 jam",price:1999000,rating:4.8,stock:0,category:"Audio",description:"Speaker portabel tahan air dengan suara kuat dan jernih.",needs:["Hiburan"],image:"https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?auto=format&fit=crop&w=700&q=80"},
-  {id:"00000000-0000-4000-8000-000000000011",brand:"Anker",name:"PowerCore 20K",spec:"20.000 mAh · Fast charging · USB-C",price:799000,rating:4.8,stock:31,category:"Accessories",description:"Power bank kapasitas besar dengan pengisian cepat dan aman.",needs:["Komunikasi","Produktivitas"],image:"https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?auto=format&fit=crop&w=700&q=80"}
-];
 
 const storage = {
   get(key, fallback) { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { showToast("Penyimpanan browser penuh. Hapus beberapa foto produk.", "error"); } }
 };
-let products = starterProducts;
+// Catalog comes only from the database. There is no built-in list: a failed load shows an
+// error with a retry, never products the store does not sell.
+let products = [];
+let catalogLoaded = false;
 let cart = storage.get("gyd_cart", storage.get("nc_cart", []));
 // Session copy is used for immediate UX; durable customer order access uses capability tokens below.
 let orders = [];
@@ -130,18 +121,27 @@ async function loadProducts() {
   if (!resultText || !productGrid) throw new Error("Elemen katalog utama tidak tersedia.");
   resultText.textContent = "Memuat produk dari database…";
   productGrid.innerHTML = '<div class="empty-state"><span class="state-icon">…</span><h3>Memuat produk</h3><p>Mohon tunggu sebentar.</p></div>';
-  try {
-    const response = await fetch("/api/products", { headers:{ Accept:"application/json" } });
-    if (!response.ok) throw new Error((await response.json().catch(()=>null))?.error || "Produk tidak dapat dimuat");
-    const payload = await response.json();
-    if (!Array.isArray(payload?.products)) throw new Error("Format katalog produk tidak valid.");
-    products = payload.products.map(mapProduct).filter(product => product.isActive);
-    if (!products.length) throw new Error("Katalog Supabase masih kosong. Jalankan berkas seed SQL.");
-  } catch (error) {
-    console.error("Supabase product load failed; showing built-in fallback.", error);
-    products = [...starterProducts];
-    resultText.textContent = "Katalog demo sementara — koneksi database bermasalah.";
-    try { showToast("Database belum dapat dihubungi. Menampilkan katalog demo sementara."); } catch (toastError) { console.error("Fallback notification failed", toastError); }
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt) await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetch("/api/products", { headers:{ Accept:"application/json" } });
+      if (!response.ok) throw new Error((await response.json().catch(()=>null))?.error || "Produk tidak dapat dimuat");
+      const payload = await response.json();
+      if (!Array.isArray(payload?.products)) throw new Error("Format katalog produk tidak valid.");
+      products = payload.products.map(mapProduct).filter(product => product.isActive);
+      catalogLoaded = true;
+      lastError = null;
+      break;
+    } catch (error) { lastError = error; }
+  }
+  if (lastError) {
+    // Keep the saved cart untouched: it is checked again once the catalog loads.
+    console.error("Product catalog failed to load.", lastError);
+    products = [];
+    renderProducts();
+    try { renderShowcases(); } catch (error) { console.error("Optional product showcases failed", error); }
+    return;
   }
   validCart();
   renderProducts();
@@ -286,7 +286,8 @@ function renderHeroMarquee() {
   const track = $("heroMarquee");
   if (!track) return;
   const items = products.filter(product => product.stock > 0 && product.image).slice(0, 10);
-  if (items.length < 3) { track.closest(".hero-marquee")?.classList.add("hidden"); return; }
+  track.closest(".hero-marquee")?.classList.toggle("hidden", items.length < 3);
+  if (items.length < 3) return;
   const card = (product, hidden) => `<button type="button" class="marquee-item" data-view-product="${escapeHTML(product.id)}" ${hidden ? 'tabindex="-1" aria-hidden="true"' : ""}><img src="${safeImage(product.image)}" alt="" width="96" height="96" loading="lazy"><span><strong>${escapeHTML(product.name)}</strong><small>${money(product.price)}</small></span></button>`;
   track.innerHTML = items.map(product => card(product, false)).join("") + items.map(product => card(product, true)).join("");
   track.style.setProperty("--marquee-duration", `${Math.max(24, items.length * 6)}s`);
@@ -310,8 +311,10 @@ function filteredProducts() {
 function renderProducts() {
   try {
     if (!products.length) {
-      $("resultText").textContent = "Katalog belum tersedia.";
-      $("productGrid").innerHTML = '<div class="error-state"><span class="state-icon">!</span><h3>Katalog belum dapat dimuat</h3><p>Silakan muat kembali halaman beberapa saat lagi.</p><button class="secondary" type="button" onclick="location.reload()">Muat Ulang</button></div>';
+      $("resultText").textContent = catalogLoaded ? "Belum ada produk." : "Katalog belum dapat dimuat.";
+      $("productGrid").innerHTML = catalogLoaded
+        ? '<div class="empty-state"><span class="state-icon">⌕</span><h3>Produk segera hadir</h3><p>Katalog sedang kami siapkan. Tanya stok lewat WhatsApp 0812-8845-1500.</p></div>'
+        : '<div class="error-state"><span class="state-icon">!</span><h3>Katalog belum dapat dimuat</h3><p>Koneksi ke server sedang bermasalah. Coba lagi sebentar.</p><button class="secondary" type="button" data-action="reload-catalog">Coba Lagi</button></div>';
       return;
     }
     const result = filteredProducts();
@@ -332,7 +335,7 @@ function addToCart(id, openAfter = false, quantity = 1) {
   const added = Math.min(Math.max(1, quantity), available);
   item ? item.qty += added : cart.push({ id, qty: added }); persist(); renderCart(); showToast(`${added} × ${product.name} ditambahkan ke keranjang.`); if (openAfter) openCart(); return true;
 }
-function validCart() { cart = cart.filter(item => { const product = products.find(entry => entry.id === item.id); if (!product || product.stock <= 0 || item.qty <= 0) return false; item.qty = Math.min(item.qty, product.stock); return true; }); return cart; }
+function validCart() { if (!catalogLoaded) return []; cart = cart.filter(item => { const product = products.find(entry => entry.id === item.id); if (!product || product.stock <= 0 || item.qty <= 0) return false; item.qty = Math.min(item.qty, product.stock); return true; }); return cart; }
 function cartSubtotal() { return validCart().reduce((sum, item) => { const product = products.find(entry => entry.id === item.id); return sum + product.price * item.qty; }, 0); }
 function renderCart() {
   validCart();
@@ -792,6 +795,7 @@ function handleAction(action) {
     case "close-payment": closePaymentModal(); break;
     case "check-payment": refreshPaymentStatus({manual:true}); break;
     case "renew-payment": if(paymentSession)openGatewayPayment(paymentSession.orderNumber); break;
+    case "reload-catalog": loadProducts(); break;
     case "reset-product": $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; break;
   }
 }

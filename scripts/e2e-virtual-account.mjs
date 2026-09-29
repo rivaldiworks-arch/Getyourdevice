@@ -9,6 +9,11 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+// Catalog served by the mocked /api/products (the storefront has no built-in product list).
+const CATALOG=[
+  {id:"00000000-0000-4000-8000-000000000008",name:"iPhone 15 128GB",brand:"Apple",category:"Smartphone",description:"Test.",specifications:{summary:"128 GB"},price:12999000,original_price:null,stock:4,image_url:"",images:[],rating:4.9,is_active:true,warranty:null},
+  {id:"00000000-0000-4000-8000-000000000007",name:"Pebble 2 Combo",brand:"Logitech",category:"Accessories",description:"Test.",specifications:{summary:"Bluetooth"},price:949000,original_price:null,stock:22,image_url:"",images:[],rating:4.7,is_active:true,warranty:null}
+];
 
 const root=fileURLToPath(new URL("..",import.meta.url));
 const types={".html":"text/html",".js":"text/javascript",".css":"text/css"};
@@ -55,6 +60,7 @@ async function openPage({width,config,cart=[],access=[],orders={}}) {
       return route.fulfill({status:201,json:vaFor(body.bank)});
     }
     if(url.pathname==="/api/orders/detail") return route.fulfill({json:orders[body.orderNumber]});
+    if(url.pathname==="/api/products") return route.fulfill({json:{products:CATALOG}});
     return route.fulfill({status:503,json:{error:"offline"}});
   });
   await page.addInitScript(({cart,access})=>{

@@ -7,6 +7,11 @@ import { extname, join } from "node:path";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+// Catalog served by the mocked /api/products (the storefront has no built-in product list).
+const CATALOG=[
+  {id:"00000000-0000-4000-8000-000000000008",name:"iPhone 15 128GB",brand:"Apple",category:"Smartphone",description:"Test.",specifications:{summary:"128 GB"},price:12999000,original_price:null,stock:4,image_url:"",images:[],rating:4.9,is_active:true,warranty:null},
+  {id:"00000000-0000-4000-8000-000000000007",name:"Pebble 2 Combo",brand:"Logitech",category:"Accessories",description:"Test.",specifications:{summary:"Bluetooth"},price:949000,original_price:null,stock:22,image_url:"",images:[],rating:4.7,is_active:true,warranty:null}
+];
 
 const root=fileURLToPath(new URL("..",import.meta.url));
 const types={".html":"text/html",".js":"text/javascript",".css":"text/css"};
@@ -40,6 +45,7 @@ async function run(width){
       qrCount++;
       return route.fulfill({status:200,json:{paymentStatus:"pending",paymentMethod:"QRIS",paymentUrl:`data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><text y='9'>${qrCount}</text></svg>`,expiresAt:new Date(Date.now()+30*60e3).toISOString(),reused:false}});
     }
+    if(url.pathname==="/api/products") return route.fulfill({json:{products:CATALOG}});
     return route.fulfill({status:503,json:{error:"offline"}});
   });
   await page.addInitScript(()=>{const T=c=>c.repeat(64);localStorage.setItem("gyd_order_access",JSON.stringify([
