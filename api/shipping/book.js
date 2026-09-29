@@ -93,6 +93,7 @@ module.exports=async function handler(req,res) {
       origin_address:cfg.originAddress,
       ...(cfg.originNote?{origin_note:cfg.originNote}:{}),
       origin_postal_code:Number(cfg.originPostalCode),
+      ...(cfg.originCoordinate?{origin_coordinate:cfg.originCoordinate}:{}),
       destination_contact_name:destinationName,
       destination_contact_phone:destinationPhone,
       ...(order.customer_email?{destination_contact_email:order.customer_email}:{}),
@@ -126,6 +127,7 @@ module.exports=async function handler(req,res) {
     if(["ADMIN_AUTH_REQUIRED","ADMIN_AUTH_INVALID"].includes(error.message)) return res.status(401).json({error:"Sesi admin tidak valid. Silakan login ulang."});
     if(error.message==="ADMIN_FORBIDDEN") return res.status(403).json({error:"Akun tidak memiliki akses admin."});
     if(/SHIPPING_ORIGIN_.*not configured/.test(error.message)) return res.status(503).json({error:"Data pickup origin belum lengkap di server."});
+    if(Number(error.code)===40002040) return res.status(422).json({error:"Kurir ini butuh titik koordinat lokasi pickup toko. Isi SHIPPING_ORIGIN_LATITUDE dan SHIPPING_ORIGIN_LONGITUDE di Vercel, lalu redeploy."});
     console.error("Shipment booking failed",{status:error.status||null,code:error.code||null,message:error.message});
     return res.status(status>=400&&status<500?status:500).json({error:error.message||"Pengiriman belum dapat dibooking."});
   }
