@@ -76,6 +76,22 @@ async function retrieveRates({destinationPostalCode,items}) {
   return pricing.map(mapRate).filter(rate=>Number.isFinite(rate.amount)&&rate.amount>=0&&rate.serviceCode!==":");
 }
 
+// Pickup point as map coordinates. Some couriers (Pos Indonesia with pickup collection)
+// refuse an order without them (Biteship error 40002040); others use them to route the
+// pickup. Optional: both unset sends no coordinate; a half-set or out-of-range pair is a
+// configuration error rather than a silently wrong pickup point.
+function originCoordinate() {
+  const rawLat=String(process.env.SHIPPING_ORIGIN_LATITUDE||"").trim();
+  const rawLng=String(process.env.SHIPPING_ORIGIN_LONGITUDE||"").trim();
+  if(!rawLat&&!rawLng) return null;
+  const latitude=Number(rawLat),longitude=Number(rawLng);
+  // Indonesia spans roughly 6°N–11°S and 95°E–141°E.
+  if(!rawLat||!rawLng||!Number.isFinite(latitude)||!Number.isFinite(longitude)||latitude<-11.5||latitude>6.5||longitude<94.5||longitude>141.5) {
+    throw new Error("SHIPPING_ORIGIN_LATITUDE/LONGITUDE is not configured correctly");
+  }
+  return {latitude,longitude};
+}
+
 function bookingConfig() {
   const base=config();
   const originContactName=String(process.env.SHIPPING_ORIGIN_CONTACT_NAME||"").trim();
@@ -87,7 +103,7 @@ function bookingConfig() {
   if(!originContactName) throw new Error("SHIPPING_ORIGIN_CONTACT_NAME is not configured");
   if(!/^\+?\d{9,15}$/.test(originContactPhone.replace(/[\s().-]/g,""))) throw new Error("SHIPPING_ORIGIN_CONTACT_PHONE is not configured");
   if(originAddress.length<10) throw new Error("SHIPPING_ORIGIN_ADDRESS is not configured");
-  return {...base,originContactName,originContactPhone,originAddress,originContactEmail,originNote,organization};
+  return {...base,originContactName,originContactPhone,originAddress,originContactEmail,originNote,organization,originCoordinate:originCoordinate()};
 }
 
 async function createOrder(payload) {

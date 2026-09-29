@@ -144,6 +144,10 @@ SHIPPING_ORIGIN_ADDRESS=<alamat pickup lengkap>
 SHIPPING_ORIGIN_CONTACT_EMAIL=<email pickup>
 SHIPPING_ORIGIN_NOTE=<catatan pickup>
 SHIPPING_ORIGIN_ORGANIZATION=GETYOURDEVICE
+# titik pickup (desimal, dari Google Maps). Wajib untuk Pos Indonesia dengan pickup:
+# tanpa ini Biteship menolak order dengan kode 40002040. Isi keduanya atau kosongkan keduanya.
+SHIPPING_ORIGIN_LATITUDE=<mis. -6.17>
+SHIPPING_ORIGIN_LONGITUDE=<mis. 106.81>
 ```
 
 Tracking utama memakai Biteship tracking ID melalui `POST /api/shipping/track` dari admin. Biteship webhook tersedia di:
