@@ -7,6 +7,7 @@ the store accepts.
 
 | File | Commons source |
 | --- | --- |
+| qris.svg | File:QRIS logo.svg (only the QRIS mark; the "QR Code Standar Pembayaran Nasional" line is cropped off so it reads at tile size. Licence page not re-checked when added: the Commons API was rate-limiting; QRIS is the national QR payment mark merchants display to show they accept it) |
 | gopay.svg | File:GoPay logo.svg |
 | bni.svg | File:Bank Negara Indonesia logo (2004).svg |
 | bri.svg | File:BANK BRI logo.svg |
