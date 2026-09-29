@@ -115,7 +115,11 @@ for(const width of [1440,834,390]){
   // A broken product photo falls back to a local placeholder once; it never loops.
   await page.waitForTimeout(400);
   assert.equal([...imageRequests.keys()].some(url=>url.includes("placehold")),false,"no third-party placeholder requests");
-  assert.ok([...imageRequests.values()].every(count=>count<=4),`broken images are not retried in a loop: ${JSON.stringify([...imageRequests.values()])}`);
+  // A loop keeps requesting: the counts must stop growing, and stay small per image element.
+  const settled=JSON.stringify([...imageRequests]);
+  await page.waitForTimeout(1200);
+  assert.equal(JSON.stringify([...imageRequests]),settled,"broken images are not retried in a loop");
+  assert.ok([...imageRequests.values()].every(count=>count<=6),`no runaway image requests: ${JSON.stringify([...imageRequests.values()])}`);
   // Every payment and courier logo is served and decodes; a broken logo would show as an empty tile.
   const logos=page.locator(".trust-section .brand-tile img");
   assert.ok(await logos.count()>=7,"bank, e-wallet and courier logos are shown");
