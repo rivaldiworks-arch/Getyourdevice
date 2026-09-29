@@ -1,5 +1,6 @@
 // Browser test for the admin product gallery and specification list (Phase 8L): photos are
-// cropped in the browser to square 1200x1200 or landscape 1600x1200 JPEGs, at least 3 are
+// redrawn in the browser to square 1200x1200 or landscape 1600x1200 JPEGs, whole by default
+// ("Utuh", white padding) or cropped to fill ("Penuh"), at least 3 are
 // required, the first is the cover (image_url), and specifications are entered one per line.
 // Requires the playwright package: npm install --no-save playwright
 import assert from "node:assert/strict";
@@ -79,6 +80,16 @@ for(const width of [1180,390]){
   assert.equal(uploads.length,0,"nothing is uploaded before the gallery is complete");
   await page.setInputFiles("#imageFile",[{name:"third.png",mimeType:"image/png",buffer:png(500,500)}]);
   await page.waitForFunction(()=>document.querySelectorAll("#imagePreview .gallery-item img").length===3);
+  // Photos are kept whole by default: the tall photo in a square frame gets white sides.
+  // "Penuh" crops it to fill the frame instead.
+  const corner=index=>page.locator("#imagePreview .gallery-item img").nth(index).evaluate(async img=>{await img.decode();const c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;const x=c.getContext("2d");x.drawImage(img,0,0);const [r,g,b]=x.getImageData(5,c.height/2,1,1).data;return r>240&&g>240&&b>240?"white":"photo";});
+  assert.deepEqual(await page.locator("#imagePreview .gallery-item").evaluateAll(items=>items.map(item=>item.querySelector("[data-gallery-fit].active")?.dataset.galleryFit)),["contain","contain","contain"],"new photos default to Utuh");
+  assert.equal(await corner(1),"white","Utuh keeps the whole photo with white padding");
+  await page.locator('[data-gallery-item="1"][data-gallery-fit="cover"]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-gallery-item="1"][data-gallery-fit="cover"]').classList.contains("active")&&!document.querySelector("[data-gallery-fit]:disabled"));
+  assert.equal(await corner(1),"photo","Penuh crops the photo to fill the frame");
+  await page.locator('[data-gallery-item="1"][data-gallery-fit="contain"]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-gallery-item="1"][data-gallery-fit="contain"]').classList.contains("active")&&!document.querySelector("[data-gallery-fit]:disabled"));
   // Switch the second photo to landscape and move the third to the front (cover).
   await page.locator('[data-gallery-item="1"][data-gallery-shape="landscape"]').click();
   await page.waitForFunction(()=>document.querySelectorAll("#imagePreview .gallery-item")[1].classList.contains("shape-landscape")&&!document.querySelector("[data-gallery-shape]:disabled"));

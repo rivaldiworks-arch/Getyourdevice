@@ -189,18 +189,44 @@ for(const width of [320,360,390,414,834,1024,1180]){
   await page.goto(`${origin}/#produk/${products.find(product=>product.warranty==="tam").id}`);
   await page.waitForSelector("#productModal:not(.hidden) .detail-assurance");
   assert.match(await page.locator(".detail-assurance").innerText(),/Garansi distributor TAM/);
-  // Products saved with a gallery get thumbnails; a thumbnail swaps the main photo and its fit.
+  // Products saved with a gallery: swipeable slides shown whole, thumbnails, arrows, a
+  // counter, and a full-screen viewer on tap. The description keeps its line breaks.
   {
     const gallery=products.find(product=>product.warranty==="tam");
     assert.equal(await page.locator(".detail-thumbs button").count(),0,"a single photo shows no thumbnail strip");
+    assert.equal(await page.locator(".gallery-arrow").count(),0,"a single photo shows no arrows");
     gallery.images=[{url:"https://images.example.test/g1.jpg",shape:"square"},{url:"https://images.example.test/g2.jpg",shape:"landscape"},{url:"http://insecure.example.test/g3.jpg",shape:"square"}];
+    gallery.description="Baris pertama.\nBaris kedua.\n\nParagraf baru.";
     await page.goto(`${origin}/`);await page.goto(`${origin}/#produk/${gallery.id}`);
     await page.waitForSelector("#productModal:not(.hidden) .detail-thumbs");
     assert.equal(await page.locator(".detail-thumbs button").count(),2,"non-https photos are dropped");
+    assert.equal(await page.locator(".detail-slides .detail-slide").count(),2,"one slide per photo");
+    assert.deepEqual(await page.locator(".detail-slide img").evaluateAll(imgs=>imgs.map(img=>getComputedStyle(img).objectFit)),["contain","contain"],"photos are shown whole, never cropped");
+    assert.equal(await page.locator(".detail-slides").evaluate(el=>getComputedStyle(el).scrollSnapType.startsWith("x")),true,"slides swipe sideways");
     await page.locator('[data-gallery-index="1"]').click();
-    assert.equal(await page.locator("#detailMainPhoto").getAttribute("src"),"https://images.example.test/g2.jpg");
-    assert.equal(await page.locator("#detailMainPhoto").getAttribute("class"),"shape-landscape","landscape photos fit instead of being cropped");
-    assert.equal(await page.locator('[data-gallery-index="1"]').getAttribute("class"),"active");
+    await page.waitForFunction(()=>document.querySelector('[data-gallery-index="1"]').classList.contains("active"));
+    assert.equal(await page.locator(".detail-gallery .gallery-counter").innerText(),"2 / 2");
+    await page.locator('.detail-gallery [data-gallery-step="1"]').click();
+    await page.waitForFunction(()=>document.querySelector('[data-gallery-index="0"]').classList.contains("active"),null,{timeout:3000});
+    assert.equal(await page.locator(".detail-gallery .gallery-counter").innerText(),"1 / 2","next on the last photo wraps to the first");
+    // Swiping (scrolling the track) moves the thumbnail and counter along.
+    await page.locator(".detail-slides").evaluate(el=>{el.scrollLeft=el.clientWidth;});
+    await page.waitForFunction(()=>document.querySelector(".detail-gallery .gallery-counter").textContent==="2 / 2");
+    await page.locator('[data-gallery-open="1"]').click();
+    await page.waitForSelector(".photo-viewer");
+    assert.equal(await page.locator(".photo-viewer .viewer-slide img").count(),2,"viewer holds every photo");
+    await page.waitForFunction(()=>document.querySelector(".photo-viewer .gallery-counter").textContent==="2 / 2");
+    assert.ok(await page.locator(".photo-viewer").evaluate(el=>{const r=el.getBoundingClientRect();return r.width>=innerWidth-1&&r.height>=innerHeight-1;}),"viewer covers the screen");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".photo-viewer",{state:"detached"});
+    assert.ok(await page.locator("#productModal:not(.hidden)").count(),"Escape closes only the viewer, not the product");
+    await page.locator('[data-gallery-open="0"]').click();
+    await page.locator("[data-viewer-close]").click();
+    await page.waitForSelector(".photo-viewer",{state:"detached"});
+    const description=await page.locator(".detail-description p").first().evaluate(el=>({text:el.innerText,white:getComputedStyle(el).whiteSpace}));
+    assert.equal(description.white,"pre-line","description keeps the line breaks typed in admin");
+    assert.match(description.text,/Baris pertama\.\nBaris kedua\./);
+    gallery.description="Deskripsi produk.";
     delete gallery.images;
     await page.goto(`${origin}/`);await page.goto(`${origin}/#produk/${gallery.id}`);
     await page.waitForSelector("#productModal:not(.hidden) .detail-shipping");

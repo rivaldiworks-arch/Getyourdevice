@@ -356,11 +356,17 @@ const ASSURANCE_ICONS = {
 // Delivery promise next to the price. Only what holds for every order: same-day dispatch
 // and the Jabodetabek estimate; other cities get their courier estimate at checkout.
 const DETAIL_SHIPPING = `<div class="detail-shipping"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ASSURANCE_ICONS.ship}</svg><div><b>Pengiriman · estimasi tiba 1–3 hari kerja untuk Jabodetabek</b><span>Dikirim hari yang sama bila dibayar sebelum 12.00 WIB (Senin–Sabtu). Ongkir dan estimasi untuk kota lain dihitung otomatis saat checkout.</span></div></div>`;
+// Product gallery: swipeable slides (scroll-snap), thumbnails and arrows. Every photo is
+// shown whole (contain) so nothing is cropped; tapping a photo opens the full-screen viewer.
+function galleryPhotos(product) {
+  return product.images?.length ? product.images : [{ url:product.image, shape:"square" }];
+}
 function detailGallery(product) {
-  const photos = product.images?.length ? product.images : [{ url:product.image, shape:"square" }];
-  const [first] = photos;
-  const thumbs = photos.length > 1 ? `<div class="detail-thumbs" role="list">${photos.map((photo, index) => `<button type="button" role="listitem" class="${index ? "" : "active"}" data-gallery-index="${index}" aria-label="Foto ${index + 1} dari ${photos.length}"><img src="${safeImage(photo.url)}" alt="" width="64" height="64" loading="lazy"></button>`).join("")}</div>` : "";
-  return `<div class="detail-gallery" data-photos='${escapeHTML(JSON.stringify(photos))}'><div class="detail-main-photo"><img id="detailMainPhoto" class="shape-${first.shape}" src="${safeImage(first.url)}" alt="${escapeHTML(product.name)}" width="1000" height="1000"></div>${thumbs}<div class="detail-image-note">Foto produk dapat berbeda menurut varian.</div></div>`;
+  const photos = galleryPhotos(product), many = photos.length > 1;
+  const slides = photos.map((photo, index) => `<button type="button" class="detail-slide" data-gallery-open="${index}" aria-label="Perbesar foto ${index + 1} dari ${photos.length}"><img src="${safeImage(photo.url)}" alt="${escapeHTML(product.name)}${many ? ` — foto ${index + 1}` : ""}" width="1000" height="1000" ${index ? 'loading="lazy"' : ""}></button>`).join("");
+  const arrows = many ? `<button type="button" class="gallery-arrow prev" data-gallery-step="-1" aria-label="Foto sebelumnya">‹</button><button type="button" class="gallery-arrow next" data-gallery-step="1" aria-label="Foto berikutnya">›</button><span class="gallery-counter" aria-live="polite">1 / ${photos.length}</span>` : "";
+  const thumbs = many ? `<div class="detail-thumbs" role="list">${photos.map((photo, index) => `<button type="button" role="listitem" class="${index ? "" : "active"}" data-gallery-index="${index}" aria-label="Foto ${index + 1} dari ${photos.length}"><img src="${safeImage(photo.url)}" alt="" width="64" height="64" loading="lazy"></button>`).join("")}</div>` : "";
+  return `<div class="detail-gallery" data-photos='${escapeHTML(JSON.stringify(photos))}'><div class="detail-main-photo"><div class="detail-slides">${slides}</div>${arrows}</div>${thumbs}<div class="detail-image-note">Foto produk dapat berbeda menurut varian.</div></div>`;
 }
 function detailAssurance(product) {
   const icon=name=>`<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ASSURANCE_ICONS[name]}</svg>`;
@@ -788,17 +794,61 @@ function handleAction(action) {
     case "reset-product": $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; break;
   }
 }
-// Product gallery: a thumbnail swaps the main photo and its fit (square fills, landscape fits).
+// Gallery behaviour: thumbnails and arrows scroll the slides; scrolling (swipe) updates the
+// active thumbnail and counter; tapping a slide opens the full-screen viewer.
+function galleryGoTo(track, index) {
+  const count = track.children.length, target = (index + count) % count;
+  track.scrollTo({ left: target * track.clientWidth, behavior: "smooth" });
+}
+function gallerySync(track) {
+  const gallery = track.closest(".detail-gallery,.photo-viewer"), index = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+  gallery.querySelectorAll("[data-gallery-index]").forEach((button, i) => button.classList.toggle("active", i === index));
+  const counter = gallery.querySelector(".gallery-counter");
+  if (counter) counter.textContent = `${index + 1} / ${track.children.length}`;
+}
+function openPhotoViewer(photos, index, title) {
+  closePhotoViewer();
+  const viewer = document.createElement("div");
+  viewer.className = "photo-viewer";
+  viewer.setAttribute("role", "dialog");
+  viewer.setAttribute("aria-modal", "true");
+  viewer.setAttribute("aria-label", `Foto ${title}`);
+  const many = photos.length > 1;
+  viewer.innerHTML = `<div class="detail-slides viewer-slides">${photos.map(photo => `<div class="viewer-slide"><img src="${safeImage(photo.url)}" alt="${escapeHTML(title)}"></div>`).join("")}</div><button type="button" class="viewer-close" data-viewer-close aria-label="Tutup foto">×</button>${many ? `<button type="button" class="gallery-arrow prev" data-gallery-step="-1" aria-label="Foto sebelumnya">‹</button><button type="button" class="gallery-arrow next" data-gallery-step="1" aria-label="Foto berikutnya">›</button><span class="gallery-counter" aria-live="polite">${index + 1} / ${photos.length}</span>` : ""}`;
+  document.body.appendChild(viewer);
+  const track = viewer.querySelector(".viewer-slides");
+  track.addEventListener("scroll", () => gallerySync(track), { passive: true });
+  requestAnimationFrame(() => { track.scrollLeft = index * track.clientWidth; gallerySync(track); });
+  viewer.querySelector("[data-viewer-close]").focus();
+}
+function closePhotoViewer() { document.querySelector(".photo-viewer")?.remove(); }
 document.addEventListener("click", event => {
   const thumb = event.target.closest("[data-gallery-index]");
-  if (!thumb) return;
-  const gallery = thumb.closest(".detail-gallery"), photo = JSON.parse(gallery.dataset.photos || "[]")[Number(thumb.dataset.galleryIndex)];
-  if (!photo) return;
-  const main = gallery.querySelector("#detailMainPhoto");
-  main.src = safeImage(photo.url);
-  main.className = `shape-${photo.shape}`;
-  gallery.querySelectorAll("[data-gallery-index]").forEach(button => button.classList.toggle("active", button === thumb));
+  if (thumb) { galleryGoTo(thumb.closest(".detail-gallery").querySelector(".detail-slides"), Number(thumb.dataset.galleryIndex)); return; }
+  const step = event.target.closest("[data-gallery-step]");
+  if (step) {
+    const track = step.closest(".detail-gallery,.photo-viewer").querySelector(".detail-slides");
+    galleryGoTo(track, Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + Number(step.dataset.galleryStep));
+    return;
+  }
+  const open = event.target.closest("[data-gallery-open]");
+  if (open) {
+    const gallery = open.closest(".detail-gallery");
+    openPhotoViewer(JSON.parse(gallery.dataset.photos || "[]"), Number(open.dataset.galleryOpen), open.querySelector("img")?.alt || "");
+    return;
+  }
+  if (event.target.closest("[data-viewer-close]") || event.target.classList.contains("viewer-slide")) closePhotoViewer();
 });
+document.addEventListener("scroll", event => { if (event.target.classList?.contains("detail-slides")) gallerySync(event.target); }, { capture: true, passive: true });
+document.addEventListener("keydown", event => {
+  const viewer = document.querySelector(".photo-viewer");
+  if (!viewer) return;
+  if (event.key === "Escape") { event.stopPropagation(); closePhotoViewer(); return; }
+  if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+    const track = viewer.querySelector(".detail-slides");
+    galleryGoTo(track, Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + (event.key === "ArrowRight" ? 1 : -1));
+  }
+}, true);
 document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openGatewayPayment(payOrder);const vaBank=event.target.closest("[data-va-bank]")?.dataset.vaBank;if(vaBank&&paymentSession)openGatewayPayment(paymentSession.orderNumber,{bank:vaBank});const copyValue=event.target.closest("[data-copy]")?.dataset.copy;if(copyValue)copyToClipboard(copyValue);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
 document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment'],#vaBank"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
 document.addEventListener("keydown", event => { if(event.key === "Escape"&&!$("paymentModal")?.classList.contains("hidden")){closePaymentModal();return;} if(event.key === "Escape"){const root=routeParts()[0];if(root==="checkout")navigateRoute("keranjang");else if(root==="produk"&&routeParts()[1])navigateRoute("produk");else if(["keranjang","bantu-pilih"].includes(root))navigateRoute("beranda");else ["menuDrawer","cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
@@ -818,7 +868,7 @@ function initializeMotion() {
 }
 
 $("orderLookup")?.addEventListener("submit",lookupCustomerOrder);
-window.addEventListener("hashchange",queueRouteApply);
+window.addEventListener("hashchange",()=>{closePhotoViewer();queueRouteApply();});
 window.addEventListener("popstate",queueRouteApply);
 
 async function initializeApp() {

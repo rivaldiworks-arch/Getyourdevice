@@ -140,11 +140,14 @@ async function loadProducts(){$("productMessage").textContent="Memuat produk…"
 function filteredProducts(){const query=$("productSearch").value.trim().toLowerCase(),status=$("statusFilter").value;return products.filter(p=>(status==="all"||(status==="active")===p.is_active)&&(!query||[p.name,p.brand,p.category].some(v=>String(v||"").toLowerCase().includes(query))));}
 function renderProducts(){const rows=filteredProducts();$("productTable").innerHTML=rows.length?`<table><thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${rows.map(p=>`<tr><td><div class="product-cell"><img src="${escapeHTML(p.image_url||"https://placehold.co/80x80?text=GYD")}" alt=""><span><strong>${escapeHTML(p.name)}</strong><small>${escapeHTML(p.brand||"")}</small></span></div></td><td>${escapeHTML(p.category||"-")}</td><td>${money(p.price)}</td><td><input class="quick-number" type="number" min="0" value="${Number(p.stock)||0}" data-stock="${p.id}" aria-label="Stok ${escapeHTML(p.name)}"></td><td><button class="status-pill ${p.is_active?"active":""}" data-toggle="${p.id}">${p.is_active?"Aktif":"Nonaktif"}</button></td><td><div class="row-actions"><button data-edit="${p.id}">Edit</button><button class="delete" data-delete="${p.id}">Hapus</button></div></td></tr>`).join("")}</tbody></table>`:'<div class="empty-admin">Tidak ada produk yang sesuai.</div>';}
 function showFormError(message){$("formError").textContent=message;$("formError").classList.remove("hidden");}
-// Product gallery (Phase 8L). Every new photo is centre-cropped in the browser to one of two
-// sizes, square 1200x1200 or landscape 1600x1200, and uploaded as JPEG; at least 3 photos
+// Product gallery (Phase 8L). Every new photo is redrawn in the browser to one of two sizes,
+// square 1200x1200 or landscape 1600x1200, and uploaded as JPEG. By default the whole photo is
+// kept and the spare area is filled white ("Utuh"); "Penuh" centre-crops to fill the frame
+// instead, which cuts the edges of a photo whose ratio differs. At least 3 photos
 // are required to save. The first photo is the cover and is also written to image_url.
 const GALLERY_MIN=3,GALLERY_MAX=8,SOURCE_MAX_BYTES=20*1024*1024;
 const GALLERY_SHAPES={square:{width:1200,height:1200,label:"Kotak"},landscape:{width:1600,height:1200,label:"Landscape"}};
+const GALLERY_FITS={contain:"Utuh",cover:"Penuh"};
 let gallery=[];
 // Category and brand come from fixed lists so every product lands in a storefront tab and
 // one brand is always spelled one way. Categories match app.js CATEGORIES. Brands are the
@@ -173,20 +176,27 @@ function galleryFromProduct(product){
   const list=Array.isArray(product?.images)?product.images.filter(item=>item?.url).map(item=>({kind:"existing",url:item.url,shape:item.shape==="landscape"?"landscape":"square"})):[];
   return list.length?list:product?.image_url?[{kind:"existing",url:product.image_url,shape:"square"}]:[];
 }
-async function cropPhoto(file,shape){
+async function cropPhoto(file,shape,fit="contain"){
   const {width,height}=GALLERY_SHAPES[shape],bitmap=await createImageBitmap(file);
-  const scale=Math.max(width/bitmap.width,height/bitmap.height),sw=width/scale,sh=height/scale;
   const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
   const context=canvas.getContext("2d");context.fillStyle="#fff";context.fillRect(0,0,width,height);
-  context.drawImage(bitmap,(bitmap.width-sw)/2,(bitmap.height-sh)/2,sw,sh,0,0,width,height);bitmap.close?.();
+  context.imageSmoothingQuality="high";
+  if(fit==="cover"){
+    const scale=Math.max(width/bitmap.width,height/bitmap.height),sw=width/scale,sh=height/scale;
+    context.drawImage(bitmap,(bitmap.width-sw)/2,(bitmap.height-sh)/2,sw,sh,0,0,width,height);
+  }else{
+    const scale=Math.min(width/bitmap.width,height/bitmap.height),dw=bitmap.width*scale,dh=bitmap.height*scale;
+    context.drawImage(bitmap,(width-dw)/2,(height-dh)/2,dw,dh);
+  }
+  bitmap.close?.();
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.86));
   if(!blob)throw new Error("Foto tidak dapat diproses. Coba file lain.");
   return blob;
 }
 function releaseGalleryItem(item){if(item?.preview)URL.revokeObjectURL(item.preview);}
-async function setGalleryShape(item,shape){
-  item.shape=shape;item.busy=true;renderGallery();
-  try{const blob=await cropPhoto(item.file,shape);releaseGalleryItem(item);item.blob=blob;item.preview=URL.createObjectURL(blob);}
+async function setGalleryShape(item,shape,fit=item.fit){
+  item.shape=shape;item.fit=fit;item.busy=true;renderGallery();
+  try{const blob=await cropPhoto(item.file,shape,fit);releaseGalleryItem(item);item.blob=blob;item.preview=URL.createObjectURL(blob);}
   catch(error){gallery=gallery.filter(entry=>entry!==item);showFormError(error.message);}
   finally{item.busy=false;renderGallery();}
 }
@@ -197,14 +207,14 @@ async function addGalleryFiles(files){
     if(file.size>SOURCE_MAX_BYTES){showFormError("Ukuran foto asli maksimal 20 MB.");continue;}
     let shape="square";
     try{const bitmap=await createImageBitmap(file);shape=bitmap.width>=bitmap.height*1.15?"landscape":"square";bitmap.close?.();}catch{showFormError("Foto tidak dapat dibaca. Coba file lain.");continue;}
-    const item={kind:"new",file,shape};gallery.push(item);await setGalleryShape(item,shape);
+    const item={kind:"new",file,shape,fit:"contain"};gallery.push(item);await setGalleryShape(item,shape);
   }
 }
 function renderGallery(){
   const grid=$("imagePreview");
   grid.innerHTML=gallery.map((item,index)=>{
     const src=item.kind==="new"?item.preview||"":item.url;
-    const shapes=item.kind==="new"?`<div class="gallery-shapes" role="group" aria-label="Ukuran foto">${Object.entries(GALLERY_SHAPES).map(([key,shape])=>`<button type="button" class="${item.shape===key?"active":""}" data-gallery-shape="${key}" data-gallery-item="${index}" ${item.busy?"disabled":""}>${shape.label}</button>`).join("")}</div>`:`<small class="gallery-note">Foto tersimpan</small>`;
+    const shapes=item.kind==="new"?`<div class="gallery-shapes" role="group" aria-label="Ukuran foto">${Object.entries(GALLERY_SHAPES).map(([key,shape])=>`<button type="button" class="${item.shape===key?"active":""}" data-gallery-shape="${key}" data-gallery-item="${index}" ${item.busy?"disabled":""}>${shape.label}</button>`).join("")}</div><div class="gallery-shapes" role="group" aria-label="Potong foto">${Object.entries(GALLERY_FITS).map(([key,label])=>`<button type="button" class="${item.fit===key?"active":""}" data-gallery-fit="${key}" data-gallery-item="${index}" ${item.busy?"disabled":""} title="${key==="contain"?"Foto utuh, sisa area putih":"Isi bingkai, tepi foto terpotong"}">${label}</button>`).join("")}</div>`:`<small class="gallery-note">Foto tersimpan</small>`;
     return `<figure class="gallery-item shape-${item.shape}">${index===0?'<span class="gallery-cover">Sampul</span>':""}<div class="gallery-thumb">${src?`<img src="${escapeHTML(src)}" alt="Foto ${index+1}">`:'<span>Memproses…</span>'}</div>${shapes}<div class="gallery-actions"><button type="button" data-gallery-move="-1" data-gallery-item="${index}" ${index===0?"disabled":""} aria-label="Geser ke kiri">←</button><button type="button" data-gallery-move="1" data-gallery-item="${index}" ${index===gallery.length-1?"disabled":""} aria-label="Geser ke kanan">→</button><button type="button" class="gallery-remove" data-gallery-remove="${index}" aria-label="Hapus foto">Hapus</button></div></figure>`;
   }).join("")+`<p class="gallery-count ${gallery.length<GALLERY_MIN?"short":""}">${gallery.length} dari minimal ${GALLERY_MIN} foto${gallery.length<GALLERY_MIN?` · tambah ${GALLERY_MIN-gallery.length} lagi`:""}</p>`;
 }
@@ -615,6 +625,7 @@ $("brand").addEventListener("change",()=>{const other=$("brand").value===BRAND_O
 $("imageFile").addEventListener("change",async event=>{$("formError").classList.add("hidden");const files=[...event.target.files];event.target.value="";await addGalleryFiles(files);});
 $("imagePreview").addEventListener("click",event=>{
   const shape=event.target.closest("[data-gallery-shape]");if(shape){const item=gallery[Number(shape.dataset.galleryItem)];if(item&&item.shape!==shape.dataset.galleryShape)setGalleryShape(item,shape.dataset.galleryShape);return;}
+  const fit=event.target.closest("[data-gallery-fit]");if(fit){const item=gallery[Number(fit.dataset.galleryItem)];if(item&&item.fit!==fit.dataset.galleryFit)setGalleryShape(item,item.shape,fit.dataset.galleryFit);return;}
   const move=event.target.closest("[data-gallery-move]");if(move){const from=Number(move.dataset.galleryItem),to=from+Number(move.dataset.galleryMove);if(to>=0&&to<gallery.length){[gallery[from],gallery[to]]=[gallery[to],gallery[from]];renderGallery();}return;}
   const remove=event.target.closest("[data-gallery-remove]");if(remove){const [item]=gallery.splice(Number(remove.dataset.galleryRemove),1);releaseGalleryItem(item);renderGallery();}
 });
