@@ -602,3 +602,16 @@ h1,h2,h3{font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-s
   .detail-specs li{font-size:12.5px}
   .detail-assurance{gap:8px}
 }
+
+/* Header: tighter action icons, a cart badge on the icon, and frosted-glass bars. */
+.header-actions{gap:0}
+.header-actions .icon-button{min-width:36px;padding:6px 5px;--badge-x:5px}
+.cart-button b{position:absolute;top:2px;right:auto;left:calc(var(--badge-x,5px) + 13px);min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border:2px solid #fff;border-radius:9px;font-size:10px;line-height:1;font-weight:800}
+.cart-button b[data-empty="true"]{display:none}
+.cart-button .action-symbol+span{margin-left:8px}
+.site-header{background:rgba(255,255,255,.74);-webkit-backdrop-filter:saturate(180%) blur(30px);backdrop-filter:saturate(180%) blur(30px);border-bottom:1px solid rgba(255,255,255,.5);box-shadow:0 1px 0 rgba(0,0,0,.06)}
+.site-header .search-wrap{background:rgba(118,118,128,.12)}
+.site-header .search-wrap:focus-within{background:rgba(255,255,255,.9)}
+.checkout-navigation{background:rgba(255,255,255,.72);-webkit-backdrop-filter:saturate(180%) blur(24px);backdrop-filter:saturate(180%) blur(24px)}
+.policy-header{background:rgba(255,255,255,.68);-webkit-backdrop-filter:saturate(180%) blur(24px);backdrop-filter:saturate(180%) blur(24px)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.site-header,.policy-header,.checkout-navigation{background:rgba(255,255,255,.96)}}
