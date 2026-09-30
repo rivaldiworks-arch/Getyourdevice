@@ -112,7 +112,7 @@ async function fetchCustomerOrderAccess(entry){
 function mapProduct(row) {
   const specifications = row.specifications;
   const spec = typeof specifications === "string" ? specifications : Array.isArray(specifications) ? specifications.join(" · ") : specifications?.summary || (specifications && typeof specifications === "object" ? Object.entries(specifications).map(([key,value]) => `${key}: ${value}`).join(" · ") : "");
-  return { id:String(row.id), name:row.name, brand:row.brand || "", category:row.category || "Accessories", description:row.description || "", spec, price:Number(row.price), originalPrice:row.original_price == null ? null : Number(row.original_price), stock:Number(row.stock || 0), image:row.image_url || "", images:productGallery(row), rating:Number(row.rating || 0), isActive:row.is_active !== false, warranty:WARRANTY_LABELS[row.warranty] ? row.warranty : null, needs: categoryNeeds(row.category) };
+  return { id:String(row.id), name:row.name, brand:row.brand || "", category:row.category || "Accessories", description:row.description || "", spec, price:Number(row.price), originalPrice:row.original_price == null ? null : Number(row.original_price), stock:Number(row.stock || 0), image:row.image_url || "", images:productGallery(row), rating:Number(row.rating || 0), isActive:row.is_active !== false, warranty:WARRANTY_LABELS[row.warranty] ? row.warranty : null, isNew:row.is_new === true, needs: categoryNeeds(row.category) };
 }
 function categoryNeeds(category) { return ({Smartphone:["Komunikasi","Hiburan"],Laptop:["Produktivitas","Hiburan"],Tablet:["Produktivitas","Hiburan"],Smartwatch:["Kesehatan"],Audio:["Hiburan"],Accessories:["Produktivitas"]})[category] || ["Produktivitas"]; }
 async function loadProducts() {
@@ -297,8 +297,37 @@ function renderHeroMarquee() {
   track.innerHTML = items.map(product => card(product, false)).join("") + items.map(product => card(product, true)).join("");
   track.style.setProperty("--marquee-duration", `${Math.max(24, items.length * 6)}s`);
 }
+// "Baru": up to three products the owner ticks in the admin panel, in a bento layout
+// (one tall tile and two wide ones, or fewer tiles when fewer are ticked).
+function renderNewArrivals() {
+  const items = products.filter(product => product.isNew).slice(0, 3);
+  $("newSection").classList.toggle("hidden", !items.length);
+  $("newGrid").className = `new-grid new-count-${items.length}`;
+  $("newGrid").innerHTML = items.map((product, index) => {
+    const out = product.stock <= 0, id = escapeHTML(product.id), name = escapeHTML(product.name);
+    return `<article class="new-tile${index === 0 ? " new-tile-lead" : ""}" data-product="${id}" tabindex="0" aria-label="Lihat detail ${name}"><div class="new-copy"><span class="new-label">BARU</span><h3>${name}</h3>${product.spec ? `<p>${escapeHTML(product.spec)}</p>` : ""}<p class="new-price">${money(product.price)}</p><button class="pill-button" type="button" data-add="${id}" ${out ? "disabled" : ""}>${out ? "Stok habis" : "Tambah ke keranjang"}</button></div><div class="new-image"><img src="${safeImage(product.image)}" alt="${name}" width="600" height="600" loading="lazy" onerror="this.onerror=null;this.src='${IMAGE_FALLBACK}'"></div></article>`;
+  }).join("");
+}
+// "Promo terbatas": every product with a crossed-out price, biggest saving first.
+function renderPromos() {
+  const items = products.filter(product => product.originalPrice > product.price).sort((a,b) => (b.originalPrice - b.price) - (a.originalPrice - a.price));
+  $("promoSection").classList.toggle("hidden", !items.length);
+  $("promoTrack").innerHTML = items.map(product => {
+    const out = product.stock <= 0, id = escapeHTML(product.id), name = escapeHTML(product.name);
+    return `<article class="promo-card" data-product="${id}" tabindex="0" aria-label="Lihat detail ${name}"><div class="promo-image"><img src="${safeImage(product.image)}" alt="${name}" width="500" height="500" loading="lazy" onerror="this.onerror=null;this.src='${IMAGE_FALLBACK}'"></div><span class="promo-label">SALE</span><h3>${name}</h3><p class="promo-was"><del>${money(product.originalPrice)}</del> <b>-${money(product.originalPrice - product.price)}</b></p><p class="promo-price">${money(product.price)}</p><button class="pill-button" type="button" data-add="${id}" ${out ? "disabled" : ""}>${out ? "Stok habis" : "Tambah ke keranjang"}</button></article>`;
+  }).join("");
+  updatePromoArrows();
+}
+function updatePromoArrows() {
+  const track = $("promoTrack");
+  const max = track.scrollWidth - track.clientWidth;
+  document.querySelector(".promo-arrow.prev").disabled = track.scrollLeft <= 4;
+  document.querySelector(".promo-arrow.next").disabled = track.scrollLeft >= max - 4;
+}
 function renderShowcases() {
   renderHeroMarquee();
+  renderNewArrivals();
+  renderPromos();
   const phones = products.filter(product => product.category === "Smartphone").slice(0, 4);
   const popular = [...products].filter(product => product.stock > 0).sort((a,b) => (b.rating || 4.7) - (a.rating || 4.7)).slice(0, 4);
   $("smartphoneShowcase").innerHTML = phones.map((product,index) => storyCard(product,index)).join("");
@@ -906,6 +935,14 @@ document.addEventListener("click", event => {
   if (event.target.closest("[data-viewer-close]") || event.target.classList.contains("viewer-slide")) closePhotoViewer();
 });
 document.addEventListener("scroll", event => { if (event.target.classList?.contains("detail-slides")) gallerySync(event.target); }, { capture: true, passive: true });
+document.addEventListener("click", event => {
+  const step = event.target.closest("[data-promo-step]");
+  if (!step) return;
+  const track = $("promoTrack"), card = track.querySelector(".promo-card");
+  track.scrollBy({ left: Number(step.dataset.promoStep) * Math.max(card ? card.offsetWidth + 20 : 300, track.clientWidth - 40), behavior: "smooth" });
+});
+document.addEventListener("scroll", event => { if (event.target.id === "promoTrack") updatePromoArrows(); }, { capture: true, passive: true });
+window.addEventListener("resize", () => { if ($("promoTrack")?.children.length) updatePromoArrows(); });
 document.addEventListener("keydown", event => {
   const viewer = document.querySelector(".photo-viewer");
   if (!viewer) return;
