@@ -47,6 +47,7 @@ module.exports=async function handler(req,res) {
       trackingNumber,
       courier:{company:courier.company,type:courier.type,name:value(order.shipping_service_name,order.shipping_service_code,"Kurir")},
       environment:order.shipping_environment||null,
+      shippingCost:Number(order.shipping_cost)||0,
       recipient:{
         name:value(order.customer_name,order.full_name,""),
         phone:value(order.customer_phone,order.whatsapp,""),

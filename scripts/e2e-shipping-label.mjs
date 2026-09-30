@@ -1,6 +1,6 @@
 // Browser test for the printable shipping label (Phase 8D). Opens the admin panel with
 // mocked Supabase and /api/shipping/label, prints a label, checks the print layout
-// (only the 100x150 mm label is printed), and decodes the waybill barcode from a
+// (only the 100x100 mm label is printed), and decodes the waybill barcode from a
 // screenshot of the rendered label with ZXing, as a courier scanner would.
 // Requires: npm install --no-save playwright @zxing/library
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import { chromium } from "playwright";
 const require=createRequire(import.meta.url);
 const zxingPath=process.env.ZXING_UMD||require.resolve("@zxing/library/umd/index.min.js");
 const root=fileURLToPath(new URL("..",import.meta.url));
-const types={".html":"text/html",".js":"text/javascript",".css":"text/css"};
+const types={".html":"text/html",".js":"text/javascript",".css":"text/css",".png":"image/png",".svg":"image/svg+xml"};
 const server=createServer(async (req,res)=>{
   const path=new URL(req.url,"http://x").pathname;
   try{const body=await readFile(join(root,path==="/"?"admin.html":path));res.writeHead(200,{"Content-Type":types[extname(path)]||"text/html"});res.end(body);}
@@ -54,14 +54,14 @@ async function openAdmin(width,labelResponse){
   await page.waitForSelector("#orderDialog[open] [data-shipping-label]");
   return {page,calls};
 }
-const labelData=trackingNumber=>({orderNumber:order.order_number,createdAt:order.created_at,trackingNumber,courier:{company:"jne",type:"reg",name:"JNE Reguler"},environment:"live",
+const labelData=trackingNumber=>({orderNumber:order.order_number,createdAt:order.created_at,trackingNumber,courier:{company:"jne",type:"reg",name:"JNE · Reguler"},environment:"live",shippingCost:9000,
   recipient:{name:"Oslo",phone:"6281288451500",address:"Jl. Rawamangun Muka No. 5, RT 01/RW 02, Kel. Rawamangun, Kec. Pulo Gadung",city:"Jakarta Timur",postalCode:"13220",note:"Titip satpam"},
   sender:{name:"GETYOURDEVICE",contact:"Rivaldi",phone:"081234567890",address:"Jl. Pemuda No. 1, Rawamangun, Jakarta Timur",postalCode:"13220"},
   items:[{name:"Galaxy A56 5G",quantity:1},{name:"Mouse Wireless",quantity:2}],weightGrams:690});
 
 async function decodeLabelBarcode(page){
   // Screenshot the label as printed (print media, real CSS size), then decode the image.
-  const png=await page.locator("#printArea .label-barcode").screenshot();
+  const png=await page.locator("#printArea .label-waybill .label-barcode").screenshot();
   if(!await page.evaluate(()=>Boolean(window.ZXing)))await page.addScriptTag({path:zxingPath});
   return page.evaluate(async base64=>{
     const img=new Image();img.src=`data:image/png;base64,${base64}`;await img.decode();
@@ -84,15 +84,19 @@ async function run(width){
   await page.waitForFunction(()=>window.__prints===1);
   assert.deepEqual(calls[0],{orderId:order.id});
   const text=await page.locator("#printArea").innerText();
-  for(const expected of [/JNE/,/REG/,/No\. Resi/,/Oslo/,/6281288451500/,/Jakarta Timur 13220/,/GETYOURDEVICE/,/081234567890/,/GYD-20260926-0200/,/690 g/,/3 barang/,/Mouse Wireless × 2/,/Titip satpam/])assert.match(text,expected);
+  for(const expected of [/Nomor Resi - JNE0012345678/,/Ongkos Kirim: Rp9\.000/,/Jenis Layanan - Reguler/,/NON-COD/,/Oslo/,/6281\*{7}00/,/Jakarta Timur, 13220/,/Alamat Pengirim:\s*GETYOURDEVICE/,/081234567890/,/GYD-20260926-0200/,/0,69 kg/,/3 Pcs/,/1x Galaxy A56 5G, 2x Mouse Wireless/,/Titip satpam/])assert.match(text,expected);
+  assert.doesNotMatch(text,/6281288451500/,"the recipient phone is masked on the parcel");
+  const logos=await page.locator("#printArea img").evaluateAll(imgs=>imgs.map(img=>[img.getAttribute("src"),img.complete&&img.naturalWidth>0]));
+  assert.deepEqual(logos,[["logos/jne.png",true],["logos/gyd-wordmark.png",true]],"courier logo left, store logo right, both loaded before printing");
+  assert.doesNotMatch(text,/Rivaldi/,"the sender is the store, not the contact person");
   assert.equal(await page.title(),"Admin — getyourdevice","title restored after printing");
   assert.equal(await page.locator("#dashboardView").isVisible(),true);
   assert.equal(await page.locator("#printArea").isVisible(),false,"the label is only visible when printing");
 
   await page.emulateMedia({media:"print"});
-  // Printed output: only the label, at 100x150 mm (96 px/in => 378 x 567 CSS px).
+  // Printed output: only the label, at 100x100 mm (96 px/in => 378 x 378 CSS px).
   const box=await page.locator("#printArea .shipping-label").boundingBox();
-  assert.ok(Math.abs(box.width-378)<=2&&Math.abs(box.height-567)<=2,`label is 100x150 mm, got ${box.width}x${box.height}`);
+  assert.ok(Math.abs(box.width-378)<=2&&Math.abs(box.height-378)<=2,`label is 100x100 mm, got ${box.width}x${box.height}`);
   assert.equal(await page.locator("#orderDialog").isVisible(),false,"the order dialog is not printed");
   assert.equal(await page.locator("#dashboardView").isVisible(),false,"the admin UI is not printed");
   const overflow=await page.evaluate(()=>{const label=document.querySelector(".shipping-label");return [...label.children].some(child=>child.getBoundingClientRect().bottom>label.getBoundingClientRect().bottom+1);});

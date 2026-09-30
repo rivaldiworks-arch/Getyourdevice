@@ -1,6 +1,6 @@
 "use strict";
 
-// Printable 100x150 mm shipping label for the admin panel. Biteship has no label API,
+// Printable 100x100 mm shipping label for the admin panel. Biteship has no label API,
 // so the label is rendered here from /api/shipping/label and printed (or saved as
 // PDF) through the browser's print dialog. The waybill barcode is Code 128.
 (function(){
@@ -41,27 +41,40 @@
   }
 
   function escapeHTML(value=""){return String(value).replace(/[&<>'"]/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);}
-  function weightLabel(grams){if(!grams)return "-";return grams>=1000?`${(grams/1000).toLocaleString("id-ID",{maximumFractionDigits:2})} kg`:`${grams} g`;}
+  function weightLabel(grams){if(!grams)return "-";return `${(grams/1000).toLocaleString("id-ID",{minimumFractionDigits:grams<1000?2:0,maximumFractionDigits:2})} kg`;}
+  function rupiah(value){return `Rp${Math.round(Number(value)||0).toLocaleString("id-ID")}`;}
+  // Recipient phone on the parcel is masked like Biteship's own label (the courier
+  // app has the full number): keep the first four and last two digits.
+  function maskPhone(phone){const digits=String(phone||"").replace(/\D/g,"");return digits.length>6?`${digits.slice(0,4)}${"*".repeat(digits.length-6)}${digits.slice(-2)}`:digits;}
+  const COURIER_LOGOS={jne:"jne.png",jnt:"jnt.svg",sicepat:"sicepat.png",anteraja:"anteraja.png",ninja:"ninja.png",pos:"pos.png",tiki:"tiki.png"};
+  // "JNE · Reguler" -> "Reguler"; otherwise the service code in capitals.
+  function serviceLabel(courier){const name=String(courier?.name||"");const parts=name.split("·").map(part=>part.trim()).filter(Boolean);return parts.length>1?parts.slice(1).join(" · "):String(courier?.type||name||"-").toUpperCase();}
 
+  // Layout follows Biteship's dashboard label (courier and store marks, waybill barcode,
+  // fee and service, order reference barcode, parties, contents, note) so labels printed
+  // from the admin panel and from the Biteship dashboard look the same.
   function labelHTML(data){
-    const courier=String(data.courier?.company||"").toUpperCase();
-    const service=String(data.courier?.type||"").toUpperCase();
+    const company=String(data.courier?.company||"").toLowerCase();
+    const logo=COURIER_LOGOS[company];
+    const courierName=String(data.courier?.company||data.courier?.name||"KURIR").toUpperCase();
     const recipient=data.recipient||{},sender=data.sender||{};
     const items=(data.items||[]);
-    // Six lines fit the label; the rest is summarised so nothing is silently cut off.
-    const shown=items.slice(0,6),hidden=items.slice(6).reduce((sum,item)=>sum+(Number(item.quantity)||0),0);
+    // Four items fit the label; the rest is summarised so nothing is silently cut off.
+    const shown=items.slice(0,4),hidden=items.slice(4).reduce((sum,item)=>sum+(Number(item.quantity)||0),0);
     const count=items.reduce((sum,item)=>sum+(Number(item.quantity)||0),0);
     const created=data.createdAt?new Date(data.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric"}):"-";
+    const note=recipient.note||`${sender.name||"GETYOURDEVICE"} ${data.orderNumber||""}`.trim();
     return `<article class="shipping-label">
-      <header class="label-head"><strong class="label-store">${escapeHTML(sender.name||"GETYOURDEVICE")}</strong><span class="label-courier"><b>${escapeHTML(courier||data.courier?.name||"KURIR")}</b>${service?`<small>${escapeHTML(service)}</small>`:""}</span></header>
+      <header class="label-head"><span class="label-courier">${logo?`<img src="logos/${logo}" alt="${escapeHTML(courierName)}">`:`<b>${escapeHTML(courierName)}</b>`}</span><img class="label-store" src="logos/gyd-wordmark.png" alt="${escapeHTML(sender.name||"GETYOURDEVICE")}"></header>
       ${data.environment==="test"?'<p class="label-test">LABEL UJI COBA — BUKAN PENGIRIMAN NYATA</p>':""}
-      <section class="label-waybill">${code128Svg(data.trackingNumber)}<p><span>No. Resi</span><strong>${escapeHTML(data.trackingNumber)}</strong></p></section>
-      <section class="label-party label-recipient"><h4>Penerima</h4><strong>${escapeHTML(recipient.name)}</strong><p>${escapeHTML(recipient.phone)}</p><p>${escapeHTML(recipient.address)}</p><p><b>${escapeHTML([recipient.city,recipient.postalCode].filter(Boolean).join(" "))}</b></p></section>
-      <section class="label-party label-sender"><h4>Pengirim</h4><p><b>${escapeHTML(sender.contact||sender.name)}</b> · ${escapeHTML(sender.phone)}</p><p>${escapeHTML(sender.address)}${sender.postalCode?` ${escapeHTML(sender.postalCode)}`:""}</p></section>
-      <section class="label-meta"><div><span>Pesanan</span><b>${escapeHTML(data.orderNumber)}</b></div><div><span>Tanggal</span><b>${escapeHTML(created)}</b></div><div><span>Berat</span><b>${escapeHTML(weightLabel(data.weightGrams))}</b></div><div><span>Jumlah</span><b>${count} barang</b></div></section>
-      <section class="label-items"><h4>Isi paket</h4><ul>${shown.map(item=>`<li>${escapeHTML(item.name)} <b>× ${Number(item.quantity)||1}</b></li>`).join("")}${hidden?`<li><b>+${hidden} barang lainnya</b></li>`:""}</ul>${recipient.note?`<p class="label-note"><b>Catatan:</b> ${escapeHTML(recipient.note)}</p>`:""}</section>
+      <section class="label-waybill">${code128Svg(data.trackingNumber)}<p>Nomor Resi - <strong>${escapeHTML(data.trackingNumber)}</strong></p></section>
+      <section class="label-fee"><p>Ongkos Kirim: <b>${escapeHTML(rupiah(data.shippingCost))}</b> · Jenis Layanan - <b>${escapeHTML(serviceLabel(data.courier))}</b></p><span class="label-noncod">NON-COD</span></section>
+      <section class="label-split"><div class="label-ref"><span>Reference Number</span>${data.orderNumber?code128Svg(data.orderNumber,{height:24}):""}<p>${escapeHTML(data.orderNumber||"-")}</p></div><div class="label-facts"><p><span>Quantity</span><b>${count} Pcs</b></p><p><span>Weight</span><b>${escapeHTML(weightLabel(data.weightGrams))}</b></p><p><span>Tanggal</span><b>${escapeHTML(created)}</b></p></div></section>
+      <section class="label-split label-parties"><div class="label-recipient"><h4>Alamat Penerima:</h4><strong>${escapeHTML(recipient.name)}</strong><p>${escapeHTML(maskPhone(recipient.phone))}</p><p>${escapeHTML(recipient.address)}</p><p><b>${escapeHTML([recipient.city,recipient.postalCode].filter(Boolean).join(", "))}</b></p></div><div class="label-sender"><h4>Alamat Pengirim:</h4><strong>${escapeHTML(sender.name||sender.contact)}</strong><p>${escapeHTML(sender.phone)}</p><p>${escapeHTML(sender.address)}${sender.postalCode?`, ${escapeHTML(sender.postalCode)}`:""}</p></div></section>
+      <section class="label-items"><h4>Jenis Barang :</h4><p class="label-list">${[...shown.map(item=>`${Number(item.quantity)||1}x ${escapeHTML(item.name)}`),...(hidden?[`<b>+${hidden} barang lainnya</b>`]:[])].join(", ")}</p></section>
+      <section class="label-note"><h4>Catatan :</h4><p>${escapeHTML(note)}</p></section>
     </article>`;
   }
 
-  window.GydLabel={code128Values,code128Svg,labelHTML};
+  window.GydLabel={code128Values,code128Svg,labelHTML,maskPhone};
 })();

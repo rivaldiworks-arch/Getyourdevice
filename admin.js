@@ -504,6 +504,8 @@ async function printShippingLabel(id){
   try{
     const data=await serverRequest("/api/shipping/label",{method:"POST",body:JSON.stringify({orderId:id})});
     $("printArea").innerHTML=window.GydLabel.labelHTML(data);
+    // The courier and store logos must be loaded before the print dialog snapshots the page.
+    await Promise.all([...$("printArea").querySelectorAll("img")].map(img=>img.decode().catch(()=>{})));
     // The document title becomes the suggested PDF file name.
     const title=document.title;document.title=`Label ${data.orderNumber} ${data.trackingNumber}`;
     window.print();
