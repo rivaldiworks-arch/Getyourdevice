@@ -257,6 +257,11 @@ resetEnv({CUSTOMER_EMAIL_FROM:"getyourdevice <support@getyourdevice.id>"}); rese
   assert.match(receipt.subject,new RegExp(`Pembayaran diterima · ${order.order_number}`));
   assert.match(receipt.html,/#lacak\//);
   assert.match(receipt.html,/icon-192\.png/,"the receipt carries the gyd mark too");
+  assert.equal(receipt.attachments?.length,1,"the receipt carries the invoice");
+  assert.equal(receipt.attachments[0].filename,`Invoice-${order.order_number}.pdf`);
+  assert.equal(Buffer.from(receipt.attachments[0].content,"base64").subarray(0,5).toString(),"%PDF-");
+  assert.match(receipt.html,/Invoice pembelian terlampir/);
+  assert.equal(sent.find(mail=>mail.to[0]==="seller@example.test").attachments,undefined,"the seller email has no attachment");
   assert.ok(order.customer_paid_notified_at);
   await midtransNotification(payment,"settlement");
   assert.equal(sent.length,2,"retries do not email the customer again");

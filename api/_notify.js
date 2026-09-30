@@ -1,5 +1,6 @@
 "use strict";
 const { supabaseAdmin } = require("./_supabase");
+const { buildInvoicePdf } = require("./_invoice");
 
 // Seller and customer email notifications via Resend (https://resend.com). Best-effort by design:
 // a missing configuration or a mail outage is logged and never fails a checkout or a
@@ -51,7 +52,7 @@ async function adminJson(path,options) {
   return data;
 }
 
-const ORDER_FIELDS="id,order_number,created_at,status,payment_method,payment_status,total,shipping_cost,customer_name,customer_phone,customer_email,shipping_address,city,postal_code,shipping_service_name,shipping_method,payment_access_expires_at,tracking_number";
+const ORDER_FIELDS="id,order_number,created_at,status,payment_method,payment_status,subtotal,discount,total,shipping_cost,customer_name,customer_phone,customer_email,shipping_address,city,postal_code,shipping_service_name,shipping_method,payment_access_expires_at,tracking_number";
 
 function orderEmail(order,items,{headline,intro,siteUrl}) {
   const wa=whatsappLink(order.customer_phone);
@@ -78,11 +79,11 @@ function orderEmail(order,items,{headline,intro,siteUrl}) {
   return {html,text};
 }
 
-async function sendEmail(cfg,{subject,html,text,to=cfg.to}) {
+async function sendEmail(cfg,{subject,html,text,to=cfg.to,attachments}) {
   const response=await fetch("https://api.resend.com/emails",{
     method:"POST",
     headers:{Authorization:`Bearer ${cfg.apiKey}`,"Content-Type":"application/json"},
-    body:JSON.stringify({from:cfg.from,to,subject,html,text,...(cfg.replyTo?{reply_to:cfg.replyTo}:{})}),
+    body:JSON.stringify({from:cfg.from,to,subject,html,text,...(cfg.replyTo?{reply_to:cfg.replyTo}:{}),...(attachments?.length?{attachments}:{})}),
     signal:AbortSignal.timeout(SEND_TIMEOUT_MS)
   });
   const data=await response.json().catch(()=>({}));
@@ -110,7 +111,7 @@ const SELLER_MISSING="RESEND_API_KEY atau ORDER_NOTIFY_EMAIL belum diisi";
 const CUSTOMER_MISSING="RESEND_API_KEY atau CUSTOMER_EMAIL_FROM belum diisi";
 
 async function loadItems(orderId) {
-  return adminJson(`order_items?select=product_name,quantity,subtotal&order_id=eq.${encodeURIComponent(orderId)}`)||[];
+  return adminJson(`order_items?select=product_name,quantity,unit_price,product_price,price,subtotal&order_id=eq.${encodeURIComponent(orderId)}`)||[];
 }
 
 // The seller hears about every new order: COD needs their action right away, and a
@@ -263,13 +264,21 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
     recipient=maskEmail(order.customer_email);
     const items=await loadItems(order.id);
     const pickup=order.shipping_method==="pickup";
+    // The invoice is a bonus: if it cannot be built, the receipt still goes out without it.
+    let attachments=[];
+    try {
+      const pdf=buildInvoicePdf(order,items,{paymentLabel:paymentLabel(order.payment_method),supportEmail:cfg.replyTo});
+      attachments=[{filename:`Invoice-${order.order_number}.pdf`,content:pdf.toString("base64")}];
+    } catch(error) {
+      console.error("Invoice PDF failed",{requestId,orderNumber:order.order_number,message:error.message});
+    }
     const content=customerEmail(order,items,{siteUrl:cfg.siteUrl,headline:"Pembayaran diterima",intro:"pembayaran Anda sudah kami terima dan pesanan sedang diproses.",
       ctaLabel:"Lacak Pesanan",ctaUrl:`${cfg.siteUrl}/#lacak/${encodeURIComponent(order.order_number)}`,
-      notes:pickup
+      notes:[...(attachments.length?["Invoice pembelian terlampir (PDF). Simpan sebagai bukti pembelian dan untuk klaim garansi."]:[]),...(pickup
         ?["Alamat dan jadwal pengambilan kami kirim lewat WhatsApp."]
-        :["Pembayaran sebelum pukul 12.00 WIB (Senin–Sabtu) dikirim hari yang sama; setelahnya hari kerja berikutnya.","Nomor resi muncul di halaman pesanan setelah paket diserahkan ke kurir.","Rekam video unboxing saat paket tiba; laporan barang rusak atau salah kirim maksimal 1×24 jam."]});
+        :["Pembayaran sebelum pukul 12.00 WIB (Senin–Sabtu) dikirim hari yang sama; setelahnya hari kerja berikutnya.","Nomor resi muncul di halaman pesanan setelah paket diserahkan ke kurir.","Rekam video unboxing saat paket tiba; laporan barang rusak atau salah kirim maksimal 1×24 jam."])]});
     try {
-      const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pembayaran diterima · ${order.order_number}`,...content});
+      const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pembayaran diterima · ${order.order_number}`,...content,attachments});
       await logEmail({orderNumber:order.order_number,kind:"customer-paid",status:"sent",recipient,providerId});
     } catch(error) {
       await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({customer_paid_notified_at:null})}).catch(()=>{});
