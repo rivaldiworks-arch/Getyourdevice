@@ -84,8 +84,10 @@ async function run(width){
   await page.waitForFunction(()=>window.__prints===1);
   assert.deepEqual(calls[0],{orderId:order.id});
   const text=await page.locator("#printArea").innerText();
-  for(const expected of [/Nomor Resi - JNE0012345678/,/Ongkos Kirim: Rp9\.000/,/Jenis Layanan - Reguler/,/NON-COD/,/Oslo/,/6281\*{7}00/,/Jakarta Timur, 13220/,/Alamat Pengirim:\s*GETYOURDEVICE/,/081234567890/,/GYD-20260926-0200/,/0,69 kg/,/3 Pcs/,/1x Galaxy A56 5G, 2x Mouse Wireless/,/Titip satpam/])assert.match(text,expected);
+  for(const expected of [/Nomor Resi - JNE0012345678/,/Ongkos Kirim: Rp9\.000/,/Jenis Layanan - Reguler/,/NON-COD/,/O\*{3}/,/6281\*{7}00/,/Jakarta Timur, 13220/,/Alamat Pengirim:\s*GETYOURDEVICE/,/081234567890/,/GYD-20260926-0200/,/0,69 kg/,/3 Pcs/,/1x Galaxy A56 5G, 2x Mouse Wireless/,/Titip satpam/])assert.match(text,expected);
   assert.doesNotMatch(text,/6281288451500/,"the recipient phone is masked on the parcel");
+  assert.doesNotMatch(text,/Oslo/,"the recipient name is masked on the parcel");
+  assert.match(text,/Jl\. Rawamangun Muka No\. 5/,"the address stays whole for the courier");
   const logos=await page.locator("#printArea img").evaluateAll(imgs=>imgs.map(img=>[img.getAttribute("src"),img.complete&&img.naturalWidth>0]));
   assert.deepEqual(logos,[["logos/jne.png",true],["logos/gyd-wordmark.png",true]],"courier logo left, store logo right, both loaded before printing");
   assert.doesNotMatch(text,/Rivaldi/,"the sender is the store, not the contact person");

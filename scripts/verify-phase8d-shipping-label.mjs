@@ -121,6 +121,10 @@ assert.equal((many.match(/Item \d/g)||[]).length,4,"four items plus a summary li
 assert.match(many,/\+10 barang lainnya/);
 assert.equal(globalThis.window.GydLabel.maskPhone("6281288451500"),"6281*******00");
 assert.equal(globalThis.window.GydLabel.maskPhone("0812"),"0812");
+assert.equal(globalThis.window.GydLabel.maskName("Budi  Santoso"),"B*** S******");
+assert.equal(globalThis.window.GydLabel.maskName("Osloooo"),"O******");
+assert.equal(globalThis.window.GydLabel.maskName(""),"");
+assert.doesNotMatch(labelHTML({orderNumber:"G",trackingNumber:"X1",courier:{},recipient:{name:"Rahasia Sekali",address:"Jl. Mawar 1"},sender:{},items:[]}),/Rahasia|Sekali/,"the recipient name is masked");
 const styled=labelHTML({orderNumber:"GYD-20260930-0001",trackingNumber:"0123082600493118",shippingCost:12000,courier:{company:"jne",type:"reg",name:"JNE · Reguler"},recipient:{phone:"6281288451500"},sender:{name:"GETYOURDEVICE"},items:[{name:"Test product",quantity:1}],weightGrams:5});
 assert.match(styled,/src="logos\/jne\.png"/,"known couriers show their logo");
 assert.match(styled,/src="logos\/gyd-wordmark\.png"/,"store logo on the label");
