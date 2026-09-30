@@ -46,7 +46,7 @@ console.error=()=>{};
 
 const order={id:"o1",order_number:"GYD-20260926-0007",created_at:"2026-09-26T08:00:00Z",customer_name:"Oslo",customer_phone:"6281288451500",
   shipping_address:"Jl. Rawamangun Muka No. 5",city:"Jakarta Timur",postal_code:"13220",shipping_service_code:"jne:reg",shipping_service_name:"JNE Reguler",
-  shipping_order_id:"bs-1",tracking_number:"JNE0012345678",shipping_environment:"live",notes:"Titip satpam"};
+  shipping_order_id:"bs-1",tracking_number:"JNE0012345678",shipping_environment:"live",notes:"Titip satpam",shipping_cost:"9000.00"};
 db.orders.push(order,{...order,id:"o-unbooked",shipping_order_id:null,tracking_number:null},{...order,id:"o-pending",shipping_order_id:"bs-2",tracking_number:null});
 db.items.push(
   {order_id:"o1",product_id:"p1",product_name:"Galaxy A56 5G",quantity:1,weight_grams:450},
@@ -66,6 +66,7 @@ db.products.push({id:"p2",weight_grams:120,length_cm:10,width_cm:6,height_cm:4})
   assert.deepEqual(data.sender,{name:"GETYOURDEVICE",contact:"Rivaldi",phone:"081234567890",address:"Jl. Pemuda No. 1, Rawamangun, Jakarta Timur",postalCode:"13220"});
   assert.deepEqual(data.items,[{name:"Galaxy A56 5G",quantity:1},{name:"Mouse",quantity:2}]);
   assert.equal(data.weightGrams,450+2*120,"item weight falls back to the product");
+  assert.equal(data.shippingCost,9000);
   assert.equal(biteship.calls,0,"a stored waybill needs no Biteship call");
 }
 // 2. Not booked yet.
@@ -116,7 +117,18 @@ const html=labelHTML({orderNumber:"GYD-1",trackingNumber:"X1",courier:{company:"
 assert.doesNotMatch(html,/<img src=x/,"customer text is escaped");
 assert.match(html,/LABEL UJI COBA/,"Biteship test bookings are marked");
 const many=labelHTML({orderNumber:"GYD-1",trackingNumber:"X1",courier:{},recipient:{},sender:{},items:Array.from({length:9},(_,i)=>({name:`Item ${i}`,quantity:2}))});
-assert.equal((many.match(/<li>/g)||[]).length,7,"six items plus a summary line");
-assert.match(many,/\+6 barang lainnya/);
+assert.equal((many.match(/<li>/g)||[]).length,5,"four items plus a summary line");
+assert.match(many,/\+10 barang lainnya/);
+assert.equal(globalThis.window.GydLabel.maskPhone("6281288451500"),"6281*******00");
+assert.equal(globalThis.window.GydLabel.maskPhone("0812"),"0812");
+const styled=labelHTML({orderNumber:"GYD-20260930-0001",trackingNumber:"0123082600493118",shippingCost:12000,courier:{company:"jne",type:"reg",name:"JNE · Reguler"},recipient:{phone:"6281288451500"},sender:{name:"GETYOURDEVICE"},items:[{name:"Test product",quantity:1}],weightGrams:5});
+assert.match(styled,/src="logos\/jne\.png"/,"known couriers show their logo");
+assert.match(styled,/src="logos\/gyd-wordmark\.png"/);
+assert.match(styled,/Jenis Layanan - <b>Reguler<\/b>/);
+assert.match(styled,/Ongkos Kirim: <b>Rp12\.000<\/b>/);
+assert.match(styled,/0,01 kg/);
+assert.match(styled,/GETYOURDEVICE GYD-20260930-0001/,"the note defaults to store and order number");
+assert.equal((styled.match(/class="label-barcode"/g)||[]).length,2,"waybill and order reference barcodes");
+assert.match(labelHTML({orderNumber:"G",trackingNumber:"X1",courier:{company:"lion",type:"regpack"},recipient:{},sender:{},items:[]}),/<b>LION<\/b>/,"unknown couriers fall back to text");
 
 console.log("Phase 8D shipping label verification passed.");
