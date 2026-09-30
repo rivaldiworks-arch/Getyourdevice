@@ -91,9 +91,9 @@ for(const width of [1440,834,390]){
   assert.equal(logo.text,"getyourdevice");
   assert.deepEqual([logo.aWeight,logo.bWeight,logo.bColor],["300","700","rgb(47, 111, 219)"]);
   assert.match(logo.family,/^"?Outfit/);
-  // Scroll order: products come right after categories; reassurance sits just above the footer.
+  // Scroll order: the "Baru" and promo showcases, then products, after categories; reassurance sits just above the footer.
   const order=await page.evaluate(()=>[...document.querySelectorAll("#storeView > section")].map(section=>section.id||section.getAttribute("aria-labelledby")));
-  assert.deepEqual(order,["heroTitle","categoryTitle","productsSection","dealTitle","latestPhonesTitle","laptopTitle","popularTitle","whyTitle"]);
+  assert.deepEqual(order,["heroTitle","categoryTitle","newSection","promoSection","productsSection","dealTitle","latestPhonesTitle","laptopTitle","popularTitle","whyTitle"]);
   assert.equal(await page.locator(".benefits").count(),0,"service promises are not repeated above the fold");
   assert.equal(await page.locator(".trust-section .why-grid article").count(),4);
   assert.ok(await page.locator(".trust-section .brand-tile").count()>=15,"payment and courier options are listed");

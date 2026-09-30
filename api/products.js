@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
     catch(error) { console.error(error); return res.status(302).setHeader("Location",`/#produk/${UUID.test(String(req.query.share))?req.query.share:""}`).end(); }
   }
   try {
-    const fields="id,name,brand,category,description,specifications,price,original_price,stock,image_url,images,rating,is_active,warranty";
+    const fields="id,name,brand,category,description,specifications,price,original_price,stock,image_url,images,rating,is_active,warranty,is_new";
     const response=await supabase(`products?select=${fields}&is_active=eq.true&order=name.asc`);
     const data=await response.json();
     if(!response.ok) throw new Error(data.message || "Supabase product query failed");
