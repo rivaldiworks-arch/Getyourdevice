@@ -71,7 +71,8 @@
       <section class="label-fee"><p>Ongkos Kirim: <b>${escapeHTML(rupiah(data.shippingCost))}</b> · Jenis Layanan - <b>${escapeHTML(serviceLabel(data.courier))}</b></p><span class="label-noncod">NON-COD</span></section>
       <section class="label-split"><div class="label-ref"><span>Reference Number</span>${data.orderNumber?code128Svg(data.orderNumber,{height:24}):""}<p>${escapeHTML(data.orderNumber||"-")}</p></div><div class="label-facts"><p><span>Quantity</span><b>${count} Pcs</b></p><p><span>Weight</span><b>${escapeHTML(weightLabel(data.weightGrams))}</b></p><p><span>Tanggal</span><b>${escapeHTML(created)}</b></p></div></section>
       <section class="label-split label-parties"><div class="label-recipient"><h4>Alamat Penerima:</h4><strong>${escapeHTML(recipient.name)}</strong><p>${escapeHTML(maskPhone(recipient.phone))}</p><p>${escapeHTML(recipient.address)}</p><p><b>${escapeHTML([recipient.city,recipient.postalCode].filter(Boolean).join(", "))}</b></p></div><div class="label-sender"><h4>Alamat Pengirim:</h4><strong>${escapeHTML(sender.name||sender.contact)}</strong><p>${escapeHTML(sender.phone)}</p><p>${escapeHTML(sender.address)}${sender.postalCode?`, ${escapeHTML(sender.postalCode)}`:""}</p></div></section>
-      <section class="label-items"><p><span>Jenis Barang :</span> <span class="label-list">${[...shown.map(item=>`${Number(item.quantity)||1}x ${escapeHTML(item.name)}`),...(hidden?[`<b>+${hidden} barang lainnya</b>`]:[])].join(", ")}</span></p><p><span>Catatan :</span> ${escapeHTML(note)}</p></section>
+      <section class="label-items"><h4>Jenis Barang :</h4><p class="label-list">${[...shown.map(item=>`${Number(item.quantity)||1}x ${escapeHTML(item.name)}`),...(hidden?[`<b>+${hidden} barang lainnya</b>`]:[])].join(", ")}</p></section>
+      <section class="label-note"><h4>Catatan :</h4><p>${escapeHTML(note)}</p></section>
     </article>`;
   }
 
