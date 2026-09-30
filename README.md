@@ -244,7 +244,7 @@ Status pesanan bergerak sendiri mengikuti alur; admin tidak lagi memilih status 
 
 Biteship tidak menyediakan API label, jadi admin mencetak label sendiri langsung dari detail pesanan:
 
-- Setelah **Buat Pengiriman Biteship**, klik **Cetak Label**. Browser membuka dialog cetak dengan label **100 × 150 mm** (ukuran printer thermal/resi). Pilih printer label, atau **Simpan sebagai PDF**; nama file otomatis `Label <nomor pesanan> <resi>`.
+- Setelah **Buat Pengiriman Biteship**, klik **Cetak Label**. Browser membuka dialog cetak dengan label **100 × 100 mm** (ukuran printer thermal/resi). Pilih printer label, atau **Simpan sebagai PDF**; nama file otomatis `Label <nomor pesanan> <resi>`.
 - Isi label: nama toko, kurir dan layanan, **barcode resi (Code 128)** beserta nomornya, penerima (nama, telepon, alamat, kota, kode pos), pengirim, nomor pesanan, tanggal, berat total, jumlah barang, isi paket (maks. 6 baris, sisanya diringkas), dan catatan pembeli. Booking mode uji Biteship diberi tanda **LABEL UJI COBA**.
 - Data label berasal dari `POST /api/shipping/label` (khusus admin). Pengirim memakai `SHIPPING_ORIGIN_*` yang sama dengan booking. Bila resi belum ada di database, endpoint menanyakannya sekali ke Biteship dan menyimpannya; bila kurir belum menerbitkan resi, admin mendapat pesan untuk mencoba lagi.
 - Barcode diuji dengan pemindai ZXing terhadap tangkapan layar label dalam mode cetak, untuk format resi numerik, berawalan huruf, campuran, dan bertanda hubung.

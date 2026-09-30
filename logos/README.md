@@ -17,6 +17,8 @@ the store accepts.
 | cimb.svg | File:CIMB Niaga logo.svg |
 | jnt.svg | File:J&T Express logo.svg |
 
+`gyd-wordmark.png` is the store's own wordmark (used on shipping labels).
+
 `jne.png`, `anteraja.png`, `ninja.png`, `pos.png` and `tiki.png` are the couriers' own
 logos, supplied by the store owner. They were trimmed, given a transparent background, and had
 the "Logistik Indonesia" line (POS) and the website line (TIKI) cropped off. Ninja Xpress's white
