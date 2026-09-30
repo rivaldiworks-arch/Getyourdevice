@@ -1,5 +1,6 @@
 "use strict";
 const { supabaseAdmin } = require("./_supabase");
+const { buildInvoicePdf } = require("./_invoice");
 
 // Seller and customer email notifications via Resend (https://resend.com). Best-effort by design:
 // a missing configuration or a mail outage is logged and never fails a checkout or a
@@ -51,7 +52,7 @@ async function adminJson(path,options) {
   return data;
 }
 
-const ORDER_FIELDS="id,order_number,created_at,status,payment_method,payment_status,total,shipping_cost,customer_name,customer_phone,customer_email,shipping_address,city,postal_code,shipping_service_name,shipping_method,payment_access_expires_at";
+const ORDER_FIELDS="id,order_number,created_at,status,payment_method,payment_status,subtotal,discount,total,shipping_cost,customer_name,customer_phone,customer_email,shipping_address,city,postal_code,shipping_service_name,shipping_method,payment_access_expires_at,tracking_number";
 
 function orderEmail(order,items,{headline,intro,siteUrl}) {
   const wa=whatsappLink(order.customer_phone);
@@ -78,11 +79,11 @@ function orderEmail(order,items,{headline,intro,siteUrl}) {
   return {html,text};
 }
 
-async function sendEmail(cfg,{subject,html,text,to=cfg.to}) {
+async function sendEmail(cfg,{subject,html,text,to=cfg.to,attachments}) {
   const response=await fetch("https://api.resend.com/emails",{
     method:"POST",
     headers:{Authorization:`Bearer ${cfg.apiKey}`,"Content-Type":"application/json"},
-    body:JSON.stringify({from:cfg.from,to,subject,html,text,...(cfg.replyTo?{reply_to:cfg.replyTo}:{})}),
+    body:JSON.stringify({from:cfg.from,to,subject,html,text,...(cfg.replyTo?{reply_to:cfg.replyTo}:{}),...(attachments?.length?{attachments}:{})}),
     signal:AbortSignal.timeout(SEND_TIMEOUT_MS)
   });
   const data=await response.json().catch(()=>({}));
@@ -110,7 +111,7 @@ const SELLER_MISSING="RESEND_API_KEY atau ORDER_NOTIFY_EMAIL belum diisi";
 const CUSTOMER_MISSING="RESEND_API_KEY atau CUSTOMER_EMAIL_FROM belum diisi";
 
 async function loadItems(orderId) {
-  return adminJson(`order_items?select=product_name,quantity,subtotal&order_id=eq.${encodeURIComponent(orderId)}`)||[];
+  return adminJson(`order_items?select=product_name,quantity,unit_price,product_price,price,subtotal&order_id=eq.${encodeURIComponent(orderId)}`)||[];
 }
 
 // The seller hears about every new order: COD needs their action right away, and a
@@ -179,7 +180,7 @@ function paymentLabel(method) {
 }
 // The brand mark is a hosted PNG (email clients drop SVG and most block data: URIs); the
 // alt text keeps the name readable when images are off.
-function customerEmail(order,items,{headline,intro,ctaLabel,ctaUrl,notes=[],siteUrl}) {
+function customerEmail(order,items,{headline,intro,ctaLabel,ctaUrl,notes=[],details=[],siteUrl}) {
   const rows=items.map(item=>`<tr><td style="padding:8px 0;border-bottom:1px solid #eef1f5">${escapeHtml(item.product_name)} × ${Number(item.quantity||1)}</td><td style="padding:8px 0;border-bottom:1px solid #eef1f5;text-align:right">${rupiah(item.subtotal)}</td></tr>`).join("");
   const pickup=order.shipping_method==="pickup";
   const html=`<div style="background:#f5f5f7;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#172033">
@@ -194,6 +195,7 @@ function customerEmail(order,items,{headline,intro,ctaLabel,ctaUrl,notes=[],site
 <tr><td style="color:#5f6b7a;padding:4px 0">Nomor pesanan</td><td style="text-align:right;font-weight:bold">${escapeHtml(order.order_number)}</td></tr>
 <tr><td style="color:#5f6b7a;padding:4px 0">Pembayaran</td><td style="text-align:right">${escapeHtml(paymentLabel(order.payment_method))}</td></tr>
 <tr><td style="color:#5f6b7a;padding:4px 0">Pengiriman</td><td style="text-align:right">${escapeHtml(pickup?"Ambil di toko":order.shipping_service_name||"Kurir")}</td></tr>
+${details.map(([label,value])=>`<tr><td style="color:#5f6b7a;padding:4px 0">${escapeHtml(label)}</td><td style="text-align:right;font-weight:bold;font-size:16px;letter-spacing:.02em">${escapeHtml(value)}</td></tr>`).join("")}
 </table>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:12px">${rows}
 <tr><td style="padding:8px 0;color:#5f6b7a">Ongkos kirim</td><td style="padding:8px 0;text-align:right">${rupiah(order.shipping_cost)}</td></tr>
@@ -202,7 +204,7 @@ ${notes.length?`<ul style="margin:18px 0 0;padding-left:18px;font-size:14px;line
 <p style="margin:24px 0"><a href="${ctaUrl}" style="display:inline-block;background:#1446a0;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;font-weight:bold">${escapeHtml(ctaLabel)}</a></p>
 <p style="margin:0;font-size:13px;color:#5f6b7a;line-height:1.6">Ada pertanyaan? Balas email ini atau hubungi <a href="${STORE_WHATSAPP}" style="color:#1446a0">WhatsApp 0812-8845-1500</a> (Senin–Sabtu, 09.00–18.00 WIB). Sertakan nomor pesanan Anda.</p>
 </div></div>`;
-  const text=[headline,"",`Halo ${order.customer_name}, ${intro}`,"",`Nomor pesanan: ${order.order_number}`,`Pembayaran: ${paymentLabel(order.payment_method)}`,`Pengiriman: ${pickup?"Ambil di toko":order.shipping_service_name||"Kurir"}`,"",
+  const text=[headline,"",`Halo ${order.customer_name}, ${intro}`,"",`Nomor pesanan: ${order.order_number}`,`Pembayaran: ${paymentLabel(order.payment_method)}`,`Pengiriman: ${pickup?"Ambil di toko":order.shipping_service_name||"Kurir"}`,...details.map(([label,value])=>`${label}: ${value}`),"",
     ...items.map(item=>`- ${item.product_name} × ${item.quantity}: ${rupiah(item.subtotal)}`),`Ongkos kirim: ${rupiah(order.shipping_cost)}`,`Total: ${rupiah(order.total)}`,"",...notes.map(note=>`• ${note}`),"",`${ctaLabel}: ${ctaUrl}`,"",
     "Ada pertanyaan? Balas email ini atau WhatsApp 0812-8845-1500 (Senin–Sabtu, 09.00–18.00 WIB)."].join("\n");
   return {html,text};
@@ -262,13 +264,21 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
     recipient=maskEmail(order.customer_email);
     const items=await loadItems(order.id);
     const pickup=order.shipping_method==="pickup";
+    // The invoice is a bonus: if it cannot be built, the receipt still goes out without it.
+    let attachments=[];
+    try {
+      const pdf=buildInvoicePdf(order,items,{paymentLabel:paymentLabel(order.payment_method),supportEmail:cfg.replyTo});
+      attachments=[{filename:`Invoice-${order.order_number}.pdf`,content:pdf.toString("base64")}];
+    } catch(error) {
+      console.error("Invoice PDF failed",{requestId,orderNumber:order.order_number,message:error.message});
+    }
     const content=customerEmail(order,items,{siteUrl:cfg.siteUrl,headline:"Pembayaran diterima",intro:"pembayaran Anda sudah kami terima dan pesanan sedang diproses.",
       ctaLabel:"Lacak Pesanan",ctaUrl:`${cfg.siteUrl}/#lacak/${encodeURIComponent(order.order_number)}`,
-      notes:pickup
+      notes:[...(attachments.length?["Invoice pembelian terlampir (PDF). Simpan sebagai bukti pembelian dan untuk klaim garansi."]:[]),...(pickup
         ?["Alamat dan jadwal pengambilan kami kirim lewat WhatsApp."]
-        :["Pembayaran sebelum pukul 12.00 WIB (Senin–Sabtu) dikirim hari yang sama; setelahnya hari kerja berikutnya.","Nomor resi muncul di halaman pesanan setelah paket diserahkan ke kurir.","Rekam video unboxing saat paket tiba; laporan barang rusak atau salah kirim maksimal 1×24 jam."]});
+        :["Pembayaran sebelum pukul 12.00 WIB (Senin–Sabtu) dikirim hari yang sama; setelahnya hari kerja berikutnya.","Nomor resi muncul di halaman pesanan setelah paket diserahkan ke kurir.","Rekam video unboxing saat paket tiba; laporan barang rusak atau salah kirim maksimal 1×24 jam."])]});
     try {
-      const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pembayaran diterima · ${order.order_number}`,...content});
+      const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pembayaran diterima · ${order.order_number}`,...content,attachments});
       await logEmail({orderNumber:order.order_number,kind:"customer-paid",status:"sent",recipient,providerId});
     } catch(error) {
       await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({customer_paid_notified_at:null})}).catch(()=>{});
@@ -282,10 +292,50 @@ async function notifyCustomerOrderPaid(orderId,{requestId}={}) {
   }
 }
 
+// Sent once when the courier has the parcel (Biteship "picked", or "dropping_off" when the
+// pickup event is skipped). customer_shipped_notified_at is claimed first, so repeated
+// webhook events never send it twice; a Resend failure releases the claim for the next event.
+async function notifyCustomerShipped(orderId,{requestId}={}) {
+  const cfg=customerConfig();
+  if(!cfg) { await logEmail({orderId,kind:"customer-shipped",status:"skipped",detail:CUSTOMER_MISSING}); return false; }
+  let recipient=null;
+  try {
+    const claimed=await adminJson(`orders?id=eq.${encodeURIComponent(orderId)}&customer_shipped_notified_at=is.null&select=${ORDER_FIELDS}`,{
+      method:"PATCH",
+      headers:{Prefer:"return=representation"},
+      body:JSON.stringify({customer_shipped_notified_at:new Date().toISOString()})
+    });
+    const order=claimed?.[0];
+    if(!order) return false;
+    if(String(order.status||"").toLowerCase()==="cancelled") return false;
+    if(!validRecipient(order.customer_email)) { await logEmail({orderNumber:order.order_number,kind:"customer-shipped",status:"skipped",detail:"Email pembeli tidak valid"}); return false; }
+    recipient=maskEmail(order.customer_email);
+    const items=await loadItems(order.id);
+    const resi=String(order.tracking_number||"").trim();
+    const content=customerEmail(order,items,{siteUrl:cfg.siteUrl,headline:"Pesanan Anda sedang dikirim",
+      intro:"paket Anda sudah kami serahkan ke kurir dan sedang dalam perjalanan.",
+      details:resi?[["Nomor resi",resi]]:[],
+      ctaLabel:"Lacak Pesanan",ctaUrl:`${cfg.siteUrl}/#lacak/${encodeURIComponent(order.order_number)}`,
+      notes:["Status di situs kurir bisa baru muncul beberapa jam setelah paket diambil.","Pastikan ada yang menerima paket di alamat tujuan dan nomor HP Anda aktif.","Rekam video unboxing saat paket tiba; laporan barang rusak atau salah kirim maksimal 1×24 jam."]});
+    try {
+      const providerId=await sendEmail(cfg,{to:[order.customer_email],subject:`Pesanan dikirim · ${order.order_number}${resi?` · resi ${resi}`:""}`,...content});
+      await logEmail({orderNumber:order.order_number,kind:"customer-shipped",status:"sent",recipient,providerId});
+    } catch(error) {
+      await supabaseAdmin(`orders?id=eq.${encodeURIComponent(orderId)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({customer_shipped_notified_at:null})}).catch(()=>{});
+      throw error;
+    }
+    return true;
+  } catch(error) {
+    console.error("Order notification failed",{requestId,kind:"customer-shipped",message:error.message});
+    await logEmail({orderId,kind:"customer-shipped",status:"failed",recipient,detail:error.message});
+    return false;
+  }
+}
+
 // Seller and customer are notified independently; one failing never blocks the other.
 async function notifyPaid(orderId,options) {
   const [seller]=await Promise.all([notifySellerPaid(orderId,options),notifyCustomerOrderPaid(orderId,options)]);
   return seller;
 }
 
-module.exports={notifyOrderCreated,notifyOrderPaid:notifyPaid,notifyCustomerOrderCreated};
+module.exports={notifyOrderCreated,notifyOrderPaid:notifyPaid,notifyCustomerOrderCreated,notifyCustomerShipped};

@@ -3,6 +3,7 @@
 const { timingSafeEqual } = require("node:crypto");
 const { supabaseAdmin } = require("../_supabase");
 const { orderStatusForShipment } = require("../_orderStatus");
+const { notifyCustomerShipped } = require("../_notify");
 
 function secureEqual(a,b){
   const left=Buffer.from(String(a||"")),right=Buffer.from(String(b||""));
@@ -68,6 +69,8 @@ module.exports=async function handler(req,res){
     if(shippingStatus.toLowerCase()==="delivered") patch.delivered_at=now;
 
     await patchOrder(order.id,patch);
+    // Best-effort and claimed once per order; a mail problem never fails the webhook.
+    if(patch.shipped_at) await notifyCustomerShipped(order.id);
     return res.status(200).json({ok:true});
   }catch(error){
     if(error instanceof SyntaxError) return res.status(400).json({error:"Invalid JSON"});
