@@ -50,7 +50,7 @@
   // "JNE · Reguler" -> "Reguler"; otherwise the service code in capitals.
   function serviceLabel(courier){const name=String(courier?.name||"");const parts=name.split("·").map(part=>part.trim()).filter(Boolean);return parts.length>1?parts.slice(1).join(" · "):String(courier?.type||name||"-").toUpperCase();}
 
-  // Layout follows Biteship's dashboard label (courier and store marks, waybill barcode,
+  // Layout follows Biteship's dashboard label (courier mark, waybill barcode,
   // fee and service, order reference barcode, parties, contents, note) so labels printed
   // from the admin panel and from the Biteship dashboard look the same.
   function labelHTML(data){
@@ -65,15 +65,15 @@
     const created=data.createdAt?new Date(data.createdAt).toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric"}):"-";
     const note=recipient.note||`${sender.name||"GETYOURDEVICE"} ${data.orderNumber||""}`.trim();
     return `<article class="shipping-label">
-      <header class="label-head"><span class="label-courier">${logo?`<img src="logos/${logo}" alt="${escapeHTML(courierName)}">`:`<b>${escapeHTML(courierName)}</b>`}</span><span class="label-store"><img src="logos/gyd-wordmark.png" alt="${escapeHTML(sender.name||"GETYOURDEVICE")}"><small>www.getyourdevice.id</small></span></header>
+      <header class="label-head"><span class="label-courier">${logo?`<img src="logos/${logo}" alt="${escapeHTML(courierName)}">`:`<b>${escapeHTML(courierName)}</b>`}</span></header>
       ${data.environment==="test"?'<p class="label-test">LABEL UJI COBA — BUKAN PENGIRIMAN NYATA</p>':""}
       <section class="label-waybill">${code128Svg(data.trackingNumber)}<p>Nomor Resi - <strong>${escapeHTML(data.trackingNumber)}</strong></p></section>
       <section class="label-fee"><p>Ongkos Kirim: <b>${escapeHTML(rupiah(data.shippingCost))}</b></p><p>Jenis Layanan - <b>${escapeHTML(serviceLabel(data.courier))}</b></p><span class="label-noncod">NON-COD</span></section>
       <section class="label-split"><div class="label-ref"><span>Reference Number</span>${data.orderNumber?code128Svg(data.orderNumber,{height:30}):""}<p>${escapeHTML(data.orderNumber||"-")}</p></div><div class="label-facts"><p><span>Quantity</span><b>${count} Pcs</b></p><p><span>Weight</span><b>${escapeHTML(weightLabel(data.weightGrams))}</b></p><p><span>Tanggal</span><b>${escapeHTML(created)}</b></p></div></section>
-      <section class="label-split label-parties"><div class="label-recipient"><h4>Alamat Penerima:</h4><strong>${escapeHTML(recipient.name)}</strong><p>${escapeHTML(maskPhone(recipient.phone))}</p><p>${escapeHTML(recipient.address)}</p><p><b>${escapeHTML([recipient.city,recipient.postalCode].filter(Boolean).join(", "))}</b></p></div><div class="label-sender"><h4>Alamat Pengirim:</h4><strong>${escapeHTML(sender.contact||sender.name)}</strong><p>${escapeHTML(sender.phone)}</p><p>${escapeHTML(sender.address)}${sender.postalCode?`, ${escapeHTML(sender.postalCode)}`:""}</p></div></section>
+      <section class="label-split label-parties"><div class="label-recipient"><h4>Alamat Penerima:</h4><strong>${escapeHTML(recipient.name)}</strong><p>${escapeHTML(maskPhone(recipient.phone))}</p><p>${escapeHTML(recipient.address)}</p><p><b>${escapeHTML([recipient.city,recipient.postalCode].filter(Boolean).join(", "))}</b></p></div><div class="label-sender"><h4>Alamat Pengirim:</h4><strong>${escapeHTML(sender.name||sender.contact)}</strong><p>${escapeHTML(sender.phone)}</p><p>${escapeHTML(sender.address)}${sender.postalCode?`, ${escapeHTML(sender.postalCode)}`:""}</p></div></section>
       <section class="label-items"><h4>Jenis Barang :</h4><ul>${shown.map(item=>`<li>${Number(item.quantity)||1}x ${escapeHTML(item.name)}</li>`).join("")}${hidden?`<li><b>+${hidden} barang lainnya</b></li>`:""}</ul></section>
       <section class="label-note"><h4>Catatan :</h4><p>${escapeHTML(note)}</p></section>
-      <footer class="label-foot">Dikirim oleh ${escapeHTML(sender.name||"GETYOURDEVICE")} · www.getyourdevice.id</footer>
+      <footer class="label-foot">Dikirim oleh ${escapeHTML(sender.name||"GETYOURDEVICE")}</footer>
     </article>`;
   }
 

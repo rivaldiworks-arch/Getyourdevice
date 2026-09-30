@@ -123,7 +123,8 @@ assert.equal(globalThis.window.GydLabel.maskPhone("6281288451500"),"6281*******0
 assert.equal(globalThis.window.GydLabel.maskPhone("0812"),"0812");
 const styled=labelHTML({orderNumber:"GYD-20260930-0001",trackingNumber:"0123082600493118",shippingCost:12000,courier:{company:"jne",type:"reg",name:"JNE · Reguler"},recipient:{phone:"6281288451500"},sender:{name:"GETYOURDEVICE"},items:[{name:"Test product",quantity:1}],weightGrams:5});
 assert.match(styled,/src="logos\/jne\.png"/,"known couriers show their logo");
-assert.match(styled,/src="logos\/gyd-wordmark\.png"/);
+assert.doesNotMatch(styled,/gyd-wordmark/,"no store logo on the label");
+assert.match(labelHTML({orderNumber:"G",trackingNumber:"X1",courier:{},recipient:{},sender:{name:"GETYOURDEVICE",contact:"Valdi"},items:[]}),/Alamat Pengirim:<\/h4><strong>GETYOURDEVICE<\/strong>/,"the sender is the store name");
 assert.match(styled,/Jenis Layanan - <b>Reguler<\/b>/);
 assert.match(styled,/Ongkos Kirim: <b>Rp12\.000<\/b>/);
 assert.match(styled,/0,01 kg/);
