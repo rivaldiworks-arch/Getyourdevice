@@ -332,10 +332,43 @@ async function notifyCustomerShipped(orderId,{requestId}={}) {
   }
 }
 
+// One order paid through more than one attempt (two tabs, a VA from a retired Snap page).
+// The paid email is sent once per order, so without this the second payment, which must
+// be refunded, would reach the seller only through the Midtrans dashboard. Called when
+// an attempt turns paid, not on webhook retries.
+async function notifyDuplicatePayment(orderId,{requestId}={}) {
+  let paid;
+  try {
+    paid=await adminJson(`payments?select=id,provider_reference,external_transaction_id,amount,paid_at&order_id=eq.${encodeURIComponent(orderId)}&status=eq.paid&order=paid_at.asc`)||[];
+  } catch(error) {
+    console.error("Duplicate payment check failed",{requestId,message:error.message});
+    return false;
+  }
+  if(paid.length<2) return false;
+  console.error("Order paid more than once",{requestId,orderId,payments:paid.length});
+  const cfg=notifyConfig();
+  if(!cfg) { await logEmail({orderId,kind:"seller-duplicate-paid",status:"skipped",detail:SELLER_MISSING}); return false; }
+  try {
+    const order=(await adminJson(`orders?select=${ORDER_FIELDS}&id=eq.${encodeURIComponent(orderId)}&limit=1`))?.[0];
+    if(!order) throw new Error("Order not found for notification");
+    const items=await loadItems(order.id);
+    const content=orderEmail(order,items,{headline:`Perlu refund: pesanan dibayar ${paid.length} kali`,
+      intro:`Pesanan ini menerima ${paid.length} pembayaran. Proses satu pesanan saja dan refund kelebihannya lewat dashboard Midtrans. Referensi: ${paid.map(row=>row.external_transaction_id||row.provider_reference).join(", ")}.`,
+      siteUrl:cfg.siteUrl});
+    const providerId=await sendEmail(cfg,{subject:`[GETYOURDEVICE] PEMBAYARAN GANDA ${order.order_number} · ${paid.length}× ${rupiah(order.total)}`,...content});
+    await logEmail({orderNumber:order.order_number,kind:"seller-duplicate-paid",status:"sent",recipient:cfg.to.join(", "),providerId});
+    return true;
+  } catch(error) {
+    console.error("Order notification failed",{requestId,kind:"duplicate-paid",message:error.message});
+    await logEmail({orderId,kind:"seller-duplicate-paid",status:"failed",recipient:cfg.to.join(", "),detail:error.message});
+    return false;
+  }
+}
+
 // Seller and customer are notified independently; one failing never blocks the other.
 async function notifyPaid(orderId,options) {
   const [seller]=await Promise.all([notifySellerPaid(orderId,options),notifyCustomerOrderPaid(orderId,options)]);
   return seller;
 }
 
-module.exports={notifyOrderCreated,notifyOrderPaid:notifyPaid,notifyCustomerOrderCreated,notifyCustomerShipped};
+module.exports={notifyOrderCreated,notifyOrderPaid:notifyPaid,notifyDuplicatePayment,notifyCustomerOrderCreated,notifyCustomerShipped};

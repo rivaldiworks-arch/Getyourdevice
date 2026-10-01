@@ -2,7 +2,7 @@
 const { supabase, supabaseAdmin } = require("../_supabase");
 const { guardPublicJson } = require("../_guard");
 const { isServerConfigError } = require("../_secrets");
-const { notifyOrderPaid } = require("../_notify");
+const { notifyDuplicatePayment, notifyOrderPaid } = require("../_notify");
 const { canTransition, customerSafePayment, providerFor } = require("./_provider");
 const {
   QRIS_MAX_AMOUNT,
@@ -68,6 +68,21 @@ async function updatePayment(id,changes) {
   return rows[0];
 }
 
+// How long a request whose Snap order_id was already taken waits for the request that
+// took it to store the link. Two "Bayar" requests (double tap, two tabs) share one
+// attempt row; retiring it while the other request hands its link out would leave the
+// customer paying an attempt we no longer track.
+const CONCURRENT_LINK_WAIT_MS=[300,600,1200];
+
+async function storedCheckoutLink(id) {
+  for(const delay of CONCURRENT_LINK_WAIT_MS) {
+    await new Promise(resolve=>setTimeout(resolve,delay));
+    const row=await paymentRow(id);
+    if(row.payment_url || !["unpaid","pending"].includes(row.status)) return row;
+  }
+  return null;
+}
+
 class IntentError extends Error {
   constructor(httpStatus,message,code=null) {
     super(message);
@@ -126,7 +141,10 @@ async function syncMidtransPayment(payment,requestId) {
     provider_payload:safeProviderPayload(transaction)
   });
   // The webhook was missed, so this sync is where the seller learns about the payment.
-  if(next==="paid") await notifyOrderPaid(payment.order_id,{requestId});
+  if(next==="paid") {
+    await notifyOrderPaid(payment.order_id,{requestId});
+    await notifyDuplicatePayment(payment.order_id,{requestId});
+  }
   return updated;
 }
 
@@ -274,8 +292,15 @@ module.exports=async function handler(req,res) {
       payment=await chargeGateway(outcome.payment,env,integration,method,bank,requestId);
     } catch(error) {
       if(!error.orderIdUsed) throw error;
+      // A concurrent request for the same attempt created the Snap transaction: hand out
+      // its link instead of retiring an attempt the customer is about to pay.
+      const concurrent=await storedCheckoutLink(outcome.payment.id);
+      if(concurrent?.payment_url && ["unpaid","pending","paid"].includes(concurrent.status)) {
+        return res.status(200).json({...customerSafePayment(concurrent),reused:true,message:concurrent.status==="paid"?"Pembayaran sudah diterima.":readyMessage(method,concurrent)});
+      }
       // Midtrans accepted this attempt's Snap transaction but we never stored the link.
-      // Retire the attempt (or pick up a payment made on it) and start a fresh one.
+      // Retire the attempt (or pick up a payment made on it) and start a fresh one. A
+      // payment still made on the retired attempt is recorded by the webhook.
       const synced=await syncMidtransPayment({...outcome.payment,provider_reference:error.reference},requestId);
       if(synced.status==="paid") return res.status(200).json({...customerSafePayment(synced),reused:true,message:"Pembayaran sudah diterima."});
       if(!["expired","failed"].includes(synced.status)) await updatePayment(synced.id,{status:"expired"});

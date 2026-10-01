@@ -1,7 +1,7 @@
 "use strict";
 const { supabaseAdmin } = require("../_supabase");
 const { isServerConfigError } = require("../_secrets");
-const { notifyOrderPaid } = require("../_notify");
+const { notifyDuplicatePayment, notifyOrderPaid } = require("../_notify");
 const { canTransition } = require("./_provider");
 const { getTransactionStatus, isStoreReference, normalizeMidtransStatus, verifyNotificationSignature } = require("./_midtrans");
 
@@ -78,7 +78,11 @@ module.exports=async function handler(req,res) {
       throw new Error(data?.message||data?.error||`Payment update failed (${update.status})`);
     }
 
-    if(nextStatus==="paid") await notifyOrderPaid(payment.order_id);
+    if(nextStatus==="paid") {
+      if(["expired","failed"].includes(payment.status)) console.warn("Recording a payment settled after its attempt was retired",{orderId,previous:payment.status});
+      await notifyOrderPaid(payment.order_id);
+      await notifyDuplicatePayment(payment.order_id);
+    }
     return res.status(200).json({ok:true,paymentStatus:nextStatus});
   } catch(error) {
     if(error instanceof SyntaxError) return res.status(400).json({error:"Invalid JSON"});
