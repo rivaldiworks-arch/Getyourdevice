@@ -37,6 +37,9 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 22. `supabase/migrations/022_customer_paid_notification.sql` — kolom `orders.customer_paid_notified_at` supaya email "Pembayaran diterima" ke pembeli terkirim sekali. Aditif. **Jalankan 022 sebelum mengisi `CUSTOMER_EMAIL_FROM`.**
 23. `supabase/migrations/023_email_log.sql` — tabel `email_log`: setiap percobaan email pesanan (penjual/pembeli, dibuat/lunas) dicatat sebagai `sent` (dengan id Resend), `failed` (dengan pesan error Resend) atau `skipped` (env belum diisi). Server-only (RLS aktif, tanpa policy). Aditif.
 24. `supabase/migrations/024_product_gallery.sql` — kolom `products.images` (jsonb array `[{url, shape}]`, maks. 8) untuk galeri foto produk. `image_url` tetap berisi foto sampul (foto pertama). Aditif.
+25. `supabase/migrations/025_customer_shipped_notification.sql` — kolom `orders.customer_shipped_notified_at` agar email "Pesanan dikirim" ke pembeli terkirim sekali. Aditif.
+26. `supabase/migrations/026_product_is_new.sql` — kolom `products.is_new` untuk showcase "Baru" di beranda. Aditif dengan default `false`.
+27. `supabase/migrations/027_late_gateway_payments.sql` — pembayaran yang dilunasi Midtrans selalu tercatat, walaupun attempt-nya sudah `expired`/`failed` di database (sebelumnya notifikasi itu dibuang diam-diam). Status `paid`/`refunded` pada order tidak lagi tertimpa oleh attempt lain yang kedaluwarsa, dan `email_log` menerima jenis `seller-duplicate-paid` untuk alert pembayaran ganda. **Jalankan 027 sebelum deploy kode Phase 8J.**
 
 ## Payment infrastructure (Phase 5)
 

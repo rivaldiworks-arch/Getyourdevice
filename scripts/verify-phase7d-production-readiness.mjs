@@ -26,10 +26,11 @@ function resetEnv(overrides={}) {
 }
 
 // ---------------------------------------------------------------- fake backend
-const TRANSITIONS={unpaid:["pending","paid","failed","expired"],pending:["paid","failed","expired"],paid:["refunded"],failed:[],expired:[],refunded:[]};
+// Mirrors prepare_payment (migration 027): a gateway settlement is recorded even on a retired attempt.
+const TRANSITIONS={unpaid:["pending","paid","failed","expired"],pending:["paid","failed","expired"],paid:["refunded"],failed:["paid"],expired:["paid"],refunded:[]};
 const db={orders:new Map(),payments:[]};
 const midtrans={transactions:new Map(),charges:[],statusCalls:0,snapRequests:[],snapFailures:[]};
-const calls={paymentPatches:[]};
+const calls={paymentPatches:[],emails:[]};
 
 function addOrder({orderNumber="GYD-20260925-0001",total=150000,method="QRIS"}={}) {
   const order={id:randomUUID(),order_number:orderNumber,total,payment_method:method,status:"pending",payment_status:"unpaid"};
@@ -63,6 +64,7 @@ function supabaseFetch(url,init) {
     if(!payment) payment=addPayment(order);
     return json(200,{id:payment.id,provider:payment.provider,payment_method:payment.payment_method,status:payment.status,reused});
   }
+  if(path==="payments" && (init.method||"GET")==="GET" && eq(url,"order_id")) return json(200,db.payments.filter(row=>row.order_id===eq(url,"order_id")&&row.status===eq(url,"status")));
   if(path==="payments" && (init.method||"GET")==="GET") return json(200,db.payments.filter(row=>row.id===eq(url,"id")||row.provider_reference===eq(url,"provider_reference")).slice(0,1));
   if(path==="payments" && init.method==="PATCH") {
     const payment=db.payments.find(row=>row.id===eq(url,"id"));
@@ -76,6 +78,7 @@ function supabaseFetch(url,init) {
     return json(200,[payment]);
   }
   if(path==="orders") return json(200,[db.orders.get(eq(url,"id"))].filter(Boolean));
+  if(path==="order_items") return json(200,[]);
   throw new Error(`Unexpected Supabase call ${init.method||"GET"} ${path}`);
 }
 
@@ -119,6 +122,7 @@ function snapFetch(url,init) {
 globalThis.fetch=async (url,init={})=>{
   const {host}=new URL(url);
   if(host==="db.test") return supabaseFetch(url,init);
+  if(host==="api.resend.com") { calls.emails.push(JSON.parse(init.body)); return json(200,{id:randomUUID()}); }
   if(host==="app.midtrans.com"||host==="app.sandbox.midtrans.com") return snapFetch(url,init);
   if(host==="api.midtrans.com"||host==="api.sandbox.midtrans.com") return midtransFetch(url,init);
   throw new Error(`Unexpected network call to ${host}`);
@@ -128,7 +132,7 @@ function resetBackend() {
   db.orders.clear(); db.payments.length=0;
   midtrans.transactions.clear(); midtrans.charges.length=0; midtrans.statusCalls=0; midtrans.chargeError=null;
   midtrans.snapRequests.length=0; midtrans.snapFailures.length=0;
-  calls.paymentPatches.length=0;
+  calls.paymentPatches.length=0; calls.emails.length=0;
 }
 
 async function invoke(handler,{body,headers={}}={}) {
@@ -625,6 +629,74 @@ snapEnv(); resetBackend();
   const forged=await invoke(webhook,{body:{order_id:"PL-20260926-8f3a",status_code:"200",gross_amount:"1000.00",signature_key:"0".repeat(128)}});
   assert.equal(forged.statusCode,401,"the signature is still checked first");
 }
+snapEnv(); resetBackend();
+{
+  // Phase 8J: a double tap sends two requests for one attempt. Both must hand out the
+  // same Snap link, and the attempt the customer pays must stay tracked.
+  const order=addOrder();
+  const realFetch=globalThis.fetch;
+  let releaseFirst;
+  const firstHeld=new Promise(resolve=>{releaseFirst=resolve;});
+  let snapCalls=0;
+  globalThis.fetch=async (url,init={})=>{
+    if(new URL(url).pathname==="/snap/v1/transactions") {
+      snapCalls++;
+      if(snapCalls===1) { const response=await realFetch(url,init); await firstHeld; return response; }
+      // Midtrans already has this order_id from the first request.
+      midtrans.snapRequests.push({body:JSON.parse(init.body)});
+      setTimeout(releaseFirst,50);
+      return json(400,{error_messages:["transaction_details.order_id sudah digunakan"]});
+    }
+    return realFetch(url,init);
+  };
+  const [first,second]=await Promise.all([pay(order),pay(order)]);
+  globalThis.fetch=realFetch;
+  assert.equal(db.payments.length,1,"the losing request must not open a second attempt");
+  assert.equal(db.payments[0].status,"unpaid","the attempt the customer is sent to must not be retired");
+  assert.ok(first.body.checkoutUrl);
+  assert.equal(second.body.checkoutUrl,first.body.checkoutUrl,"both requests hand out the same link");
+}
+snapEnv(); resetBackend();
+{
+  // A retired attempt is paid anyway: the webhook records it and confirms the order.
+  const order=addOrder();
+  await pay(order);
+  const payment=db.payments[0];
+  payment.status="expired";
+  midtrans.transactions.set(payment.provider_reference,{order_id:payment.provider_reference,transaction_id:randomUUID(),transaction_status:"settlement",gross_amount:"150000.00"});
+  const res=await signedNotification(payment.provider_reference,"150000.00");
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.paymentStatus,"paid","a settled payment is never dropped as stale");
+  assert.equal(payment.status,"paid");
+  assert.equal(db.orders.get(order.id).payment_status,"paid");
+  // A late 'failed' notice for a paid attempt is still ignored.
+  midtrans.transactions.get(payment.provider_reference).transaction_status="deny";
+  assert.equal((await signedNotification(payment.provider_reference,"150000.00","202")).body.ignored,true);
+  assert.equal(payment.status,"paid");
+}
+snapEnv({RESEND_API_KEY:"re_test",ORDER_NOTIFY_EMAIL:"seller@example.test"}); resetBackend();
+{
+  // Paid twice through two attempts: the seller is told to refund one.
+  const order=addOrder();
+  const settled=(payment)=>{
+    midtrans.transactions.set(payment.provider_reference,{order_id:payment.provider_reference,transaction_id:randomUUID(),transaction_status:"settlement",gross_amount:"150000.00"});
+    return signedNotification(payment.provider_reference,"150000.00");
+  };
+  const firstAttempt=addPayment(order,{provider:"midtrans",status:"expired",provider_reference:midtransOrderId(order.order_number,randomUUID()),provider_environment:"production"});
+  const secondAttempt=addPayment(order,{provider:"midtrans",status:"pending",provider_reference:midtransOrderId(order.order_number,randomUUID()),provider_environment:"production"});
+  await settled(secondAttempt);
+  assert.equal(calls.emails.filter(email=>/PEMBAYARAN GANDA/.test(email.subject)).length,0,"one payment is not a duplicate");
+  await settled(firstAttempt);
+  const alerts=calls.emails.filter(email=>/PEMBAYARAN GANDA/.test(email.subject));
+  assert.equal(alerts.length,1,"the second payment alerts the seller");
+  assert.deepEqual(alerts[0].to,["seller@example.test"]);
+  assert.match(alerts[0].subject,/GYD-20260925-0001 · 2×/);
+  calls.emails.length=0;
+  await settled(firstAttempt);
+  assert.equal(calls.emails.filter(email=>/PEMBAYARAN GANDA/.test(email.subject)).length,0,"webhook retries do not repeat the alert");
+}
+for(const key of ["RESEND_API_KEY","ORDER_NOTIFY_EMAIL"]) delete process.env[key];
+
 snapEnv({MIDTRANS_INTEGRATION:"redirect"});
 assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&/MIDTRANS_INTEGRATION/.test(error.message));
 {

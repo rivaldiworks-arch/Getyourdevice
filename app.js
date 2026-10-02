@@ -646,7 +646,16 @@ function startPaymentPolling(){
     if(ticks%PAYMENT_POLL_SECONDS===0&&!document.hidden)refreshPaymentStatus();
   },1000);
 }
+// One payment request per order at a time: a double tap would otherwise send two
+// requests for the same attempt and race them at Midtrans.
+const paymentRequestsInFlight=new Set();
 async function openGatewayPayment(orderNumber,{bank=null}={}){
+  if(paymentRequestsInFlight.has(orderNumber))return;
+  paymentRequestsInFlight.add(orderNumber);
+  try{await showGatewayPayment(orderNumber,{bank});}
+  finally{paymentRequestsInFlight.delete(orderNumber);}
+}
+async function showGatewayPayment(orderNumber,{bank=null}={}){
   const record=orderAccessRecord(orderNumber);
   if(!record?.paymentToken){showToast("Pembayaran tidak dapat dibuka dari browser ini.");return;}
   stopPaymentPolling();

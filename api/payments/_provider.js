@@ -5,7 +5,8 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   unpaid:new Set(["pending", "paid", "failed", "expired"]),
   pending:new Set(["paid", "failed", "expired"]),
   paid:new Set(["refunded"]),
-  failed:new Set(), expired:new Set(), refunded:new Set()
+  // Our expiry is an estimate; a payment the gateway settles anyway must still be recorded.
+  failed:new Set(["paid"]), expired:new Set(["paid"]), refunded:new Set()
 });
 
 function normalizeStatus(value) {
