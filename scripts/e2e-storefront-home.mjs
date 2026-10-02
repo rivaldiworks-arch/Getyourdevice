@@ -125,7 +125,7 @@ for(const width of [1440,834,390]){
   assert.ok(await logos.count()>=7,"bank, e-wallet and courier logos are shown");
   assert.equal(await page.locator('.trust-section .brand-tile img[src="./logos/bsi.svg"][alt="Virtual Account BSI"]').count(),1,"BSI Virtual Account is listed");
   assert.equal(await page.locator('.trust-section .brand-tile img[src="./logos/danamon.svg"][alt="Virtual Account Danamon"]').count(),1,"Danamon Virtual Account is listed");
-  assert.equal(await page.locator('.trust-section .brand-tile[title="Virtual Account SeaBank"]').innerText(),"SeaBank","SeaBank Virtual Account is listed");
+  assert.equal(await page.locator('.trust-section .brand-tile img[src="./logos/seabank.png"][alt="Virtual Account SeaBank"]').count(),1,"SeaBank Virtual Account is listed");
   assert.equal(await page.locator('.trust-section .brand-tile img[src="./logos/qris.svg"][alt="QRIS"]').count(),1,"QRIS is listed");
   assert.doesNotMatch(await page.locator("body").innerText(),/ShopeePay/,"no claim of ShopeePay while it is not activated");
   for(const img of await logos.all()){

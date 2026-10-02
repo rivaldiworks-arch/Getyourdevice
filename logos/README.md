@@ -25,8 +25,8 @@ logos, supplied by the store owner. They were trimmed, given a transparent backg
 the "Logistik Indonesia" line (POS) and the website line (TIKI) cropped off. Ninja Xpress's white
 wordmark was darkened so it shows on the white tile.
 
-SeaBank has no logo file yet: its tile shows the name as text until the store owner supplies
-the logo (Commons had no file reachable when it was added).
+`seabank.png` is the SeaBank logo the store owner supplied, trimmed and given a transparent
+background (the white inside the coin is kept).
 
 `sicepat.png` is the SiCepat Ekspres wordmark cropped from the logo the store owner supplied
 (the square icon above it is left out so it fits the tile).
