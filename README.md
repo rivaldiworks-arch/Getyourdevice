@@ -371,7 +371,7 @@ Dengan `BITESHIP_API_KEY` berawalan `biteship_live.`, booking shipment mewajibka
 Transfer Bank kembali tersedia dan dibayar melalui Midtrans Core API:
 
 - **BNI, BRI, Permata, CIMB Niaga** — `payment_type: bank_transfer`, customer menerima nomor Virtual Account.
-- **BSI** — hanya lewat Snap (`bsi_va`). Pada `MIDTRANS_INTEGRATION=core` BSI otomatis tidak ditawarkan.
+- **BSI**, **Danamon**, dan **SeaBank** — hanya lewat Snap (`bsi_va`, `danamon_va`, `seabank_va`). Pada `MIDTRANS_INTEGRATION=core` ketiganya otomatis tidak ditawarkan.
 - **Mandiri** — `payment_type: echannel` (Bill Payment), customer menerima **kode perusahaan (biller code)** dan **kode bayar (bill key)**.
 - VA berlaku 24 jam. Setiap attempt memakai `order_id` Midtrans sendiri seperti QRIS: VA yang masih berlaku dipakai ulang, VA kedaluwarsa diganti dengan nomor baru, dan webhook yang sama menandai pembayaran `paid` serta mengonfirmasi order.
 - Selama VA masih aktif, permintaan dengan bank lain tetap mengembalikan VA yang sama, karena menerbitkan VA kedua saat yang pertama masih bisa dibayar dapat membuat customer membayar dua kali.
@@ -383,8 +383,8 @@ Environment (semuanya **Config**, opsional):
 ```text
 # Metode yang ditawarkan di checkout, berurutan. Default: Transfer Bank,QRIS,COD
 CHECKOUT_PAYMENT_METHODS=Transfer Bank,COD        # sembunyikan QRIS sampai Midtrans mengaktifkannya
-# Bank VA yang ditawarkan. Default: bni,bri,mandiri,bsi,permata,cimb
-MIDTRANS_VA_BANKS=bni,bri,mandiri,bsi,permata,cimb
+# Bank VA yang ditawarkan. Default: bni,bri,mandiri,bsi,permata,cimb,danamon,seabank
+MIDTRANS_VA_BANKS=bni,bri,mandiri,bsi,permata,cimb,danamon,seabank
 ```
 
 Storefront membaca daftar ini dari `GET /api/config` (`checkout.paymentMethods`, `checkout.vaBanks`) sehingga hanya menampilkan metode yang aktif; `POST /api/orders` dan `POST /api/payments/create` menegakkan aturan yang sama di server.
@@ -394,7 +394,7 @@ Storefront membaca daftar ini dari `GET /api/config` (`checkout.paymentMethods`,
 Akun Midtrans production toko ini menolak semua channel lewat Core API (`402 Payment channel is not activated` untuk VA, `Merchant pop id is not found` untuk QRIS), sementara channel yang sama berjalan normal lewat **Snap** (halaman pembayaran Midtrans). Karena itu integrasi default sekarang Snap:
 
 - `POST /api/payments/create` membuat transaksi Snap (`/snap/v1/transactions`) dan mengembalikan `checkoutUrl`. Customer memilih bank VA, QRIS, atau e-wallet di halaman Midtrans. Tidak ada migrasi database: link disimpan di `payments.payment_url`.
-- `enabled_payments` dibatasi per metode toko: **Transfer Bank** → VA dari `MIDTRANS_VA_BANKS` (`bni_va`, `bri_va`, `echannel`, `bsi_va`, `permata_va`, `cimb_va`) + `other_va`; **QRIS** → `other_qris`, `gopay`, `shopeepay`. Channel yang belum aktif otomatis tidak ditampilkan oleh Midtrans.
+- `enabled_payments` dibatasi per metode toko: **Transfer Bank** → VA dari `MIDTRANS_VA_BANKS` (`bni_va`, `bri_va`, `echannel`, `bsi_va`, `permata_va`, `cimb_va`, `danamon_va`, `seabank_va`) + `other_va`; **QRIS** → `other_qris`, `gopay`, `shopeepay`. Channel yang belum aktif otomatis tidak ditampilkan oleh Midtrans.
 - Link berlaku 24 jam dan dipakai ulang selama masih berlaku. Link kedaluwarsa yang belum dipakai diganti attempt baru (`order_id` baru); bila ternyata sudah dibayar, API melaporkan `paid` tanpa membuat link baru. Batas QRIS Rp10.000.000 tetap berlaku.
 - Setelah bayar, Midtrans mengarahkan customer ke `SITE_URL/#pesanan` (default `https://www.getyourdevice.id`). Status tetap ditentukan webhook, bukan redirect.
 - Webhook menjawab `200 ignored` untuk notifikasi yang `order_id`-nya bukan milik toko (Payment Link, transaksi dashboard), setelah signature diverifikasi, sehingga Midtrans berhenti mengirim ulang.

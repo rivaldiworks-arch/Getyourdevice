@@ -15,6 +15,7 @@ the store accepts.
 | bsi.svg | File:Bank Syariah Indonesia.svg (only the BSI mark; the "Bank Syariah Indonesia" line is cropped off so it reads at tile size) |
 | permata.svg | File:Permata Bank (2024).svg |
 | cimb.svg | File:CIMB Niaga logo.svg |
+| danamon.svg | File:Danamon.svg (optimised with svgo and given a viewBox so it scales to tile size. Licence page not re-checked when added: the Commons API was rate-limiting) |
 | jnt.svg | File:J&T Express logo.svg |
 
 `gyd-wordmark.png` is the store's own wordmark (used on shipping labels).
@@ -23,6 +24,9 @@ the store accepts.
 logos, supplied by the store owner. They were trimmed, given a transparent background, and had
 the "Logistik Indonesia" line (POS) and the website line (TIKI) cropped off. Ninja Xpress's white
 wordmark was darkened so it shows on the white tile.
+
+SeaBank has no logo file yet: its tile shows the name as text until the store owner supplies
+the logo (Commons had no file reachable when it was added).
 
 `sicepat.png` is the SiCepat Ekspres wordmark cropped from the logo the store owner supplied
 (the square icon above it is left out so it fits the tile).
