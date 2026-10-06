@@ -10,11 +10,23 @@ const CATEGORY_IMAGES = {
   Audio: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=500&q=85",
   Accessories: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=500&q=85"
 };
-// Local placeholder for product photos that fail to load. It never fails itself, and the
-// onerror handler clears itself, so a broken image cannot trigger a request loop.
-const IMAGE_FALLBACK = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700"><rect width="700" height="700" fill="#f5f5f7"/><path d="M290 250h120a18 18 0 0 1 18 18v164a18 18 0 0 1-18 18H290a18 18 0 0 1-18-18V268a18 18 0 0 1 18-18z" fill="none" stroke="#c7c7cc" stroke-width="8"/><circle cx="350" cy="420" r="8" fill="#c7c7cc"/></svg>');
-const ORDER_STATUSES = ["Pending", "Paid", "Processing", "Shipped", "Completed", "Cancelled"];
-const CHECKOUT_STEPS = ["Pelanggan", "Alamat", "Pengiriman", "Pembayaran", "Tinjau"];
+const SHIPPING = [
+  { id: "regular", name: "Reguler", detail: "Estimasi 3–5 hari kerja", price: 25000 },
+  { id: "express", name: "Express", detail: "Estimasi 1–2 hari kerja", price: 50000 },
+  { id: "pickup", name: "Ambil di Toko", detail: "Siap diambil dalam 2 jam", price: 0 }
+];
+const starterProducts = [
+  {id:"phone-01",brand:"Samsung",name:"Galaxy A56 5G",spec:"8 GB / 256 GB · Kamera 50 MP",price:6199000,originalPrice:6799000,rating:4.8,stock:14,category:"Smartphone",description:"Layar Super AMOLED jernih, kamera 50 MP, dan baterai tahan lama.",needs:["Komunikasi","Hiburan"],badge:"TERLARIS",image:"https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=80"},
+  {id:"laptop-01",brand:"ASUS",name:"Vivobook 14",spec:"Intel Core i5 · 16 GB · 512 GB SSD",price:8999000,originalPrice:9499000,rating:4.7,stock:8,category:"Laptop",description:"Laptop tipis untuk bekerja dan belajar dengan layar 14 inci.",needs:["Produktivitas","Hiburan"],badge:"PILIHAN",image:"https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=80"},
+  {id:"tablet-01",brand:"Samsung",name:"Galaxy Tab S9 FE",spec:"10,9 inci · 6 GB / 128 GB · S Pen",price:6499000,rating:4.8,stock:10,category:"Tablet",description:"Tablet serbaguna dengan S Pen untuk catatan, kreasi, dan hiburan.",needs:["Produktivitas","Hiburan"],image:"https://images.unsplash.com/photo-1561154464-82e9adf32764?auto=format&fit=crop&w=700&q=80"},
+  {id:"watch-01",brand:"Samsung",name:"Galaxy Watch7",spec:"Bluetooth · 40 mm · GPS",price:3999000,rating:4.7,stock:6,category:"Smartwatch",description:"Pantau aktivitas, tidur, dan kesehatan langsung dari pergelangan.",needs:["Kesehatan"],badge:"BARU",image:"https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=700&q=80"},
+  {id:"audio-01",brand:"Sony",name:"WH-CH720N",spec:"Wireless · Noise Cancelling · 35 jam",price:1699000,originalPrice:1999000,rating:4.9,stock:18,category:"Audio",description:"Headphone nirkabel ringan dengan peredam bising aktif.",needs:["Hiburan","Produktivitas"],image:"https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80"},
+  {id:"acc-01",brand:"Logitech",name:"Pebble 2 Combo",spec:"Bluetooth · Multi-device · Silent keys",price:949000,rating:4.7,stock:22,category:"Accessories",description:"Keyboard dan mouse ringkas, senyap, dan mudah dibawa.",needs:["Produktivitas"],image:"https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=700&q=80"},
+  {id:"phone-02",brand:"Apple",name:"iPhone 15 128GB",spec:"128 GB · Kamera 48 MP · USB-C",price:12999000,originalPrice:13999000,rating:4.9,stock:5,category:"Smartphone",description:"Performa cepat, kamera andal, dan desain yang nyaman digunakan.",needs:["Komunikasi","Hiburan"],image:"https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=700&q=80"},
+  {id:"laptop-02",brand:"Apple",name:"MacBook Air M3",spec:"Apple M3 · 8 GB · 256 GB SSD",price:17999000,rating:4.9,stock:4,category:"Laptop",description:"Ringan, senyap, dan bertenaga untuk produktivitas sepanjang hari.",needs:["Produktivitas"],badge:"PREMIUM",image:"https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=700&q=80"},
+  {id:"audio-02",brand:"JBL",name:"Flip 6",spec:"Bluetooth · Tahan air IP67 · 12 jam",price:1999000,rating:4.8,stock:0,category:"Audio",description:"Speaker portabel tahan air dengan suara kuat dan jernih.",needs:["Hiburan"],image:"https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?auto=format&fit=crop&w=700&q=80"},
+  {id:"acc-02",brand:"Anker",name:"PowerCore 20K",spec:"20.000 mAh · Fast charging · USB-C",price:799000,rating:4.8,stock:31,category:"Accessories",description:"Power bank kapasitas besar dengan pengisian cepat dan aman.",needs:["Komunikasi","Produktivitas"],image:"https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?auto=format&fit=crop&w=700&q=80"}
+];
 
 const storage = {
   get(key, fallback) { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } },
@@ -323,6 +335,10 @@ function updatePromoArrows() {
   const max = track.scrollWidth - track.clientWidth;
   document.querySelector(".promo-arrow.prev").disabled = track.scrollLeft <= 4;
   document.querySelector(".promo-arrow.next").disabled = track.scrollLeft >= max - 4;
+}
+function storyCard(product, index = 0) {
+  const out = product.stock <= 0;
+  return `<article class="story-card story-card-${index + 1}"><div class="story-image"><img src="${safeImage(product.image)}" alt="${escapeHTML(product.name)}" width="900" height="900" loading="lazy"></div><div class="story-card-copy"><span>${escapeHTML(product.brand || product.category)}</span><h3>${escapeHTML(product.name)}</h3><p>${escapeHTML(product.spec || product.description)}</p><strong>${money(product.price)}</strong><div class="story-actions"><button class="story-buy" type="button" data-buy="${escapeHTML(product.id)}" ${out ? "disabled" : ""}>Beli Sekarang</button><button class="story-cart" type="button" data-add="${escapeHTML(product.id)}" ${out ? "disabled" : ""} aria-label="Tambahkan ${escapeHTML(product.name)} ke keranjang">+</button></div></div></article>`;
 }
 function renderShowcases() {
   renderHeroMarquee();
