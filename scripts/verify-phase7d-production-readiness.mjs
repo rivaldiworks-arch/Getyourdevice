@@ -1,0 +1,717 @@
+// Behavioural checks for Phase 7D. Unlike the regex contract scripts, this executes
+// the real API handlers against an in-memory Supabase + Midtrans double.
+import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+
+const require=createRequire(import.meta.url);
+const SANDBOX_KEY="SB-Mid-server-test-sandbox-key";
+const PRODUCTION_KEY="Mid-server-test-production-key";
+const SERVICE_ROLE="service-role-test-key-0123456789abcdef";
+
+function resetEnv(overrides={}) {
+  for(const key of ["MIDTRANS_SERVER_KEY","MIDTRANS_ENV","MIDTRANS_QRIS_ACQUIRER","MIDTRANS_VA_BANKS","MIDTRANS_INTEGRATION","VERCEL_ENV","SERVER_HMAC_SECRET","SITE_URL"]) delete process.env[key];
+  Object.assign(process.env,{
+    SUPABASE_URL:"https://db.test",
+    SUPABASE_ANON_KEY:"anon-test-key",
+    SUPABASE_SERVICE_ROLE_KEY:SERVICE_ROLE,
+    SERVER_HMAC_SECRET:"hmac-test-secret-0123456789abcdef0123",
+    MIDTRANS_SERVER_KEY:PRODUCTION_KEY,
+    MIDTRANS_ENV:"production",
+    VERCEL_ENV:"production",
+    // Most scenarios here exercise Core API; the Snap scenarios at the end opt in.
+    MIDTRANS_INTEGRATION:"core",
+    ...overrides
+  });
+}
+
+// ---------------------------------------------------------------- fake backend
+// Mirrors prepare_payment (migration 027): a gateway settlement is recorded even on a retired attempt.
+const TRANSITIONS={unpaid:["pending","paid","failed","expired"],pending:["paid","failed","expired"],paid:["refunded"],failed:["paid"],expired:["paid"],refunded:[]};
+const db={orders:new Map(),payments:[]};
+const midtrans={transactions:new Map(),charges:[],statusCalls:0,snapRequests:[],snapFailures:[]};
+const calls={paymentPatches:[],emails:[]};
+
+function addOrder({orderNumber="GYD-20260925-0001",total=150000,method="QRIS"}={}) {
+  const order={id:randomUUID(),order_number:orderNumber,total,payment_method:method,status:"pending",payment_status:"unpaid"};
+  db.orders.set(order.id,order);
+  return order;
+}
+function addPayment(order,fields={}) {
+  const payment={id:randomUUID(),order_id:order.id,provider:"manual",payment_method:order.payment_method,status:"unpaid",amount:order.total,
+    provider_reference:null,external_transaction_id:null,payment_url:null,qr_string:null,expires_at:null,provider_environment:null,
+    created_at:new Date(Date.now()+db.payments.length).toISOString(),...fields};
+  db.payments.push(payment);
+  return payment;
+}
+function json(status,body) {
+  return new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}});
+}
+function eq(url,column) {
+  return new URL(url).searchParams.get(column)?.replace(/^eq\./,"");
+}
+
+function supabaseFetch(url,init) {
+  const path=new URL(url).pathname.replace("/rest/v1/","");
+  const body=init.body?JSON.parse(init.body):{};
+  if(path==="rpc/consume_api_rate_limit") return json(200,{allowed:true,limit:100,remaining:99});
+  if(path==="rpc/create_manual_payment_intent") {
+    const order=[...db.orders.values()].find(row=>row.order_number===body.p_order_number);
+    if(!order) return json(400,{message:"ORDER_NOT_FOUND"});
+    if(["paid","refunded"].includes(order.payment_status)) return json(400,{message:"ORDER_NOT_PAYABLE"});
+    let payment=db.payments.filter(row=>row.order_id===order.id && ["unpaid","pending"].includes(row.status)).at(-1);
+    const reused=Boolean(payment);
+    if(!payment) payment=addPayment(order);
+    return json(200,{id:payment.id,provider:payment.provider,payment_method:payment.payment_method,status:payment.status,reused});
+  }
+  if(path==="payments" && (init.method||"GET")==="GET" && eq(url,"order_id")) return json(200,db.payments.filter(row=>row.order_id===eq(url,"order_id")&&row.status===eq(url,"status")));
+  if(path==="payments" && (init.method||"GET")==="GET") return json(200,db.payments.filter(row=>row.id===eq(url,"id")||row.provider_reference===eq(url,"provider_reference")).slice(0,1));
+  if(path==="payments" && init.method==="PATCH") {
+    const payment=db.payments.find(row=>row.id===eq(url,"id"));
+    if(body.status && body.status!==payment.status && !TRANSITIONS[payment.status].includes(body.status)) return json(400,{message:"INVALID_PAYMENT_TRANSITION"});
+    if(body.provider_reference && db.payments.some(row=>row!==payment && row.provider===(body.provider||payment.provider) && row.provider_reference===body.provider_reference)) {
+      return json(409,{message:"duplicate key value violates unique constraint payments_provider_reference_uidx"});
+    }
+    Object.assign(payment,body);
+    calls.paymentPatches.push({id:payment.id,...body});
+    db.orders.get(payment.order_id).payment_status=payment.status;
+    return json(200,[payment]);
+  }
+  if(path==="orders") return json(200,[db.orders.get(eq(url,"id"))].filter(Boolean));
+  if(path==="order_items") return json(200,[]);
+  throw new Error(`Unexpected Supabase call ${init.method||"GET"} ${path}`);
+}
+
+function midtransFetch(url,init) {
+  const {pathname}=new URL(url);
+  if(pathname==="/v2/charge") {
+    const body=JSON.parse(init.body);
+    const orderId=body.transaction_details.order_id;
+    midtrans.charges.push({orderId,host:new URL(url).host,acquirer:body.qris?.acquirer,paymentType:body.payment_type,bank:body.bank_transfer?.bank,expiry:body.custom_expiry});
+    if(midtrans.chargeError) return json(200,midtrans.chargeError);
+    if(midtrans.transactions.has(orderId)) return json(200,{status_code:"406",status_message:"The request could not be completed due to a conflict with the current state"});
+    const common={order_id:orderId,transaction_id:randomUUID(),transaction_status:"pending",gross_amount:`${body.transaction_details.gross_amount}.00`};
+    let transaction;
+    if(body.payment_type==="qris") transaction={...common,actions:[{name:"generate-qr-code",url:`https://qr.test/${orderId}.png`}]};
+    else if(body.payment_type==="echannel") transaction={...common,bill_key:"70012345678",biller_code:"70012",expiry_time:"2026-09-27 13:20:00"};
+    else if(body.bank_transfer.bank==="permata") transaction={...common,permata_va_number:"8562000012345678",expiry_time:"2026-09-27 13:20:00"};
+    else transaction={...common,va_numbers:[{bank:body.bank_transfer.bank,va_number:`9880${orderId.length}${midtrans.charges.length}`}],expiry_time:"2026-09-27 13:20:00"};
+    midtrans.transactions.set(orderId,transaction);
+    return json(200,{status_code:"201",...transaction});
+  }
+  const status=pathname.match(/^\/v2\/(.+)\/status$/);
+  if(status) {
+    midtrans.statusCalls++;
+    const transaction=midtrans.transactions.get(decodeURIComponent(status[1]));
+    return transaction?json(200,{status_code:"200",...transaction}):json(200,{status_code:"404",status_message:"Transaction doesn't exist."});
+  }
+  throw new Error(`Unexpected Midtrans call ${pathname}`);
+}
+
+function snapFetch(url,init) {
+  const {host,pathname}=new URL(url);
+  if(pathname!=="/snap/v1/transactions") throw new Error(`Unexpected Snap call ${pathname}`);
+  const body=JSON.parse(init.body);
+  midtrans.snapRequests.push({host,auth:init.headers.Authorization,body});
+  const failure=midtrans.snapFailures.shift();
+  if(failure) return json(failure.status,failure.body);
+  const token=randomUUID();
+  return json(201,{token,redirect_url:`https://${host}/snap/v4/redirection/${token}`});
+}
+
+globalThis.fetch=async (url,init={})=>{
+  const {host}=new URL(url);
+  if(host==="db.test") return supabaseFetch(url,init);
+  if(host==="api.resend.com") { calls.emails.push(JSON.parse(init.body)); return json(200,{id:randomUUID()}); }
+  if(host==="app.midtrans.com"||host==="app.sandbox.midtrans.com") return snapFetch(url,init);
+  if(host==="api.midtrans.com"||host==="api.sandbox.midtrans.com") return midtransFetch(url,init);
+  throw new Error(`Unexpected network call to ${host}`);
+};
+
+function resetBackend() {
+  db.orders.clear(); db.payments.length=0;
+  midtrans.transactions.clear(); midtrans.charges.length=0; midtrans.statusCalls=0; midtrans.chargeError=null;
+  midtrans.snapRequests.length=0; midtrans.snapFailures.length=0;
+  calls.paymentPatches.length=0; calls.emails.length=0;
+}
+
+async function invoke(handler,{body,headers={}}={}) {
+  const res={statusCode:200,headers:{},body:undefined,
+    status(code){this.statusCode=code;return this;},
+    setHeader(name,value){this.headers[name.toLowerCase()]=value;return this;},
+    getHeader(name){return this.headers[name.toLowerCase()];},
+    json(payload){this.body=payload;return this;}};
+  await handler({method:"POST",headers:{"content-type":"application/json",...headers},body,socket:{remoteAddress:"203.0.113.9"}},res);
+  return res;
+}
+
+const originalConsole={warn:console.warn,error:console.error};
+console.warn=()=>{}; console.error=()=>{};
+
+resetEnv();
+const createPayment=require("../api/payments/create.js");
+const webhook=require("../api/payments/webhook.js");
+const createOrder=require("../api/orders.js");
+const {midtransConfig,midtransOrderId}=require("../api/payments/_midtrans.js");
+const {serverHmac,isServerConfigError}=require("../api/_secrets.js");
+
+const TOKEN="a".repeat(64);
+const pay=order=>invoke(createPayment,{body:{orderNumber:order.order_number,paymentToken:TOKEN}});
+const payVa=(order,bank)=>invoke(createPayment,{body:{orderNumber:order.order_number,paymentToken:TOKEN,...(bank?{bank}:{})}});
+
+// ------------------------------------------------ 0. storage outage still fails open
+resetEnv(); resetBackend();
+{
+  const realFetch=globalThis.fetch;
+  globalThis.fetch=async (url,init={})=>new URL(url).pathname.endsWith("rpc/consume_api_rate_limit")?json(503,{message:"unavailable"}):realFetch(url,init);
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201,"a limiter storage outage must not take payments down");
+  globalThis.fetch=realFetch;
+}
+
+// ------------------------------------------------ 1. gateway configuration guard
+for(const [label,env,pattern] of [
+  ["sandbox key on production",{MIDTRANS_SERVER_KEY:SANDBOX_KEY},/does not match MIDTRANS_ENV=production/],
+  ["production key on sandbox",{MIDTRANS_ENV:"sandbox"},/does not match MIDTRANS_ENV=sandbox/],
+  ["unknown environment",{MIDTRANS_ENV:"staging"},/must be sandbox or production/],
+  ["missing key",{MIDTRANS_SERVER_KEY:""},/is not configured/],
+  ["production on a preview deployment",{VERCEL_ENV:"preview"},/not allowed on VERCEL_ENV=preview/]
+]) {
+  resetEnv(env);
+  assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&pattern.test(error.message),label);
+}
+resetEnv({MIDTRANS_SERVER_KEY:SANDBOX_KEY,MIDTRANS_ENV:"sandbox",VERCEL_ENV:"preview"});
+assert.equal(midtransConfig().baseUrl,"https://api.sandbox.midtrans.com","sandbox must stay usable on previews");
+resetEnv({VERCEL_ENV:""});
+assert.equal(midtransConfig().baseUrl,"https://api.midtrans.com","local runs without VERCEL_ENV may use production explicitly");
+
+resetEnv({MIDTRANS_SERVER_KEY:SANDBOX_KEY});
+resetBackend();
+{
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,503,"misconfigured gateway must fail closed with 503");
+  assert.equal(midtrans.charges.length,0,"no charge may be attempted with a mismatched key");
+  assert.equal(db.payments[0].provider,"manual","the payment row must stay untouched");
+}
+
+// ------------------------------------------------ 2. first charge uses a per-attempt id
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  const [payment]=db.payments;
+  assert.equal(midtrans.charges[0].host,"api.midtrans.com");
+  assert.equal(midtrans.charges[0].orderId,midtransOrderId(order.order_number,payment.id));
+  assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
+  assert.equal(payment.provider_environment,"production");
+  assert.equal(payment.status,"pending");
+  assert.equal(res.body.paymentUrl,`https://qr.test/${payment.provider_reference}.png`);
+
+  // 3. A still-valid QR is reused without contacting Midtrans again.
+  const again=await pay(order);
+  assert.equal(again.statusCode,200);
+  assert.equal(again.body.paymentUrl,res.body.paymentUrl);
+  assert.equal(midtrans.charges.length,1);
+  assert.equal(midtrans.statusCalls,0);
+}
+
+// ------------------------------------------------ 4. expired QR is renewed, not a dead end
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  await pay(order);
+  const first=db.payments[0];
+  first.expires_at=new Date(Date.now()-60_000).toISOString();
+  midtrans.transactions.get(first.provider_reference).transaction_status="expire";
+  const res=await pay(order);
+  assert.equal(res.statusCode,201,"a new QR attempt must be created after expiry");
+  assert.equal(first.status,"expired");
+  assert.equal(db.payments.length,2);
+  const second=db.payments[1];
+  assert.notEqual(second.provider_reference,first.provider_reference,"Midtrans rejects reused order ids, so each attempt needs its own");
+  assert.equal(second.status,"pending");
+  assert.equal(midtrans.charges.length,2);
+  assert.equal(db.orders.get(order.id).payment_status,"pending");
+}
+
+// ------------------------------------------------ 5. missed 'expire' webhook, Midtrans still pending
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  await pay(order);
+  db.payments[0].expires_at=new Date(Date.now()-60_000).toISOString();
+  const res=await pay(order);
+  assert.equal(res.statusCode,200,"Midtrans is authoritative: its still-valid QR is returned");
+  assert.equal(db.payments.length,1);
+  assert.equal(midtrans.charges.length,1);
+  assert.equal(midtrans.statusCalls,1);
+}
+
+// ------------------------------------------------ 6. paid at Midtrans but webhook missed
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  await pay(order);
+  const payment=db.payments[0];
+  payment.expires_at=new Date(Date.now()-60_000).toISOString();
+  midtrans.transactions.get(payment.provider_reference).transaction_status="settlement";
+  const res=await pay(order);
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.paymentStatus,"paid","customer must see the payment as received, not a new QR");
+  assert.equal(payment.status,"paid");
+  assert.equal(midtrans.charges.length,1,"a paid order must never be charged again");
+}
+
+// ------------------------------------------------ 7. sandbox QR left over when switching to production
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  const legacy=addPayment(order,{provider:"midtrans",status:"pending",provider_reference:order.order_number,
+    payment_url:"https://sandbox.test/qr.png",expires_at:new Date(Date.now()+10*60_000).toISOString(),provider_environment:null});
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.equal(legacy.status,"expired","a pre-migration (sandbox) QR must be retired under production keys");
+  assert.notEqual(res.body.paymentUrl,"https://sandbox.test/qr.png");
+  assert.equal(db.payments[1].provider_environment,"production");
+  assert.equal(midtrans.statusCalls,0,"a sandbox reference must not be looked up on production");
+}
+resetEnv({MIDTRANS_SERVER_KEY:SANDBOX_KEY,MIDTRANS_ENV:"sandbox",VERCEL_ENV:"preview"}); resetBackend();
+{
+  const order=addOrder();
+  addPayment(order,{provider:"midtrans",status:"pending",provider_reference:order.order_number,
+    payment_url:"https://sandbox.test/qr.png",expires_at:new Date(Date.now()+10*60_000).toISOString()});
+  const res=await pay(order);
+  assert.equal(res.statusCode,200,"legacy sandbox rows stay valid while still running sandbox");
+  assert.equal(res.body.paymentUrl,"https://sandbox.test/qr.png");
+}
+
+// ------------------------------------------------ 8. retry after Midtrans accepted but DB write was lost
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  const payment=addPayment(order);
+  const reference=midtransOrderId(order.order_number,payment.id);
+  midtrans.transactions.set(reference,{order_id:reference,transaction_id:randomUUID(),transaction_status:"pending",gross_amount:"150000.00",
+    actions:[{name:"generate-qr-code",url:`https://qr.test/${reference}.png`}]});
+  const res=await pay(order);
+  assert.equal(res.statusCode,200,"the existing attempt row is reused");
+  assert.equal(res.body.paymentUrl,`https://qr.test/${reference}.png`);
+  assert.equal(payment.provider_reference,reference,"the duplicate charge (406) must recover the same transaction");
+  assert.equal(midtrans.transactions.size,1);
+}
+
+// ------------------------------------------------ 9. webhook ignores duplicate notifications
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  await pay(order);
+  const payment=db.payments[0];
+  const notify=transactionStatus=>{
+    const transaction=midtrans.transactions.get(payment.provider_reference);
+    transaction.transaction_status=transactionStatus;
+    const statusCode="200";
+    const signature=createHash("sha512").update(`${transaction.order_id}${statusCode}${transaction.gross_amount}${PRODUCTION_KEY}`).digest("hex");
+    return invoke(webhook,{body:{order_id:transaction.order_id,status_code:statusCode,gross_amount:transaction.gross_amount,signature_key:signature}});
+  };
+  calls.paymentPatches.length=0;
+  const duplicate=await notify("pending");
+  assert.equal(duplicate.statusCode,200);
+  assert.equal(duplicate.body.duplicate,true);
+  assert.equal(calls.paymentPatches.length,0,"a repeated status must not rewrite the payment row");
+  const settled=await notify("settlement");
+  assert.equal(settled.body.paymentStatus,"paid");
+  assert.equal(payment.status,"paid");
+  const forged=await invoke(webhook,{body:{order_id:payment.provider_reference,status_code:"200",gross_amount:"150000.00",signature_key:"0".repeat(128)}});
+  assert.equal(forged.statusCode,401);
+}
+
+// ------------------------------------------------ 10. dedicated HMAC secret
+resetEnv();
+{
+  const key="b".repeat(64);
+  assert.equal(serverHmac("payment",key),serverHmac("payment",key),"derivation must be deterministic for idempotent replays");
+  assert.notEqual(serverHmac("payment",key),serverHmac("order-access",key),"purposes must be domain-separated");
+  assert.throws(()=>serverHmac("Bad Purpose",key));
+  for(const [label,secret,pattern] of [
+    ["missing",undefined,/not configured/],
+    ["too short","short-secret",/at least 32 characters/],
+    ["reused service role key",SERVICE_ROLE,/must differ/]
+  ]) {
+    resetEnv(secret===undefined?{}:{SERVER_HMAC_SECRET:secret});
+    if(secret===undefined) delete process.env.SERVER_HMAC_SECRET;
+    assert.throws(()=>serverHmac("payment",key),error=>isServerConfigError(error)&&pattern.test(error.message),label);
+  }
+  const res=await invoke(createOrder,{body:{customer:{full_name:"Budi Santoso",whatsapp:"081234567890",email:"budi@example.com",address:"Jalan Merdeka No. 10",city:"Jakarta",postal_code:"10110"},
+    items:[{productId:randomUUID(),quantity:1}],shippingQuoteId:randomUUID(),payment:"QRIS"}});
+  assert.equal(res.statusCode,503,"checkout must fail closed when the HMAC secret is invalid");
+  const detail=await invoke(require("../api/orders/detail.js"),{body:{orderNumber:"GYD-20260925-0001",orderAccessToken:"c".repeat(64)}});
+  assert.equal(detail.statusCode,503,"a misconfigured limiter must not be silently disabled");
+}
+
+// ------------------------------------------------ 11. QRIS acquirer and inactive channel
+resetEnv(); resetBackend();
+{
+  const order=addOrder();
+  await pay(order);
+  assert.equal(midtrans.charges[0].acquirer,"gopay","GoPay stays the default QRIS acquirer");
+}
+resetEnv({MIDTRANS_QRIS_ACQUIRER:"airpay shopee"}); resetBackend();
+{
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.equal(midtrans.charges[0].acquirer,"airpay shopee","ShopeePay QRIS is selectable without a code change");
+}
+// ------------------------------------------------ 12. Transfer Bank via Virtual Account
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank",total:12999000});
+  const missing=await payVa(order);
+  assert.equal(missing.statusCode,400);
+  assert.equal(missing.body.code,"BANK_REQUIRED","a VA needs a bank before it can be issued");
+  assert.equal(midtrans.charges.length,0);
+
+  const res=await payVa(order,"bni");
+  assert.equal(res.statusCode,200,"the attempt row created by the bank-less request is reused");
+  assert.equal(midtrans.charges[0].paymentType,"bank_transfer");
+  assert.equal(midtrans.charges[0].bank,"bni");
+  assert.deepEqual(midtrans.charges[0].expiry,{expiry_duration:24,unit:"hour"});
+  const payment=db.payments.at(-1);
+  assert.equal(payment.provider,"midtrans");
+  assert.equal(payment.va_bank,"bni");
+  assert.ok(payment.va_number);
+  assert.equal(payment.provider_environment,"production");
+  assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
+  assert.equal(payment.expires_at,"2026-09-27T06:20:00.000Z","Midtrans expiry_time is Western Indonesia Time");
+  assert.equal(res.body.vaBank,"bni");
+  assert.equal(res.body.vaNumber,payment.va_number);
+  assert.equal(res.body.paymentUrl,undefined);
+  assert.ok(Number(order.total)>10000000,"VA has no QRIS-style amount cap");
+
+  payment.expires_at=new Date(Date.now()+60*60_000).toISOString();
+  const again=await payVa(order,"bri");
+  assert.equal(again.statusCode,200);
+  assert.equal(again.body.vaBank,"bni","an active VA is kept; issuing a second one could let the customer pay twice");
+  assert.equal(midtrans.charges.length,1);
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"mandiri");
+  assert.equal(res.statusCode,201);
+  assert.equal(midtrans.charges[0].paymentType,"echannel","Mandiri uses Bill Payment");
+  assert.equal(res.body.vaBank,"mandiri");
+  assert.equal(res.body.vaNumber,"70012345678");
+  assert.equal(res.body.billerCode,"70012");
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"permata");
+  assert.equal(res.body.vaBank,"permata");
+  assert.equal(res.body.vaNumber,"8562000012345678");
+}
+resetEnv(); resetBackend();
+{
+  // Expired VA is renewed with a new Midtrans order_id and the bank the customer picks now.
+  const order=addOrder({method:"Transfer Bank"});
+  await payVa(order,"bni");
+  const first=db.payments.at(-1);
+  first.expires_at=new Date(Date.now()-60_000).toISOString();
+  midtrans.transactions.get(first.provider_reference).transaction_status="expire";
+  const res=await payVa(order,"bri");
+  assert.equal(res.statusCode,201);
+  assert.equal(first.status,"expired");
+  assert.equal(res.body.vaBank,"bri");
+  assert.notEqual(db.payments.at(-1).provider_reference,first.provider_reference);
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const unknown=await payVa(order,"bca");
+  assert.equal(unknown.statusCode,400);
+  assert.equal(unknown.body.code,"BANK_UNAVAILABLE");
+  resetEnv({MIDTRANS_VA_BANKS:"bni,mandiri"});
+  const disabled=await payVa(order,"bri");
+  assert.equal(disabled.statusCode,400,"banks removed from MIDTRANS_VA_BANKS are refused");
+  resetEnv({MIDTRANS_VA_BANKS:"bni,bca"});
+  assert.throws(()=>require("../api/payments/_midtrans.js").enabledVaBanks(),error=>isServerConfigError(error));
+  // BSI, Danamon and SeaBank are Snap-only: Core API checkouts neither offer nor charge them.
+  resetEnv();
+  assert.deepEqual(require("../api/payments/_midtrans.js").enabledVaBanks(),["bni","bri","mandiri","permata","cimb"]);
+  for(const snapOnly of ["danamon","seabank"]){
+    const refused=await payVa(order,snapOnly);
+    assert.equal(refused.statusCode,400);
+    assert.equal(refused.body.code,"BANK_UNAVAILABLE",`${snapOnly} is not charged through Core API`);
+  }
+  const bsi=await payVa(order,"bsi");
+  assert.equal(bsi.statusCode,400);
+  assert.equal(bsi.body.code,"BANK_UNAVAILABLE");
+  assert.equal(midtrans.charges.length,0,"no Core API charge is attempted for BSI");
+}
+resetEnv(); resetBackend();
+{
+  midtrans.chargeError={status_code:"402",status_message:"Payment channel is not activated."};
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"cimb");
+  assert.equal(res.statusCode,503);
+  assert.equal(res.body.code,"BANK_UNAVAILABLE","an inactive bank asks the customer to pick another one");
+}
+resetEnv(); resetBackend();
+{
+  const order=addOrder({total:12999000});
+  const res=await pay(order);
+  assert.equal(res.statusCode,409);
+  assert.equal(res.body.code,"QRIS_LIMIT");
+  assert.equal(midtrans.charges.length,0,"QRIS above Rp10.000.000 is refused before calling Midtrans");
+}
+resetEnv(); resetBackend();
+{
+  // The webhook settles VA payments exactly like QRIS.
+  const order=addOrder({method:"Transfer Bank"});
+  await payVa(order,"bni");
+  const payment=db.payments.at(-1);
+  const transaction=midtrans.transactions.get(payment.provider_reference);
+  transaction.transaction_status="settlement";
+  const signature=createHash("sha512").update(`${transaction.order_id}200${transaction.gross_amount}${PRODUCTION_KEY}`).digest("hex");
+  const res=await invoke(webhook,{body:{order_id:transaction.order_id,status_code:"200",gross_amount:transaction.gross_amount,signature_key:signature}});
+  assert.equal(res.body.paymentStatus,"paid");
+  assert.equal(payment.status,"paid");
+}
+
+resetEnv({MIDTRANS_QRIS_ACQUIRER:"ovo"});
+assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&/MIDTRANS_QRIS_ACQUIRER/.test(error.message));
+resetEnv(); resetBackend();
+{
+  // Exact production response seen when GoPay QRIS is not activated for the merchant.
+  midtrans.chargeError={status_code:"404",status_message:"Merchant pop id is not found"};
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,503,"an inactive QRIS channel is a merchant setup problem, not a server error");
+  assert.equal(res.body.error,"QRIS Midtrans belum aktif untuk merchant ini.");
+  assert.equal(db.payments[0].provider,"manual","the payment row stays untouched");
+}
+
+// ------------------------------------------------ Phase 8B: Midtrans Snap (default integration)
+const snapEnv=(overrides={})=>{resetEnv(overrides);if(!("MIDTRANS_INTEGRATION" in overrides))delete process.env.MIDTRANS_INTEGRATION;};
+const signedNotification=(orderId,grossAmount,statusCode="200")=>{
+  const signature=createHash("sha512").update(`${orderId}${statusCode}${grossAmount}${PRODUCTION_KEY}`).digest("hex");
+  return invoke(webhook,{body:{order_id:orderId,status_code:statusCode,gross_amount:grossAmount,signature_key:signature}});
+};
+snapEnv(); resetBackend();
+{
+  assert.equal(midtransConfig().integration,"snap","Snap is the default integration");
+  const order=addOrder();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.match(res.body.checkoutUrl,/^https:\/\/app\.midtrans\.com\/snap\/v4\/redirection\/[0-9a-f-]{36}$/);
+  assert.equal(res.body.paymentUrl,undefined,"a Snap link is not a QR image");
+  assert.equal(res.body.paymentStatus,"unpaid","nothing is charged until the customer picks a channel");
+  assert.equal(midtrans.charges.length,0,"Snap never calls Core API /v2/charge");
+  const [request]=midtrans.snapRequests;
+  assert.equal(request.host,"app.midtrans.com");
+  assert.equal(request.auth,`Basic ${Buffer.from(`${PRODUCTION_KEY}:`).toString("base64")}`);
+  assert.deepEqual(request.body.enabled_payments,["other_qris","gopay","shopeepay"]);
+  assert.equal(request.body.transaction_details.gross_amount,150000);
+  assert.deepEqual(request.body.expiry,{unit:"hour",duration:24});
+  assert.equal(request.body.callbacks.finish,"https://www.getyourdevice.id/#pesanan");
+  // Phones pay in the GoPay app, which must send the customer back to the store.
+  assert.deepEqual(request.body.gopay,{enable_callback:true,callback_url:"https://www.getyourdevice.id/#pesanan"});
+  // A ShopeePay callback makes Midtrans reject the transaction while ShopeePay is not activated.
+  assert.equal(request.body.shopeepay,undefined);
+  const payment=db.payments[0];
+  assert.match(payment.provider_reference,/^GYD-20260925-0001-[0-9a-f]{12}$/);
+  assert.equal(request.body.transaction_details.order_id,payment.provider_reference);
+  assert.equal(payment.provider_environment,"production");
+  assert.equal(payment.status,"unpaid");
+  const again=await pay(order);
+  assert.equal(again.statusCode,200);
+  assert.equal(again.body.checkoutUrl,res.body.checkoutUrl,"the same Snap link is reused while valid");
+  assert.equal(midtrans.snapRequests.length,1);
+  // Customer picks a channel on Snap (pending), then pays (settlement).
+  const reference=payment.provider_reference;
+  midtrans.transactions.set(reference,{order_id:reference,transaction_id:randomUUID(),transaction_status:"pending",payment_type:"gopay",gross_amount:"150000.00"});
+  assert.equal((await signedNotification(reference,"150000.00","201")).body.paymentStatus,"pending");
+  midtrans.transactions.get(reference).transaction_status="settlement";
+  assert.equal((await signedNotification(reference,"150000.00")).body.paymentStatus,"paid");
+  assert.equal(payment.status,"paid");
+  assert.equal((await pay(order)).statusCode,409,"a paid order cannot open a new Snap page");
+}
+snapEnv(); resetBackend();
+{
+  // Snap offers every default bank, BSI, Danamon and SeaBank included, in store order.
+  assert.deepEqual(require("../api/payments/_midtrans.js").enabledVaBanks(),["bni","bri","mandiri","bsi","permata","cimb","danamon","seabank"]);
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order);
+  assert.equal(res.statusCode,201);
+  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","bri_va","echannel","bsi_va","permata_va","cimb_va","danamon_va","seabank_va","other_va"]);
+  // A GoPay callback without GoPay on the page makes Midtrans reject the transaction.
+  assert.equal(midtrans.snapRequests[0].body.gopay,undefined,"Transfer Bank sends no GoPay callback");
+  assert.equal(midtrans.snapRequests[0].body.shopeepay,undefined);
+  assert.equal(midtrans.snapRequests[0].body.callbacks.finish,"https://www.getyourdevice.id/#pesanan","the finish redirect still applies");
+}
+snapEnv({MIDTRANS_VA_BANKS:"bni,mandiri"}); resetBackend();
+{
+  // Transfer Bank on Snap: no bank needed up front; the customer chooses on the Snap page.
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order,"bca");
+  assert.equal(res.statusCode,201,"an unknown bank is ignored on Snap instead of refused");
+  assert.ok(res.body.checkoutUrl);
+  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","echannel","other_va"]);
+  assert.equal(res.body.message,"Halaman pembayaran Midtrans siap. Lanjutkan untuk memilih cara bayar.");
+}
+snapEnv({MIDTRANS_SERVER_KEY:SANDBOX_KEY,MIDTRANS_ENV:"sandbox",VERCEL_ENV:"preview",SITE_URL:"https://preview.example.test/"}); resetBackend();
+{
+  const order=addOrder({method:"Transfer Bank"});
+  const res=await payVa(order);
+  assert.equal(res.statusCode,201);
+  assert.match(res.body.checkoutUrl,/^https:\/\/app\.sandbox\.midtrans\.com\/snap\//);
+  assert.equal(midtrans.snapRequests[0].body.callbacks.finish,"https://preview.example.test/#pesanan");
+}
+snapEnv(); resetBackend();
+{
+  const order=addOrder({total:12999000});
+  const res=await pay(order);
+  assert.equal(res.statusCode,409);
+  assert.equal(res.body.code,"QRIS_LIMIT","the QRIS cap still applies on Snap");
+  assert.equal(midtrans.snapRequests.length,0);
+}
+snapEnv(); resetBackend();
+{
+  // An expired Snap link the customer never used is replaced with a fresh attempt.
+  const order=addOrder();
+  await pay(order);
+  const first=db.payments[0];
+  first.expires_at=new Date(Date.now()-1000).toISOString();
+  const res=await pay(order);
+  assert.equal(res.statusCode,201);
+  assert.equal(first.status,"expired","Midtrans has no transaction for it, so the attempt is retired");
+  assert.equal(db.payments.length,2);
+  assert.notEqual(db.payments[1].provider_reference,first.provider_reference,"every attempt gets a fresh Midtrans order_id");
+  assert.equal(midtrans.snapRequests.length,2);
+}
+snapEnv(); resetBackend();
+{
+  // Paid on Snap but the webhook was missed: the renew path finds the payment instead.
+  const order=addOrder();
+  await pay(order);
+  const payment=db.payments[0];
+  payment.expires_at=new Date(Date.now()-1000).toISOString();
+  midtrans.transactions.set(payment.provider_reference,{order_id:payment.provider_reference,transaction_id:randomUUID(),transaction_status:"settlement",gross_amount:"150000.00"});
+  const res=await pay(order);
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.paymentStatus,"paid");
+  assert.equal(midtrans.snapRequests.length,1,"no second Snap page for a paid order");
+}
+snapEnv(); resetBackend();
+{
+  // Midtrans created the Snap transaction but our DB write was lost: the order_id is taken.
+  const order=addOrder();
+  midtrans.snapFailures.push({status:400,body:{error_messages:["transaction_details.order_id sudah digunakan"]}});
+  const res=await pay(order);
+  assert.equal(res.statusCode,201,"the lost attempt is retired and a new one issued");
+  assert.equal(db.payments[0].status,"expired");
+  assert.ok(db.payments[1].payment_url);
+  assert.notEqual(midtrans.snapRequests[0].body.transaction_details.order_id,midtrans.snapRequests[1].body.transaction_details.order_id);
+}
+snapEnv(); resetBackend();
+{
+  midtrans.snapFailures.push({status:401,body:{error_messages:["Access denied due to unauthorized transaction, please check client or server key"]}});
+  const res=await pay(addOrder());
+  assert.equal(res.statusCode,500);
+  assert.equal(db.payments[0].payment_url,null,"a failed Snap call stores nothing");
+}
+snapEnv(); resetBackend();
+{
+  // Payment Link / dashboard transactions share the merchant account but are not store orders.
+  const res=await signedNotification("PL-20260926-8f3a","1000.00");
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.ignored,true);
+  assert.equal(midtrans.statusCalls,0,"foreign order_ids are acknowledged without a status call");
+  const forged=await invoke(webhook,{body:{order_id:"PL-20260926-8f3a",status_code:"200",gross_amount:"1000.00",signature_key:"0".repeat(128)}});
+  assert.equal(forged.statusCode,401,"the signature is still checked first");
+}
+snapEnv(); resetBackend();
+{
+  // Phase 8J: a double tap sends two requests for one attempt. Both must hand out the
+  // same Snap link, and the attempt the customer pays must stay tracked.
+  const order=addOrder();
+  const realFetch=globalThis.fetch;
+  let releaseFirst;
+  const firstHeld=new Promise(resolve=>{releaseFirst=resolve;});
+  let snapCalls=0;
+  globalThis.fetch=async (url,init={})=>{
+    if(new URL(url).pathname==="/snap/v1/transactions") {
+      snapCalls++;
+      if(snapCalls===1) { const response=await realFetch(url,init); await firstHeld; return response; }
+      // Midtrans already has this order_id from the first request.
+      midtrans.snapRequests.push({body:JSON.parse(init.body)});
+      setTimeout(releaseFirst,50);
+      return json(400,{error_messages:["transaction_details.order_id sudah digunakan"]});
+    }
+    return realFetch(url,init);
+  };
+  const [first,second]=await Promise.all([pay(order),pay(order)]);
+  globalThis.fetch=realFetch;
+  assert.equal(db.payments.length,1,"the losing request must not open a second attempt");
+  assert.equal(db.payments[0].status,"unpaid","the attempt the customer is sent to must not be retired");
+  assert.ok(first.body.checkoutUrl);
+  assert.equal(second.body.checkoutUrl,first.body.checkoutUrl,"both requests hand out the same link");
+}
+snapEnv(); resetBackend();
+{
+  // A retired attempt is paid anyway: the webhook records it and confirms the order.
+  const order=addOrder();
+  await pay(order);
+  const payment=db.payments[0];
+  payment.status="expired";
+  midtrans.transactions.set(payment.provider_reference,{order_id:payment.provider_reference,transaction_id:randomUUID(),transaction_status:"settlement",gross_amount:"150000.00"});
+  const res=await signedNotification(payment.provider_reference,"150000.00");
+  assert.equal(res.statusCode,200);
+  assert.equal(res.body.paymentStatus,"paid","a settled payment is never dropped as stale");
+  assert.equal(payment.status,"paid");
+  assert.equal(db.orders.get(order.id).payment_status,"paid");
+  // A late 'failed' notice for a paid attempt is still ignored.
+  midtrans.transactions.get(payment.provider_reference).transaction_status="deny";
+  assert.equal((await signedNotification(payment.provider_reference,"150000.00","202")).body.ignored,true);
+  assert.equal(payment.status,"paid");
+}
+snapEnv({RESEND_API_KEY:"re_test",ORDER_NOTIFY_EMAIL:"seller@example.test"}); resetBackend();
+{
+  // Paid twice through two attempts: the seller is told to refund one.
+  const order=addOrder();
+  const settled=(payment)=>{
+    midtrans.transactions.set(payment.provider_reference,{order_id:payment.provider_reference,transaction_id:randomUUID(),transaction_status:"settlement",gross_amount:"150000.00"});
+    return signedNotification(payment.provider_reference,"150000.00");
+  };
+  const firstAttempt=addPayment(order,{provider:"midtrans",status:"expired",provider_reference:midtransOrderId(order.order_number,randomUUID()),provider_environment:"production"});
+  const secondAttempt=addPayment(order,{provider:"midtrans",status:"pending",provider_reference:midtransOrderId(order.order_number,randomUUID()),provider_environment:"production"});
+  await settled(secondAttempt);
+  assert.equal(calls.emails.filter(email=>/PEMBAYARAN GANDA/.test(email.subject)).length,0,"one payment is not a duplicate");
+  await settled(firstAttempt);
+  const alerts=calls.emails.filter(email=>/PEMBAYARAN GANDA/.test(email.subject));
+  assert.equal(alerts.length,1,"the second payment alerts the seller");
+  assert.deepEqual(alerts[0].to,["seller@example.test"]);
+  assert.match(alerts[0].subject,/GYD-20260925-0001 · 2×/);
+  calls.emails.length=0;
+  await settled(firstAttempt);
+  assert.equal(calls.emails.filter(email=>/PEMBAYARAN GANDA/.test(email.subject)).length,0,"webhook retries do not repeat the alert");
+}
+for(const key of ["RESEND_API_KEY","ORDER_NOTIFY_EMAIL"]) delete process.env[key];
+
+snapEnv({MIDTRANS_INTEGRATION:"redirect"});
+assert.throws(()=>midtransConfig(),error=>isServerConfigError(error)&&/MIDTRANS_INTEGRATION/.test(error.message));
+{
+  const config=require("../api/config.js");
+  const read=async ()=>{const res={statusCode:200,headers:{},setHeader(n,v){this.headers[n]=v;return this;},status(c){this.statusCode=c;return this;},json(p){this.body=p;return this;}};await config({method:"GET"},res);return res.body;};
+  snapEnv();
+  assert.equal((await read()).checkout.integration,"snap");
+  resetEnv();
+  assert.equal((await read()).checkout.integration,"core");
+}
+
+console.warn=originalConsole.warn; console.error=originalConsole.error;
+console.log("Phase 7D production readiness verification passed.");
