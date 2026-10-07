@@ -514,7 +514,7 @@ snapEnv(); resetBackend();
   const [request]=midtrans.snapRequests;
   assert.equal(request.host,"app.midtrans.com");
   assert.equal(request.auth,`Basic ${Buffer.from(`${PRODUCTION_KEY}:`).toString("base64")}`);
-  assert.deepEqual(request.body.enabled_payments,["other_qris","gopay","shopeepay"]);
+  assert.deepEqual(request.body.enabled_payments,["other_qris","gopay"]);
   assert.equal(request.body.transaction_details.gross_amount,150000);
   assert.deepEqual(request.body.expiry,{unit:"hour",duration:24});
   assert.equal(request.body.callbacks.finish,"https://www.getyourdevice.id/#pesanan");
@@ -547,7 +547,8 @@ snapEnv(); resetBackend();
   const order=addOrder({method:"Transfer Bank"});
   const res=await payVa(order);
   assert.equal(res.statusCode,201);
-  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","bri_va","echannel","bsi_va","permata_va","cimb_va","danamon_va","seabank_va","other_va"]);
+  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","bri_va","echannel","bsi_va","permata_va","cimb_va","danamon_va","seabank_va","other_va","credit_card","google_pay"]);
+  assert.deepEqual(midtrans.snapRequests[0].body.credit_card,{secure:true},"Google Pay/card checkout requires 3DS");
   // A GoPay callback without GoPay on the page makes Midtrans reject the transaction.
   assert.equal(midtrans.snapRequests[0].body.gopay,undefined,"Transfer Bank sends no GoPay callback");
   assert.equal(midtrans.snapRequests[0].body.shopeepay,undefined);
@@ -560,7 +561,7 @@ snapEnv({MIDTRANS_VA_BANKS:"bni,mandiri"}); resetBackend();
   const res=await payVa(order,"bca");
   assert.equal(res.statusCode,201,"an unknown bank is ignored on Snap instead of refused");
   assert.ok(res.body.checkoutUrl);
-  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","echannel","other_va"]);
+  assert.deepEqual(midtrans.snapRequests[0].body.enabled_payments,["bni_va","echannel","other_va","credit_card","google_pay"]);
   assert.equal(res.body.message,"Halaman pembayaran Midtrans siap. Lanjutkan untuk memilih cara bayar.");
 }
 snapEnv({MIDTRANS_SERVER_KEY:SANDBOX_KEY,MIDTRANS_ENV:"sandbox",VERCEL_ENV:"preview",SITE_URL:"https://preview.example.test/"}); resetBackend();

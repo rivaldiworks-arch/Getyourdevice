@@ -52,7 +52,7 @@ const SNAP_EXPIRY_HOURS=24;
 // Snap channel names per store payment method. A channel the merchant has not activated
 // is simply left off the Snap page by Midtrans.
 const SNAP_VA_CHANNELS=Object.freeze({bni:"bni_va",bri:"bri_va",mandiri:"echannel",bsi:"bsi_va",permata:"permata_va",cimb:"cimb_va",danamon:"danamon_va",seabank:"seabank_va"});
-const SNAP_QRIS_CHANNELS=Object.freeze(["other_qris","gopay","shopeepay"]);
+const SNAP_QRIS_CHANNELS=Object.freeze(["other_qris","gopay"]);
 // Store order_ids sent to Midtrans. Anything else (Payment Links, manual dashboard
 // transactions) belongs to the same merchant account but not to this store.
 const STORE_REFERENCE=/^GYD-\d{8}-\d{4}-[0-9a-f]{12}$/;
@@ -242,7 +242,7 @@ async function createBankTransferCharge({orderId,amount,bank}) {
 
 function snapChannels(method) {
   if(method==="QRIS") return [...SNAP_QRIS_CHANNELS];
-  if(method==="Transfer Bank") return enabledVaBanks().map(bank=>SNAP_VA_CHANNELS[bank]).concat("other_va");
+  if(method==="Transfer Bank") return enabledVaBanks().map(bank=>SNAP_VA_CHANNELS[bank]).concat("other_va","credit_card","google_pay");
   throw new Error("Unsupported Snap payment method");
 }
 
@@ -266,6 +266,7 @@ async function createSnapTransaction({orderId,amount,method,order,finishUrl=null
     transaction_details:{order_id:orderId,gross_amount:Math.round(Number(amount))},
     enabled_payments:snapChannels(method),
     customer_details:snapCustomer(order),
+    ...(method==="Transfer Bank"?{credit_card:{secure:true}}:{}),
     expiry:{unit:"hour",duration:SNAP_EXPIRY_HOURS}
   };
   if(finishUrl) {
