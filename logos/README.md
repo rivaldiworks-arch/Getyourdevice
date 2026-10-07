@@ -32,3 +32,5 @@ background (the white inside the coin is kept).
 (the square icon above it is left out so it fits the tile).
 
 `googlepay.svg`, `visa.svg`, and `mastercard.svg` are locally authored SVG renditions identifying the approved card payment methods; they are not downloaded official brand assets.
+
+`dana.svg` is a locally authored SVG rendition of the DANA merchant mark, identifying the approved Midtrans DANA channel.

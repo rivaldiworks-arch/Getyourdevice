@@ -52,7 +52,7 @@ const SNAP_EXPIRY_HOURS=24;
 // Snap channel names per store payment method. A channel the merchant has not activated
 // is simply left off the Snap page by Midtrans.
 const SNAP_VA_CHANNELS=Object.freeze({bni:"bni_va",bri:"bri_va",mandiri:"echannel",bsi:"bsi_va",permata:"permata_va",cimb:"cimb_va",danamon:"danamon_va",seabank:"seabank_va"});
-const SNAP_QRIS_CHANNELS=Object.freeze(["other_qris","gopay"]);
+const SNAP_QRIS_CHANNELS=Object.freeze(["other_qris","gopay","dana"]);
 // Store order_ids sent to Midtrans. Anything else (Payment Links, manual dashboard
 // transactions) belongs to the same merchant account but not to this store.
 const STORE_REFERENCE=/^GYD-\d{8}-\d{4}-[0-9a-f]{12}$/;

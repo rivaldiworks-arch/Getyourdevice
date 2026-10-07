@@ -410,7 +410,7 @@ function detailAssurance(product) {
     // Delivery promise: only what holds for every order (same-day dispatch, Jabodetabek estimate).
     product.stock>0?`<li class="detail-shipping">${icon("ship")}<span><b>Tiba 1–3 hari kerja untuk Jabodetabek</b>Dikirim hari yang sama bila dibayar sebelum 12.00 WIB (Senin–Sabtu). Kota lain: ongkir dan estimasi dihitung otomatis saat checkout.</span></li>`:"",
     product.warranty&&WARRANTY_LABELS[product.warranty]?`<li>${icon("warranty")}<span><b>${escapeHTML(WARRANTY_LABELS[product.warranty])}</b>Klaim garansi dibantu toko</span></li>`:"",
-    `<li>${icon("lock")}<span><b>Pembayaran aman</b>QRIS, GoPay &amp; Virtual Account via Midtrans</span></li>`,
+    `<li>${icon("lock")}<span><b>Pembayaran aman</b>QRIS, GoPay, DANA &amp; Virtual Account via Midtrans</span></li>`,
     `<li>${icon("chat")}<span><b>Masih ragu?</b><a href="${ask}" target="_blank" rel="noopener">Tanya dulu via WhatsApp</a></span></li>`
   ];
   return `<ul class="detail-assurance">${items.join("")}</ul>`;
@@ -546,7 +546,7 @@ function applyPaymentAvailability(){
   });
   const snap=snapCheckout();
   const note=$("qrisOptionNote");
-  if(note)note.textContent=overLimit?`Tidak tersedia untuk total di atas ${money(limit)} (batas QRIS). Gunakan Transfer Bank.`:snap?"Scan QRIS dari e-wallet atau m-banking apa pun, atau bayar langsung dengan GoPay, di halaman pembayaran Midtrans.":"Bayar instan dengan e-wallet atau mobile banking. QR tampil setelah pesanan dibuat.";
+  if(note)note.textContent=overLimit?`Tidak tersedia untuk total di atas ${money(limit)} (batas QRIS). Gunakan Transfer Bank.`:snap?"Scan QRIS dari e-wallet atau m-banking apa pun, atau bayar langsung dengan GoPay atau DANA, di halaman pembayaran Midtrans.":"Bayar instan dengan e-wallet atau mobile banking. QR tampil setelah pesanan dibuat.";
   const codNote=$("codOptionNote");if(codNote)codNote.textContent=codBlocked?"Hanya untuk pengiriman Ambil di Toko. Kembali ke langkah pengiriman untuk memilihnya.":"Bayar tunai saat mengambil pesanan di toko.";
   const qrisLabel=$("qrisOptionLabel");if(qrisLabel)qrisLabel.textContent=snap?"QRIS / E-Wallet":"QRIS";
   const vaLabel=$("vaOptionLabel");if(vaLabel)vaLabel.textContent=snap?"Virtual Account / Kartu / Google Pay":"Transfer Bank (Virtual Account)";
