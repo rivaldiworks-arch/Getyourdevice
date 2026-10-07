@@ -30,3 +30,5 @@ background (the white inside the coin is kept).
 
 `sicepat.png` is the SiCepat Ekspres wordmark cropped from the logo the store owner supplied
 (the square icon above it is left out so it fits the tile).
+
+`googlepay.svg`, `visa.svg`, and `mastercard.svg` are locally authored SVG renditions identifying the approved card payment methods; they are not downloaded official brand assets.

@@ -88,7 +88,7 @@ async function run(width) {
     if(shotDir) await page.screenshot({path:`${shotDir}/snap-step4-${width}.png`});
     await page.click("#checkoutNext");
     const review=await page.locator("#finalReview").innerText();
-    assert.match(review,/Transfer Bank \(Virtual Account\)/);
+    assert.match(review,/Virtual Account \/ Kartu \/ Google Pay/);
     assert.match(review,/halaman pembayaran Midtrans/);
     await page.check("#reviewConsent");
     await page.click("#checkoutSubmit");
