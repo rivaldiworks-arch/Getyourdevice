@@ -25,10 +25,29 @@
     <section id="dashboardView" class="dashboard hidden">
       <header class="admin-topbar"><div><a class="admin-brand" href="./index.html"><span class="brand-mark" aria-hidden="true">gyd</span><span class="logo"><span class="a">getyour</span><span class="b">device</span></span></a><small id="adminIdentity"></small></div><div class="topbar-actions"><div class="notify-wrap"><button id="notifyButton" class="notify-button" type="button" aria-label="Notifikasi pesanan" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><b id="notifyCount" class="hidden">0</b></button><div id="notifyPanel" class="notify-panel hidden" role="dialog" aria-label="Notifikasi pesanan"><header><strong>Notifikasi</strong><button id="notifyMarkRead" type="button">Tandai dibaca</button></header><ul id="notifyList"></ul><footer><small id="notifyStatus">Memeriksa pesanan… (otomatis setiap 20 detik selama halaman ini terbuka)</small><button id="notifyEnable" type="button" class="hidden">Aktifkan notifikasi perangkat</button></footer></div></div><button id="signOut" class="secondary" type="button">Keluar</button></div></header>
       <div class="admin-heading"><div><p class="eyebrow">ADMIN DASHBOARD</p><h1>Kelola toko</h1></div><button id="addProduct" class="primary" type="button">+ Tambah produk</button></div>
-      <nav class="admin-tabs"><button class="active" data-tab="products">Produk</button><button data-tab="orders">Pesanan</button></nav>
+      <nav class="admin-tabs"><button class="active" data-tab="products">Produk</button><button data-tab="orders">Pesanan</button><button data-tab="pricing">Harga</button></nav>
       <section id="productsPanel">
         <div class="admin-toolbar"><input id="productSearch" type="search" placeholder="Cari nama, brand, kategori…"><select id="statusFilter"><option value="all">Semua status</option><option value="active">Aktif</option><option value="inactive">Nonaktif</option></select></div>
         <p id="productMessage" class="admin-message" role="status"></p><div id="productTable" class="admin-table-wrap"></div>
+      </section>
+      <section id="pricingPanel" class="pricing-panel hidden" aria-labelledby="pricingTitle">
+        <div class="pricing-intro"><h2 id="pricingTitle">Kalkulator harga jual</h2><p>Biaya pembayaran Midtrans ditanggung toko dan tidak boleh ditambahkan ke tagihan pembeli (PBI 23/6/PBI/2021 Pasal 52). Masukkan biaya itu ke harga jual: kalkulator ini mencari harga terendah yang tetap memberi untung bersih yang Anda mau, apa pun metode yang dipilih pembeli.</p></div>
+        <form id="pricingForm" class="pricing-grid" novalidate>
+          <fieldset class="pricing-card"><legend>Produk</legend>
+            <label>Harga modal (Rp)<input id="priceCost" inputmode="numeric" placeholder="Contoh: 12500000"></label>
+            <label>Untung bersih minimum (Rp)<input id="priceProfit" inputmode="numeric" placeholder="Contoh: 500000"></label>
+            <label>Biaya lain per pesanan (Rp) <small>packing, bubble wrap, dan sejenisnya</small><input id="priceExtra" inputmode="numeric" placeholder="0"></label>
+            <label>Perkiraan ongkir yang dibayar pembeli (Rp) <small>biaya Midtrans juga dipotong dari ongkir, karena ongkir ikut ditagih</small><input id="priceShipping" inputmode="numeric" placeholder="0"></label>
+            <label>Harga jual yang direncanakan (Rp) <small>opsional, untuk cek untung per metode</small><input id="pricePlanned" inputmode="numeric" placeholder="Kosongkan untuk pakai harga minimum"></label>
+          </fieldset>
+          <fieldset class="pricing-card"><legend>Biaya per metode pembayaran</legend>
+            <p class="pricing-help">Isi dari kontrak atau dashboard Midtrans Anda, sebelum PPN. Baris yang kosong tidak ikut dihitung. Tarif disimpan otomatis.</p>
+            <p id="feeStatus" class="fee-status" role="status"></p>
+            <label class="fee-tax">PPN atas biaya Midtrans (%) <small>Midtrans menambahkan PPN di atas biayanya. Cocokkan dengan invoice Midtrans Anda.</small><input id="feeTax" data-fee="tax:percent" inputmode="decimal" value="11"></label>
+            <div id="feeRows" class="fee-rows"></div>
+          </fieldset>
+        </form>
+        <div id="pricingResult" class="pricing-result" aria-live="polite"></div>
       </section>
       <section id="ordersPanel" class="hidden">
         <div id="orderStats" class="order-stats" aria-label="Ringkasan pesanan"></div><div class="admin-toolbar order-toolbar"><input id="orderSearch" type="search" placeholder="Cari nomor pesanan, pelanggan, produk, atau resi…" aria-label="Cari pesanan"><label class="date-filter"><span>Tanggal</span><select id="orderDateFilter"><option value="all">Semua tanggal</option><option value="today">Hari ini</option><option value="7d">7 hari terakhir</option><option value="30d">30 hari terakhir</option><option value="month">Bulan ini</option><option value="custom">Pilih tanggal…</option></select></label><div id="orderDateCustom" class="date-range hidden"><label><span>Dari</span><input id="orderDateFrom" type="date"></label><label><span>Sampai</span><input id="orderDateTo" type="date"></label></div></div><div id="orderStatusFilter" class="status-tabs" role="tablist" aria-label="Status pesanan"></div><p id="orderMessage" class="admin-message" role="status"></p><div id="orderTable" class="admin-table-wrap"></div><nav id="orderPager" class="order-pager" aria-label="Halaman pesanan"></nav>

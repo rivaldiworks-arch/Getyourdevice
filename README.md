@@ -41,6 +41,7 @@ Jalankan berurutan di **Supabase Dashboard → SQL Editor**:
 26. `supabase/migrations/026_product_is_new.sql` — kolom `products.is_new` untuk showcase "Baru" di beranda. Aditif dengan default `false`.
 27. `supabase/migrations/027_late_gateway_payments.sql` — pembayaran yang dilunasi Midtrans selalu tercatat, walaupun attempt-nya sudah `expired`/`failed` di database (sebelumnya notifikasi itu dibuang diam-diam). Status `paid`/`refunded` pada order tidak lagi tertimpa oleh attempt lain yang kedaluwarsa, dan `email_log` menerima jenis `seller-duplicate-paid` untuk alert pembayaran ganda. **Jalankan 027 sebelum deploy kode Phase 8J.**
 28. `supabase/migrations/028_payment_refunds.sql` — kolom refund di `payments` (`refund_amount`, `refund_method`, `refund_reference`, `refund_note`, `refunded_at`, `refunded_by`) dan RPC admin-only `record_payment_refund`. Refund boleh dicatat untuk pesanan yang dibatalkan tetapi sudah dibayar, atau pembayaran kedua pada pesanan yang dibayar ganda. Tabel `payments` tetap tanpa grant tulis langsung. **Jalankan 028 sebelum deploy kode Phase 8K.**
+29. `supabase/migrations/029_payment_fee_settings.sql` — satu baris tarif biaya pembayaran untuk kalkulator harga di admin (tab Harga), hanya bisa dibaca dan diubah admin. Sebelum dijalankan, kalkulator menyimpan tarif di browser saja.
 
 ## Payment infrastructure (Phase 5)
 
@@ -476,3 +477,9 @@ New logos are included in the homepage payment strip. Google Pay, Visa and Maste
 ## OVO approved — 8 October 2026
 
 The production Midtrans dashboard now lists OVO as active, next to every method above. Snap's QRIS / E-Wallet group adds `ovo`: `other_qris`, `gopay`, `dana`, `ovo`. OVO prefills the customer's phone from `customer_details.phone` and gives the customer about one minute to approve in the OVO app, which the help page states. The OVO logo is the Commons text logo (see `logos/README.md`). Static QRIS (still "In progress" in the dashboard) is a counter QR, not an online checkout rail, so the store keeps using dynamic QRIS. No migration or new keys are needed.
+
+## Admin price calculator (Harga tab) — 8 October 2026
+
+Bank Indonesia forbids adding payment fees to the buyer's bill (PBI 23/6/PBI/2021, Pasal 52: no surcharge for fees a payment provider charges the merchant). The Midtrans fees therefore have to sit inside the selling price. `admin.html#harga` takes the cost price, the target net profit and any other per-order cost, plus each payment method's rate (percent and/or flat Rupiah), and returns the lowest selling price, rounded up to Rp1.000, that keeps the target profit whichever filled-in method the buyer picks. Midtrans takes its fee from the whole bill (product plus shipping) and adds PPN on top of the fee, so the calculator also takes an expected shipping amount and a PPN rate on fees (prefilled 11%, to be matched against the Midtrans invoice). It also lists the fee and net profit per method, cheapest first, and can check a planned price. Only QRIS is prefilled (0.7%, from Midtrans' QRIS fee documentation); the other rates come from the store's Midtrans contract. Rates are saved automatically to `public.payment_fee_settings` (migration 029, one admin-only row), so they are entered once for every admin and device; before that migration runs, the calculator keeps them in the admin browser and says so. Nothing changes at checkout.
+
+The order of methods inside the Snap payment page is set in the Midtrans dashboard (Settings → Snap Preferences → Payment Channels), not by `enabled_payments`, so put the cheapest methods first there.

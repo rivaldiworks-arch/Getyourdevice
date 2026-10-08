@@ -144,3 +144,37 @@
 .refund-form .wide{grid-column:1/-1}
 .refund-form-actions button{min-height:42px}
 @media(max-width:680px){.admin-body dialog .refund-form{grid-template-columns:1fr}}
+/* Price calculator (Harga tab) */
+.pricing-panel{display:grid;gap:18px}
+.pricing-intro h2{margin:0 0 6px;font-size:22px}
+.pricing-intro p{max-width:760px;margin:0;color:#4b5563;line-height:1.6}
+.pricing-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:18px}
+.pricing-card{min-width:0;margin:0;border:1px solid #dfe3e8;border-radius:16px;background:#fff;padding:18px 20px;display:grid;gap:12px}
+.pricing-card legend{padding:0 6px;font-weight:700}
+.pricing-card label{display:grid;gap:6px;font-weight:600;font-size:14px}
+.pricing-card label small{color:#5f6b7a;font-weight:400}
+.pricing-card input{min-height:44px;border:1px solid #d5dbe4;border-radius:12px;padding:0 12px;font:inherit;background:#fff}
+.pricing-help{margin:0;color:#5f6b7a;font-size:13px}
+.fee-rows{display:grid;gap:8px}
+.fee-row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center;font-size:14px}
+.fee-row.fee-head{color:#5f6b7a;font-size:12px;font-weight:600}
+.pricing-result{display:grid;gap:14px}
+.pricing-empty{margin:0;padding:18px;border:1px dashed #cfd6df;border-radius:16px;color:#5f6b7a;background:#fff}
+.pricing-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.pricing-summary>div{display:grid;gap:4px;border:1px solid #dfe3e8;border-radius:16px;background:#fff;padding:16px 18px}
+.pricing-summary small{color:#5f6b7a;font-weight:600}
+.pricing-summary strong{font-size:26px;color:#1446a0}
+.pricing-summary span{color:#4b5563;font-size:14px}
+.pricing-summary .is-short strong,.pricing-table .is-short{color:#b42318}
+.pricing-table{width:100%;border-collapse:collapse;background:#fff;font-size:14px}
+.pricing-table caption{padding:0 0 8px;text-align:left;color:#4b5563;font-weight:600;background:var(--admin-bg)}
+.pricing-table th,.pricing-table td{padding:12px 14px;border-bottom:1px solid #eef1f5;text-align:left}
+.pricing-table thead th{color:#5f6b7a;font-size:12px}
+.pricing-table td{text-align:right}
+.pricing-table thead th:not(:first-child){text-align:right}
+.pricing-table .is-cheapest th small{margin-left:6px;border-radius:6px;background:#dcf6ee;color:#08765c;padding:2px 6px;font-size:11px}
+.pricing-note{margin:0;color:#4b5563;font-size:13px;line-height:1.5}
+@media(max-width:760px){.pricing-grid{grid-template-columns:1fr}}
+.fee-status{margin:0;color:#08765c;font-size:13px;font-weight:600}
+.fee-status[data-tone="warn"]{color:#8a5b00}
+.fee-status[data-tone="error"]{color:#b42318}
