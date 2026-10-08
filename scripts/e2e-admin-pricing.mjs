@@ -1,6 +1,7 @@
 // Browser test for the admin price calculator (#harga): the minimum price covers the
-// target profit after the most expensive filled-in payment method, only QRIS is prefilled,
-// fee rates persist in the browser, and a planned price below the minimum is flagged.
+// target profit after the most expensive filled-in payment method, including PPN on the fee
+// and the fee Midtrans takes on shipping; only QRIS is prefilled, fee rates persist in the
+// browser, and a planned price below the minimum is flagged.
 // Requires the playwright package: npm install --no-save playwright
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -45,12 +46,13 @@ for(const width of [1280,390]){
   assert.equal(await page.locator('[data-fee="card:percent"]').inputValue(),"");
   assert.match(await page.locator("#pricingResult").innerText(),/Isi harga modal/);
 
-  // Cost 10.000.000 + profit 500.000; QRIS 0.7% and a card rate of 3% + Rp2.000 from the contract.
+  // Cost 10.000.000 + profit 500.000; QRIS 0.7% and a card rate of 3% + Rp2.000, PPN 11% on fees.
+  assert.equal(await page.locator("#feeTax").inputValue(),"11","PPN on fees defaults to 11%");
   await page.fill("#priceCost","10000000");
   await page.fill("#priceProfit","500000");
   await page.fill('[data-fee="card:percent"]',"3");
   await page.fill('[data-fee="card:flat"]',"2000");
-  const minimum=Math.ceil(((10500000+2000)/0.97)/1000)*1000;
+  const minimum=Math.ceil(((10500000+2000*1.11)/(1-0.03*1.11))/1000)*1000;
   const summary=await page.locator(".pricing-summary").innerText();
   assert.equal(rupiah(summary.split("\n")[1]),minimum,"minimum price covers the card fee");
   assert.match(summary,/Termahal: Kartu kredit\/debit/);
@@ -58,6 +60,13 @@ for(const width of [1280,390]){
   assert.match(rows[0],/^QRIS/,"cheapest method listed first");
   assert.ok(rows.every(row=>rupiah(row.split("\t").pop())>=500000),"every filled method keeps the target profit");
   assert.match(await page.locator("#pricingResult").innerText(),/5 metode belum diisi/);
+
+  // Shipping is billed through Midtrans too, so its fee comes out of the profit and raises the minimum.
+  await page.fill("#priceShipping","200000");
+  const withShipping=Math.ceil(((10500000+(200000*0.03+2000)*1.11)/(1-0.03*1.11))/1000)*1000;
+  assert.equal(rupiah((await page.locator(".pricing-summary").innerText()).split("\n")[1]),withShipping,"minimum covers the fee on shipping");
+  assert.ok((await page.locator(".pricing-table tbody tr").allInnerTexts()).every(row=>rupiah(row.split("\t").pop())>=500000),"profit holds with shipping");
+  await page.fill("#priceShipping","");
 
   // A planned price below the minimum is flagged.
   await page.fill("#pricePlanned","10600000");

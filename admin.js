@@ -93,8 +93,9 @@ async function applyAdminRoute(initial=false){
 }
 // Price calculator. Midtrans fees are the store's cost (Bank Indonesia forbids passing them to
 // the buyer), so they go into the selling price: the minimum price is the lowest one that still
-// leaves the target profit after the most expensive filled-in payment method. Only the QRIS rate
-// is prefilled (0.7%, Midtrans docs); the owner enters the rest from the Midtrans contract.
+// leaves the target profit after the most expensive filled-in payment method. Midtrans charges its
+// fee on the whole bill (product + shipping) and adds PPN on top of the fee, so both are counted.
+// Only the QRIS rate is prefilled (0.7%, Midtrans docs); the owner enters the rest from the contract.
 const PAYMENT_FEE_METHODS=[
   {id:"va",label:"Virtual Account"},
   {id:"qris",label:"QRIS",percent:"0,7"},
@@ -116,6 +117,7 @@ function saveFeeRates(){
 function renderPricing(){
   if($("feeRows").childElementCount)return renderPricingResult();
   const saved=loadFeeRates();
+  if(saved["tax:percent"]!==undefined)$("feeTax").value=saved["tax:percent"];
   $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
     const percent=saved[`${method.id}:percent`]??method.percent??"",flat=saved[`${method.id}:flat`]??"";
     return `<div class="fee-row"><span>${method.label}</span><input data-fee="${method.id}:percent" inputmode="decimal" aria-label="Persen biaya ${method.label}" placeholder="%" value="${escapeHTML(percent)}"><input data-fee="${method.id}:flat" inputmode="numeric" aria-label="Biaya tetap ${method.label}" placeholder="0" value="${escapeHTML(flat)}"></div>`;
@@ -129,22 +131,24 @@ function feeSchedule(){
     return {...method,percent,flat,filled:percent!==null||flat>0};
   }).filter(method=>method.filled&&(method.percent===null||(method.percent>=0&&method.percent<100)));
 }
-const methodFee=(method,price)=>Math.ceil(price*(method.percent||0)/100+method.flat);
-function minimumPrice(base,fees){
-  // price - fee(price) >= base for every method; rounded up to the next Rp1.000.
-  const raw=Math.max(base,...fees.map(method=>(base+method.flat)/(1-(method.percent||0)/100)));
+const feeTaxRate=()=>Math.max(0,parsePercent($("feeTax").value)||0)/100;
+// Fee plus PPN on a bill of price + shipping.
+const methodFee=(method,price,shipping,tax)=>Math.ceil(((price+shipping)*(method.percent||0)/100+method.flat)*(1+tax));
+function minimumPrice(base,fees,shipping,tax){
+  // price - fee(price + shipping) * (1 + tax) >= base for every method; rounded up to the next Rp1.000.
+  const raw=Math.max(base,...fees.map(method=>{const rate=(method.percent||0)/100*(1+tax);return (base+(shipping*(method.percent||0)/100+method.flat)*(1+tax))/(1-rate);}));
   return Math.ceil(raw/1000)*1000;
 }
 function renderPricingResult(){
-  const cost=parseRupiah($("priceCost").value),profit=parseRupiah($("priceProfit").value),extra=parseRupiah($("priceExtra").value),planned=parseRupiah($("pricePlanned").value);
+  const cost=parseRupiah($("priceCost").value),profit=parseRupiah($("priceProfit").value),extra=parseRupiah($("priceExtra").value),planned=parseRupiah($("pricePlanned").value),shipping=parseRupiah($("priceShipping").value),tax=feeTaxRate();
   const fees=feeSchedule(),missing=PAYMENT_FEE_METHODS.length-fees.length;
   if(!cost){$("pricingResult").innerHTML='<p class="pricing-empty">Isi harga modal untuk melihat harga jual minimum.</p>';return;}
   if(!fees.length){$("pricingResult").innerHTML='<p class="pricing-empty">Isi minimal satu biaya metode pembayaran.</p>';return;}
-  const base=cost+profit+extra,minimum=minimumPrice(base,fees),price=planned||minimum;
-  const rows=fees.map(method=>{const fee=methodFee(method,price);return {...method,fee,net:price-fee-cost-extra};}).sort((a,b)=>a.fee-b.fee);
+  const base=cost+profit+extra,minimum=minimumPrice(base,fees,shipping,tax),price=planned||minimum;
+  const rows=fees.map(method=>{const fee=methodFee(method,price,shipping,tax);return {...method,fee,net:price-fee-cost-extra};}).sort((a,b)=>a.fee-b.fee);
   const worst=rows[rows.length-1],cheapest=rows[0];
   $("pricingResult").innerHTML=`<div class="pricing-summary"><div><small>Harga jual minimum</small><strong>${money(minimum)}</strong><span>Untung bersih minimal ${money(profit)} untuk semua metode yang diisi. Termahal: ${escapeHTML(worst.label)}.</span></div>${planned?`<div class="${planned<minimum?"is-short":""}"><small>Harga yang direncanakan</small><strong>${money(planned)}</strong><span>${planned<minimum?`Kurang ${money(minimum-planned)} dari harga minimum.`:"Sudah di atas harga minimum."}</span></div>`:""}</div>
-    <table class="pricing-table"><caption>Rincian per metode pada harga ${money(price)}, dari biaya termurah</caption><thead><tr><th scope="col">Metode</th><th scope="col">Biaya</th><th scope="col">Untung bersih</th></tr></thead><tbody>${rows.map(row=>`<tr${row===cheapest?' class="is-cheapest"':""}><th scope="row">${escapeHTML(row.label)}${row===cheapest?" <small>termurah</small>":""}</th><td>${money(row.fee)}</td><td class="${row.net<profit?"is-short":""}">${money(row.net)}</td></tr>`).join("")}</tbody></table>
+    <table class="pricing-table"><caption>Rincian per metode pada harga ${money(price)}${shipping?` + ongkir ${money(shipping)}`:""}, dari biaya termurah</caption><thead><tr><th scope="col">Metode</th><th scope="col">Biaya + PPN</th><th scope="col">Untung bersih</th></tr></thead><tbody>${rows.map(row=>`<tr${row===cheapest?' class="is-cheapest"':""}><th scope="row">${escapeHTML(row.label)}${row===cheapest?" <small>termurah</small>":""}</th><td>${money(row.fee)}</td><td class="${row.net<profit?"is-short":""}">${money(row.net)}</td></tr>`).join("")}</tbody></table>
     ${missing?`<p class="pricing-note">${missing} metode belum diisi biayanya, jadi belum ikut dihitung. Harga minimum bisa naik setelah semua diisi.</p>`:""}
     <p class="pricing-note">Urutan metode di halaman pembayaran Midtrans diatur di dashboard Midtrans: Settings, Snap Preferences, Payment Channels. Taruh metode termurah di atas.</p>`;
 }
