@@ -165,12 +165,13 @@ async function buildFeeRows(){
   feeStatus("Memuat tarif…");
   const saved=await loadFeeRates();
   // Rates saved under older defaults: blank fields take the current defaults, typed values stay.
-  // A PPN of 0 was the workaround before PPN was applied per method, so it returns to 11%; any
-  // other rate the owner entered from the invoice is kept.
+  // A PPN of 0 in a version-1 row was the workaround before PPN was applied per method, so it
+  // returns to 11%. From version 2 the field showed 11% by default, so any rate saved there,
+  // 0 included, is the owner's choice and is kept.
   const upgrade=Object.keys(saved).length>0&&saved.version!==FEE_DEFAULTS_VERSION;
   const pick=(key,fallback)=>{const value=saved[key];return value===undefined||(upgrade&&value==="")?fallback:value;};
   const savedTax=pick("tax:percent","11");
-  $("feeTax").value=upgrade&&(savedTax==="0"||savedTax==="")?"11":savedTax;
+  $("feeTax").value=upgrade&&!saved.version&&(savedTax==="0"||savedTax==="")?"11":savedTax;
   if(upgrade&&saved.version==="2")V2_TAX_INCLUDED.forEach(id=>{if(saved[`${id}:taxIncluded`]==="1")saved[`${id}:taxIncluded`]="0";});
   $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span><span>Sudah termasuk PPN</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
     const percent=pick(`${method.id}:percent`,method.percent??""),flat=pick(`${method.id}:flat`,method.flat??"");

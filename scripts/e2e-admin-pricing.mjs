@@ -154,12 +154,13 @@ for(const width of [1280,390]){
 
 // Rows saved by version 2 had QRIS and GoPay ticked by default; that tick is withdrawn, the rest stays.
 {
-  const db={migrated:true,writes:0,feeRow:{id:1,updated_at:"2026-10-08T17:05:00Z",rates:{version:"2","qris:percent":"0,7","qris:taxIncluded":"1","gopay:percent":"2","gopay:taxIncluded":"1","dana:percent":"1,4","dana:taxIncluded":"1","tax:percent":"11"}}};
+  const db={migrated:true,writes:0,feeRow:{id:1,updated_at:"2026-10-08T17:05:00Z",rates:{version:"2","qris:percent":"0,7","qris:taxIncluded":"1","gopay:percent":"2","gopay:taxIncluded":"1","dana:percent":"1,4","dana:taxIncluded":"1","tax:percent":"0"}}};
   const {context,page}=await openPricing(1280,db);
   assert.equal(await page.locator('[data-fee="qris:taxIncluded"]').isChecked(),false);
   assert.equal(await page.locator('[data-fee="gopay:taxIncluded"]').isChecked(),false);
   assert.equal(await page.locator('[data-fee="dana:taxIncluded"]').isChecked(),true,"a tick the owner set on another method stays");
   assert.equal(await page.locator('[data-fee="dana:percent"]').inputValue(),"1,4");
+  assert.equal(await page.locator("#feeTax").inputValue(),"0","a PPN rate chosen under version 2 is kept, 0 included");
   await page.waitForFunction(()=>/Tersimpan untuk semua admin/.test(document.getElementById("feeStatus").textContent));
   assert.equal(db.feeRow.rates.version,"3");
   await context.close();
