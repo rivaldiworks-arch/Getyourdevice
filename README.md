@@ -472,3 +472,7 @@ Matched to the supplied production Midtrans dashboard: BSI, SeaBank, Danamon, CI
 Snap's first checkout group now offers **Virtual Account / Kartu / Google Pay**. Its stored legacy category remains `Transfer Bank`, so existing orders, payment RPCs and stock restoration continue to work without a schema migration. Snap `enabled_payments` includes the configured VA banks, `other_va`, `credit_card`, and `google_pay`, with `credit_card.secure=true` for 3DS. The QRIS / E-Wallet group offers `other_qris`, `gopay`, and `dana` through Snap. Core mode continues to offer bank VAs and QRIS only. Google Pay visibility also depends on the customer's eligible device/card and Midtrans Snap settings.
 
 New logos are included in the homepage payment strip. Google Pay, Visa and Mastercard SVGs are local renditions (see `logos/README.md`). Deploy these source changes to update the live website; no database migration or additional keys are needed.
+
+## OVO approved — 8 October 2026
+
+The production Midtrans dashboard now lists OVO as active, next to every method above. Snap's QRIS / E-Wallet group adds `ovo`: `other_qris`, `gopay`, `dana`, `ovo`. OVO prefills the customer's phone from `customer_details.phone` and gives the customer about one minute to approve in the OVO app, which the help page states. The OVO logo is the Commons text logo (see `logos/README.md`). Static QRIS (still "In progress" in the dashboard) is a counter QR, not an online checkout rail, so the store keeps using dynamic QRIS. No migration or new keys are needed.

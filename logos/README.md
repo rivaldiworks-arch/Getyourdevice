@@ -34,3 +34,5 @@ background (the white inside the coin is kept).
 `googlepay.svg`, `visa.svg`, and `mastercard.svg` are locally authored SVG renditions identifying the approved card payment methods; they are not downloaded official brand assets.
 
 `dana.svg` is a locally authored SVG rendition of the DANA merchant mark, identifying the approved Midtrans DANA channel.
+
+`ovo.svg` is the OVO wordmark from Wikimedia Commons, File:Logo ovo purple.svg (PD-textlogo; the only change is a `role="img"` and an "OVO" title).
