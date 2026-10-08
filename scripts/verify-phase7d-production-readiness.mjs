@@ -514,7 +514,7 @@ snapEnv(); resetBackend();
   const [request]=midtrans.snapRequests;
   assert.equal(request.host,"app.midtrans.com");
   assert.equal(request.auth,`Basic ${Buffer.from(`${PRODUCTION_KEY}:`).toString("base64")}`);
-  assert.deepEqual(request.body.enabled_payments,["other_qris","gopay","dana"]);
+  assert.deepEqual(request.body.enabled_payments,["other_qris","gopay","dana","ovo"]);
   assert.equal(request.body.transaction_details.gross_amount,150000);
   assert.deepEqual(request.body.expiry,{unit:"hour",duration:24});
   assert.equal(request.body.callbacks.finish,"https://www.getyourdevice.id/#pesanan");
