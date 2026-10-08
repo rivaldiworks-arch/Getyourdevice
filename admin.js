@@ -94,17 +94,21 @@ async function applyAdminRoute(initial=false){
 // Price calculator. Midtrans fees are the store's cost (Bank Indonesia forbids passing them to
 // the buyer), so they go into the selling price: the minimum price is the lowest one that still
 // leaves the target profit after the most expensive filled-in payment method. Midtrans charges its
-// fee on the whole bill (product + shipping) and adds PPN on top of the fee, so both are counted.
-// Only the QRIS rate is prefilled (0.7%, Midtrans docs); the owner enters the rest from the contract.
+// fee on the whole bill (product + shipping); PPN comes on top of the fee except for QRIS and
+// GoPay, whose published rates already include it, so PPN is applied per method.
+// Defaults are Midtrans' published standard rates (midtrans.com/id/biaya, October 2026). Google Pay
+// is not listed separately; it runs on cards, so it takes the card rate. A contract can differ.
 const PAYMENT_FEE_METHODS=[
-  {id:"va",label:"Virtual Account"},
-  {id:"qris",label:"QRIS",percent:"0,7"},
-  {id:"gopay",label:"GoPay"},
-  {id:"dana",label:"DANA"},
-  {id:"ovo",label:"OVO"},
-  {id:"card",label:"Kartu kredit/debit"},
-  {id:"googlepay",label:"Google Pay"}
+  {id:"va",label:"Virtual Account",flat:"4000"},
+  {id:"qris",label:"QRIS",percent:"0,7",taxIncluded:true},
+  {id:"gopay",label:"GoPay",percent:"2",taxIncluded:true},
+  {id:"dana",label:"DANA",percent:"1,5"},
+  {id:"ovo",label:"OVO",percent:"1,5"},
+  {id:"card",label:"Kartu kredit/debit",percent:"2,9",flat:"2000"},
+  {id:"googlepay",label:"Google Pay",percent:"2,9",flat:"2000"}
 ];
+// Bumped when the defaults change: blank fields saved under an older version take the new defaults.
+const FEE_DEFAULTS_VERSION="2";
 const FEE_STORAGE_KEY="gyd_admin_payment_fees";
 // Rates live in public.payment_fee_settings (one row, migration 029) so they are entered once for
 // every admin and device. Until that migration runs, the browser copy is used and the panel says so.
@@ -122,7 +126,7 @@ async function loadFeeRates(){
     if(row){feeStatus(`Tersimpan untuk semua admin. Terakhir diubah ${savedAtLabel(row.updated_at)}.`);return row.rates||{};}
     // First visit after the migration: carry over rates typed into this browser before it.
     if(Object.keys(local).length){await storeFeeRates(local);return local;}
-    feeStatus("Belum ada tarif tersimpan. Isi sekali, langsung berlaku untuk semua admin.");
+    feeStatus("Terisi tarif standar Midtrans. Ubah kalau kontrak Anda berbeda; perubahan berlaku untuk semua admin.");
     return {};
   }catch{
     feeStore="browser";
@@ -140,7 +144,8 @@ async function storeFeeRates(rates){
 }
 function saveFeeRates(){
   const rates={};
-  document.querySelectorAll("[data-fee]").forEach(input=>{rates[input.dataset.fee]=input.value;});
+  document.querySelectorAll("[data-fee]").forEach(input=>{rates[input.dataset.fee]=input.type==="checkbox"?(input.checked?"1":"0"):input.value;});
+  rates.version=FEE_DEFAULTS_VERSION;
   feeStatus("Menyimpan…");
   clearTimeout(feeSaveTimer);
   feeSaveTimer=setTimeout(()=>storeFeeRates(rates),600);
@@ -155,26 +160,34 @@ async function renderPricing(){
 async function buildFeeRows(){
   feeStatus("Memuat tarif…");
   const saved=await loadFeeRates();
-  if(saved["tax:percent"]!==undefined)$("feeTax").value=saved["tax:percent"];
-  $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
-    const percent=saved[`${method.id}:percent`]??method.percent??"",flat=saved[`${method.id}:flat`]??"";
-    return `<div class="fee-row"><span>${method.label}</span><input data-fee="${method.id}:percent" inputmode="decimal" aria-label="Persen biaya ${method.label}" placeholder="%" value="${escapeHTML(percent)}"><input data-fee="${method.id}:flat" inputmode="numeric" aria-label="Biaya tetap ${method.label}" placeholder="0" value="${escapeHTML(flat)}"></div>`;
+  // Rates saved before the standard defaults existed: fill only the blank fields, keep what was typed.
+  // PPN goes back to 11% because it is now applied only to methods whose rate excludes it.
+  const upgrade=Object.keys(saved).length>0&&saved.version!==FEE_DEFAULTS_VERSION;
+  const pick=(key,fallback)=>{const value=saved[key];return value===undefined||(upgrade&&value==="")?fallback:value;};
+  $("feeTax").value=upgrade?"11":pick("tax:percent","11");
+  $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span><span>Sudah termasuk PPN</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
+    const percent=pick(`${method.id}:percent`,method.percent??""),flat=pick(`${method.id}:flat`,method.flat??"");
+    const included=pick(`${method.id}:taxIncluded`,method.taxIncluded?"1":"0")==="1";
+    return `<div class="fee-row"><span>${method.label}</span><input data-fee="${method.id}:percent" inputmode="decimal" aria-label="Persen biaya ${method.label}" placeholder="%" value="${escapeHTML(percent)}"><input data-fee="${method.id}:flat" inputmode="numeric" aria-label="Biaya tetap ${method.label}" placeholder="0" value="${escapeHTML(flat)}"><label class="fee-tax-check"><input type="checkbox" data-fee="${method.id}:taxIncluded" aria-label="Tarif ${method.label} sudah termasuk PPN"${included?" checked":""}></label></div>`;
   }).join("");
   renderPricingResult();
+  if(upgrade)saveFeeRates();
 }
 function feeSchedule(){
   return PAYMENT_FEE_METHODS.map(method=>{
     const percent=parsePercent(document.querySelector(`[data-fee="${method.id}:percent"]`)?.value);
     const flat=parseRupiah(document.querySelector(`[data-fee="${method.id}:flat"]`)?.value);
-    return {...method,percent,flat,filled:percent!==null||flat>0};
+    const taxIncluded=Boolean(document.querySelector(`[data-fee="${method.id}:taxIncluded"]`)?.checked);
+    return {...method,percent,flat,taxIncluded,filled:percent!==null||flat>0};
   }).filter(method=>method.filled&&(method.percent===null||(method.percent>=0&&method.percent<100)));
 }
 const feeTaxRate=()=>Math.max(0,parsePercent($("feeTax").value)||0)/100;
-// Fee plus PPN on a bill of price + shipping.
-const methodFee=(method,price,shipping,tax)=>Math.ceil(((price+shipping)*(method.percent||0)/100+method.flat)*(1+tax));
+// Fee on a bill of price + shipping, plus PPN unless the method's rate already includes it.
+const taxFactor=(method,tax)=>method.taxIncluded?1:1+tax;
+const methodFee=(method,price,shipping,tax)=>Math.ceil(((price+shipping)*(method.percent||0)/100+method.flat)*taxFactor(method,tax));
 function minimumPrice(base,fees,shipping,tax){
-  // price - fee(price + shipping) * (1 + tax) >= base for every method; rounded up to the next Rp1.000.
-  const raw=Math.max(base,...fees.map(method=>{const rate=(method.percent||0)/100*(1+tax);return (base+(shipping*(method.percent||0)/100+method.flat)*(1+tax))/(1-rate);}));
+  // price - fee(price + shipping) * PPN factor >= base for every method; rounded up to the next Rp1.000.
+  const raw=Math.max(base,...fees.map(method=>{const factor=taxFactor(method,tax),rate=(method.percent||0)/100*factor;return (base+(shipping*(method.percent||0)/100+method.flat)*factor)/(1-rate);}));
   return Math.ceil(raw/1000)*1000;
 }
 function renderPricingResult(){

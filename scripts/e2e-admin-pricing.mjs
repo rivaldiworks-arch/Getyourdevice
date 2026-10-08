@@ -1,6 +1,7 @@
 // Browser test for the admin price calculator (#harga): the minimum price covers the
-// target profit after the most expensive filled-in payment method, including PPN on the fee
-// and the fee Midtrans takes on shipping; only QRIS is prefilled, fee rates persist in the
+// target profit after the most expensive filled-in payment method, including PPN on fees that
+// exclude it and the fee Midtrans takes on shipping; Midtrans' standard rates are prefilled,
+// rates saved before them are upgraded without losing typed values, fee rates persist in the
 // shared fee settings row (migration 029, one per store), a planned price below the minimum is
 // flagged, and without the migration the browser copy is used with a visible warning.
 // Requires the playwright package: npm install --no-save playwright
@@ -52,12 +53,13 @@ async function openPricing(width,db,{localRates=null}={}){
 for(const width of [1280,390]){
   const db={migrated:true,feeRow:null,writes:0};
   const {context,page}=await openPricing(width,db);
-  assert.match(await page.locator("#feeStatus").innerText(),/Belum ada tarif tersimpan/);
+  assert.match(await page.locator("#feeStatus").innerText(),/Terisi tarif standar Midtrans/);
   assert.equal(await page.locator('[data-tab="pricing"]').getAttribute("class"),"active","Harga tab is active");
 
-  // Only QRIS comes prefilled (documented 0.7%); the rest wait for the contract rates.
-  assert.equal(await page.locator('[data-fee="qris:percent"]').inputValue(),"0,7");
-  assert.equal(await page.locator('[data-fee="card:percent"]').inputValue(),"");
+  // Midtrans' published standard rates come prefilled; QRIS and GoPay already include PPN.
+  const standard={"va:flat":"4000","qris:percent":"0,7","gopay:percent":"2","dana:percent":"1,5","ovo:percent":"1,5","card:percent":"2,9","card:flat":"2000","googlepay:percent":"2,9","googlepay:flat":"2000"};
+  for(const [key,value] of Object.entries(standard)) assert.equal(await page.locator(`[data-fee="${key}"]`).inputValue(),value,key);
+  assert.deepEqual(await page.locator('[data-fee$=":taxIncluded"]:checked').evaluateAll(els=>els.map(el=>el.dataset.fee)),["qris:taxIncluded","gopay:taxIncluded"]);
   assert.match(await page.locator("#pricingResult").innerText(),/Isi harga modal/);
 
   // Cost 10.000.000 + profit 500.000; QRIS 0.7% and a card rate of 3% + Rp2.000, PPN 11% on fees.
@@ -71,9 +73,12 @@ for(const width of [1280,390]){
   assert.equal(rupiah(summary.split("\n")[1]),minimum,"minimum price covers the card fee");
   assert.match(summary,/Termahal: Kartu kredit\/debit/);
   const rows=await page.locator(".pricing-table tbody tr").allInnerTexts();
-  assert.match(rows[0],/^QRIS/,"cheapest method listed first");
+  assert.match(rows[0],/^Virtual Account/,"cheapest method listed first");
   assert.ok(rows.every(row=>rupiah(row.split("\t").pop())>=500000),"every filled method keeps the target profit");
-  assert.match(await page.locator("#pricingResult").innerText(),/5 metode belum diisi/);
+  // PPN is added only where the rate excludes it.
+  const feeOf=label=>rupiah(rows.find(row=>row.startsWith(label)).split("\t")[1]);
+  assert.equal(feeOf("Virtual Account"),4440,"VA fee + 11% PPN");
+  assert.equal(feeOf("QRIS"),Math.ceil(minimum*0.007),"QRIS rate already includes PPN");
 
   // Shipping is billed through Midtrans too, so its fee comes out of the profit and raises the minimum.
   await page.fill("#priceShipping","200000");
@@ -112,10 +117,26 @@ for(const width of [1280,390]){
 // First visit after the migration: rates typed into this browser before it are carried over.
 {
   const db={migrated:true,feeRow:null,writes:0};
-  const {context,page}=await openPricing(1280,db,{localRates:{"ovo:percent":"1,5","tax:percent":"11"}});
-  assert.equal(await page.locator('[data-fee="ovo:percent"]').inputValue(),"1,5");
-  assert.equal(db.writes,1,"local rates are written to the database once");
-  assert.equal(db.feeRow.rates["ovo:percent"],"1,5");
+  const {context,page}=await openPricing(1280,db,{localRates:{"ovo:percent":"1,4","tax:percent":"11"}});
+  assert.equal(await page.locator('[data-fee="ovo:percent"]').inputValue(),"1,4");
+  await page.waitForFunction(()=>/Tersimpan untuk semua admin/.test(document.getElementById("feeStatus").textContent));
+  assert.ok(db.writes>=1,"local rates are written to the database");
+  assert.equal(db.feeRow.rates["ovo:percent"],"1,4");
+  await context.close();
+}
+
+// Rates saved before the standard defaults: blanks take the defaults, typed values stay, PPN is 11% again.
+{
+  const db={migrated:true,writes:0,feeRow:{id:1,updated_at:"2026-10-08T16:47:00Z",rates:{"va:percent":"","va:flat":"","qris:percent":"0,7","qris:flat":"","dana:percent":"","ovo:percent":"","card:percent":"","card:flat":"","tax:percent":"0"}}};
+  const {context,page}=await openPricing(1280,db);
+  assert.equal(await page.locator('[data-fee="card:percent"]').inputValue(),"2,9","blank field takes the standard rate");
+  assert.equal(await page.locator('[data-fee="va:flat"]').inputValue(),"4000");
+  assert.equal(await page.locator('[data-fee="qris:percent"]').inputValue(),"0,7","typed value is kept");
+  assert.equal(await page.locator("#feeTax").inputValue(),"11");
+  assert.equal(await page.locator('[data-fee="qris:taxIncluded"]').isChecked(),true);
+  await page.waitForFunction(()=>/Tersimpan untuk semua admin/.test(document.getElementById("feeStatus").textContent));
+  assert.equal(db.feeRow.rates.version,"2","upgraded rates are saved once");
+  assert.equal(db.feeRow.rates["card:percent"],"2,9");
   await context.close();
 }
 
@@ -124,11 +145,11 @@ for(const width of [1280,390]){
   const db={migrated:false,feeRow:null,writes:0};
   const {context,page}=await openPricing(1280,db);
   assert.match(await page.locator("#feeStatus").innerText(),/browser ini saja.*029_payment_fee_settings/);
-  await page.fill('[data-fee="dana:percent"]',"1,5");
+  await page.fill('[data-fee="dana:percent"]',"1,6");
   await page.waitForTimeout(800);
   await page.reload();
   await page.waitForSelector("#pricingPanel:not(.hidden) .fee-row input");
-  assert.equal(await page.locator('[data-fee="dana:percent"]').inputValue(),"1,5","browser copy survives a reload");
+  assert.equal(await page.locator('[data-fee="dana:percent"]').inputValue(),"1,6","browser copy survives a reload");
   assert.equal(db.writes,0);
   await context.close();
 }
