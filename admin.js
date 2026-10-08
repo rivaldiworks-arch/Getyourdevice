@@ -94,21 +94,25 @@ async function applyAdminRoute(initial=false){
 // Price calculator. Midtrans fees are the store's cost (Bank Indonesia forbids passing them to
 // the buyer), so they go into the selling price: the minimum price is the lowest one that still
 // leaves the target profit after the most expensive filled-in payment method. Midtrans charges its
-// fee on the whole bill (product + shipping); PPN comes on top of the fee except for QRIS and
-// GoPay, whose published rates already include it, so PPN is applied per method.
+// fee on the whole bill (product + shipping) and PPN on top of the fee. Midtrans' own pages
+// disagree on whether the QRIS and GoPay rates include PPN (the pricing page says yes, the GoPay
+// refund example adds 11%), so every method assumes PPN on top unless the owner ticks it off from
+// the contract or invoice: a slightly high price is safer than a lost margin.
 // Defaults are Midtrans' published standard rates (midtrans.com/id/biaya, October 2026). Google Pay
 // is not listed separately; it runs on cards, so it takes the card rate. A contract can differ.
 const PAYMENT_FEE_METHODS=[
   {id:"va",label:"Virtual Account",flat:"4000"},
-  {id:"qris",label:"QRIS",percent:"0,7",taxIncluded:true},
-  {id:"gopay",label:"GoPay",percent:"2",taxIncluded:true},
+  {id:"qris",label:"QRIS",percent:"0,7"},
+  {id:"gopay",label:"GoPay",percent:"2"},
   {id:"dana",label:"DANA",percent:"1,5"},
   {id:"ovo",label:"OVO",percent:"1,5"},
   {id:"card",label:"Kartu kredit/debit",percent:"2,9",flat:"2000"},
   {id:"googlepay",label:"Google Pay",percent:"2,9",flat:"2000"}
 ];
 // Bumped when the defaults change: blank fields saved under an older version take the new defaults.
-const FEE_DEFAULTS_VERSION="2";
+const FEE_DEFAULTS_VERSION="3";
+// Version 2 ticked QRIS and GoPay as PPN-included by default; that default was withdrawn in 3.
+const V2_TAX_INCLUDED=["qris","gopay"];
 const FEE_STORAGE_KEY="gyd_admin_payment_fees";
 // Rates live in public.payment_fee_settings (one row, migration 029) so they are entered once for
 // every admin and device. Until that migration runs, the browser copy is used and the panel says so.
@@ -160,11 +164,14 @@ async function renderPricing(){
 async function buildFeeRows(){
   feeStatus("Memuat tarif…");
   const saved=await loadFeeRates();
-  // Rates saved before the standard defaults existed: fill only the blank fields, keep what was typed.
-  // PPN goes back to 11% because it is now applied only to methods whose rate excludes it.
+  // Rates saved under older defaults: blank fields take the current defaults, typed values stay.
+  // A PPN of 0 was the workaround before PPN was applied per method, so it returns to 11%; any
+  // other rate the owner entered from the invoice is kept.
   const upgrade=Object.keys(saved).length>0&&saved.version!==FEE_DEFAULTS_VERSION;
   const pick=(key,fallback)=>{const value=saved[key];return value===undefined||(upgrade&&value==="")?fallback:value;};
-  $("feeTax").value=upgrade?"11":pick("tax:percent","11");
+  const savedTax=pick("tax:percent","11");
+  $("feeTax").value=upgrade&&(savedTax==="0"||savedTax==="")?"11":savedTax;
+  if(upgrade&&saved.version==="2")V2_TAX_INCLUDED.forEach(id=>{if(saved[`${id}:taxIncluded`]==="1")saved[`${id}:taxIncluded`]="0";});
   $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span><span>Sudah termasuk PPN</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
     const percent=pick(`${method.id}:percent`,method.percent??""),flat=pick(`${method.id}:flat`,method.flat??"");
     const included=pick(`${method.id}:taxIncluded`,method.taxIncluded?"1":"0")==="1";
