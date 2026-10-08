@@ -106,17 +106,55 @@ const PAYMENT_FEE_METHODS=[
   {id:"googlepay",label:"Google Pay"}
 ];
 const FEE_STORAGE_KEY="gyd_admin_payment_fees";
+// Rates live in public.payment_fee_settings (one row, migration 029) so they are entered once for
+// every admin and device. Until that migration runs, the browser copy is used and the panel says so.
+let feeStore="database",feeSaveTimer=null;
 const parseRupiah=value=>Number(String(value||"").replace(/[^\d]/g,""))||0;
 const parsePercent=value=>{const text=String(value||"").trim().replace(",",".");return text===""?null:Number(text);};
-function loadFeeRates(){try{return JSON.parse(localStorage.getItem(FEE_STORAGE_KEY)||"null")||{};}catch{return {};}}
+function localFeeRates(){try{return JSON.parse(localStorage.getItem(FEE_STORAGE_KEY)||"null")||{};}catch{return {};}}
+function feeStatus(text,tone=""){$("feeStatus").textContent=text;$("feeStatus").dataset.tone=tone;}
+const savedAtLabel=value=>new Intl.DateTimeFormat("id-ID",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value));
+async function loadFeeRates(){
+  const local=localFeeRates();
+  try{
+    const [row]=await request("/rest/v1/payment_fee_settings?select=rates,updated_at&id=eq.1")||[];
+    feeStore="database";
+    if(row){feeStatus(`Tersimpan untuk semua admin. Terakhir diubah ${savedAtLabel(row.updated_at)}.`);return row.rates||{};}
+    // First visit after the migration: carry over rates typed into this browser before it.
+    if(Object.keys(local).length){await storeFeeRates(local);return local;}
+    feeStatus("Belum ada tarif tersimpan. Isi sekali, langsung berlaku untuk semua admin.");
+    return {};
+  }catch{
+    feeStore="browser";
+    feeStatus("Tarif tersimpan di browser ini saja. Jalankan migrasi 029_payment_fee_settings.sql agar berlaku untuk semua admin.","warn");
+    return local;
+  }
+}
+async function storeFeeRates(rates){
+  try{localStorage.setItem(FEE_STORAGE_KEY,JSON.stringify(rates));}catch{}
+  if(feeStore!=="database")return;
+  try{
+    await request("/rest/v1/payment_fee_settings?on_conflict=id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({id:1,rates,updated_at:new Date().toISOString(),updated_by:session?.user?.id||null})});
+    feeStatus(`Tersimpan untuk semua admin. Terakhir diubah ${savedAtLabel(Date.now())}.`);
+  }catch(error){feeStatus(`Tarif belum tersimpan: ${error.message}`,"error");}
+}
 function saveFeeRates(){
   const rates={};
   document.querySelectorAll("[data-fee]").forEach(input=>{rates[input.dataset.fee]=input.value;});
-  try{localStorage.setItem(FEE_STORAGE_KEY,JSON.stringify(rates));}catch{}
+  feeStatus("Menyimpan…");
+  clearTimeout(feeSaveTimer);
+  feeSaveTimer=setTimeout(()=>storeFeeRates(rates),600);
 }
-function renderPricing(){
+let pricingLoad=null;
+async function renderPricing(){
   if($("feeRows").childElementCount)return renderPricingResult();
-  const saved=loadFeeRates();
+  if(pricingLoad)return pricingLoad;
+  pricingLoad=buildFeeRows().finally(()=>{pricingLoad=null;});
+  return pricingLoad;
+}
+async function buildFeeRows(){
+  feeStatus("Memuat tarif…");
+  const saved=await loadFeeRates();
   if(saved["tax:percent"]!==undefined)$("feeTax").value=saved["tax:percent"];
   $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
     const percent=saved[`${method.id}:percent`]??method.percent??"",flat=saved[`${method.id}:flat`]??"";
