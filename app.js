@@ -1,15 +1,6 @@
 "use strict";
 
 const CATEGORIES = ["Smartphone", "Laptop", "Tablet", "Smartwatch", "Audio", "Accessories"];
-const CATEGORY_ICONS = { Smartphone: "📱", Laptop: "💻", Tablet: "▤", Smartwatch: "⌚", Audio: "🎧", Accessories: "⌨" };
-const CATEGORY_IMAGES = {
-  Smartphone: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=500&q=85",
-  Laptop: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=500&q=85",
-  Tablet: "https://images.unsplash.com/photo-1561154464-82e9adf32764?auto=format&fit=crop&w=500&q=85",
-  Smartwatch: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=500&q=85",
-  Audio: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=500&q=85",
-  Accessories: "https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=500&q=85"
-};
 // Local placeholder for product photos that fail to load. It never fails itself, and the
 // onerror handler clears itself, so a broken image cannot trigger a request loop.
 const IMAGE_FALLBACK = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700"><rect width="700" height="700" fill="#f5f5f7"/><path d="M290 250h120a18 18 0 0 1 18 18v164a18 18 0 0 1-18 18H290a18 18 0 0 1-18-18V268a18 18 0 0 1 18-18z" fill="none" stroke="#c7c7cc" stroke-width="8"/><circle cx="350" cy="420" r="8" fill="#c7c7cc"/></svg>');
@@ -269,7 +260,7 @@ function applyRoute(initial=false) {
 
 function buildNavigation() {
   $("categoryNav").innerHTML = ["Semua", ...CATEGORIES].map(category => `<button type="button" data-category="${category}" class="${category === activeCategory ? "active" : ""}">${category === "Semua" ? "Semua Produk" : category === "Accessories" ? "Aksesori" : category}</button>`).join("");
-  $("categoryCards").innerHTML = CATEGORIES.map(category => `<button type="button" class="category-card" data-category="${category}"><span class="category-image"><img src="${CATEGORY_IMAGES[category]}" alt="" loading="lazy"></span><strong>${category === "Accessories" ? "Aksesori" : category}</strong><small>Lihat koleksi</small></button>`).join("");
+  $("categoryCards").innerHTML = CATEGORIES.map(category => `<button type="button" class="category-card" data-category="${category}"><span class="category-image" data-category-image="${category}"></span><strong>${category === "Accessories" ? "Aksesori" : category}</strong><small>Lihat koleksi</small></button>`).join("");
   $("productCategory").innerHTML = CATEGORIES.map(category => `<option>${category}</option>`).join("");
 }
 function productCard(product, compact = false) {
@@ -324,7 +315,34 @@ function updatePromoArrows() {
   document.querySelector(".promo-arrow.prev").disabled = track.scrollLeft <= 4;
   document.querySelector(".promo-arrow.next").disabled = track.scrollLeft >= max - 4;
 }
+// Home visuals come from the live catalog: a category tile shows one of its own products, and
+// the Audio and Laptop panels show a product that is in stock, or hide when there is none.
+const productPhoto = (product) => product.images?.[0]?.url || product.image || "";
+const inStockWithPhoto = (category) => products.filter(product => product.category === category && product.stock > 0 && productPhoto(product));
+function renderCategoryImages() {
+  document.querySelectorAll("[data-category-image]").forEach(slot => {
+    const category = slot.dataset.categoryImage;
+    const product = inStockWithPhoto(category)[0] || products.find(item => item.category === category && productPhoto(item));
+    slot.innerHTML = product ? `<img class="is-product-photo" src="${escapeHTML(safeImage(productPhoto(product)))}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${IMAGE_FALLBACK}'">` : "";
+  });
+}
+function renderAudioPanel() {
+  const audio = inStockWithPhoto("Audio").sort((a,b) => a.price - b.price);
+  $("audioPanel").classList.toggle("hidden", !audio.length);
+  if (!audio.length) return;
+  $("audioFromPrice").textContent = money(audio[0].price);
+  $("audioPanelImage").innerHTML = `<img class="is-product-photo" src="${escapeHTML(safeImage(productPhoto(audio[0])))}" alt="${escapeHTML(audio[0].name)}" width="1000" height="1000" loading="lazy" onerror="this.onerror=null;this.src='${IMAGE_FALLBACK}'">`;
+}
+function renderLaptopPanel() {
+  const laptop = inStockWithPhoto("Laptop")[0];
+  $("laptopPanel").classList.toggle("hidden", !laptop);
+  if (!laptop) return;
+  $("laptopPanelImage").innerHTML = `<img class="is-product-photo" src="${escapeHTML(safeImage(productPhoto(laptop)))}" alt="${escapeHTML(laptop.name)}" width="1000" height="1000" loading="lazy" onerror="this.onerror=null;this.src='${IMAGE_FALLBACK}'">`;
+}
 function renderShowcases() {
+  renderCategoryImages();
+  renderAudioPanel();
+  renderLaptopPanel();
   renderHeroMarquee();
   renderNewArrivals();
   renderPromos();
@@ -353,7 +371,7 @@ function renderProducts() {
     }
     const result = filteredProducts();
     const query = $("searchInput").value.trim();
-    $("resultText").textContent = recommendation ? `${result.length} pilihan untuk kebutuhan ${recommendation.need.toLowerCase()} sesuai anggaran Anda.` : query || activeCategory !== "Semua" ? `${result.length} produk ditemukan.` : "Produk gadget terbaik dan paling dicari.";
+    $("resultText").textContent = recommendation ? `${result.length} pilihan untuk kebutuhan ${recommendation.need.toLowerCase()} sesuai anggaran Anda.` : query || activeCategory !== "Semua" ? `${result.length} produk ditemukan.` : "Semua produk. Yang stoknya tersedia tampil lebih dulu.";
     if (!result.length) { $("productGrid").innerHTML = `<div class="empty-state"><span class="state-icon">⌕</span><h3>Produk belum ditemukan</h3><p>Coba kata pencarian, kategori, atau anggaran yang berbeda.</p><button class="secondary" type="button" data-action="reset-filter">Tampilkan Semua Produk</button></div>`; return; }
     $("productGrid").innerHTML = result.map(product => productCard(product)).join("");
   } catch (error) { console.error(error); $("productGrid").innerHTML = `<div class="error-state"><span class="state-icon">!</span><h3>Produk gagal ditampilkan</h3><p>Silakan coba muat kembali halaman.</p><button class="secondary" type="button" onclick="location.reload()">Muat Ulang</button></div>`; }
@@ -373,7 +391,7 @@ function validCart() { if (!catalogLoaded) return []; cart = cart.filter(item =>
 function cartSubtotal() { return validCart().reduce((sum, item) => { const product = products.find(entry => entry.id === item.id); return sum + product.price * item.qty; }, 0); }
 function renderCart() {
   validCart();
-  if (!cart.length) $("cartItems").innerHTML = `<div class="empty-state"><span class="state-icon">🛒</span><h3>Keranjang masih kosong</h3><p>Produk yang Anda pilih akan muncul di sini.</p><button class="secondary" type="button" data-action="close-cart">Mulai Belanja</button></div>`;
+  if (!cart.length) $("cartItems").innerHTML = `<div class="empty-state"><span class="state-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.5 8h13l-1 12.5h-11z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg></span><h3>Keranjang masih kosong</h3><p>Produk yang Anda pilih akan muncul di sini.</p><button class="secondary" type="button" data-action="close-cart">Mulai Belanja</button></div>`;
   else $("cartItems").innerHTML = cart.map(item => { const product = products.find(entry => entry.id === item.id); return `<div class="cart-row"><button class="cart-product-image" type="button" data-view-product="${escapeHTML(item.id)}" aria-label="Lihat ${escapeHTML(product.name)}"><img src="${safeImage(product.image)}" alt=""></button><div><button class="cart-product-name" type="button" data-view-product="${escapeHTML(item.id)}">${escapeHTML(product.name)}</button><div class="item-price">${money(product.price)}</div><small class="cart-stock">${item.qty === product.stock ? "Jumlah maksimum sesuai stok" : `${product.stock} unit tersedia`}</small><button class="remove-item" type="button" data-remove="${escapeHTML(item.id)}">Hapus</button></div><div class="qty-control" aria-label="Jumlah ${escapeHTML(product.name)}"><button type="button" data-qty="${escapeHTML(item.id)}" data-delta="-1" aria-label="Kurangi jumlah">−</button><span>${item.qty}</span><button type="button" data-qty="${escapeHTML(item.id)}" data-delta="1" aria-label="Tambah jumlah" ${item.qty >= product.stock ? "disabled" : ""}>+</button></div></div>`; }).join("");
   const totalItems = cart.reduce((sum,item) => sum + item.qty, 0); $("cartItemTotal").textContent = `${totalItems} item`; $("cartTotal").textContent = money(cartSubtotal()); $("checkoutButton").disabled = !cart.length; persist();
 }
@@ -398,7 +416,7 @@ function galleryPhotos(product) {
 }
 function detailGallery(product) {
   const photos = galleryPhotos(product), many = photos.length > 1;
-  const slides = photos.map((photo, index) => `<button type="button" class="detail-slide" data-gallery-open="${index}" aria-label="Perbesar foto ${index + 1} dari ${photos.length}"><img src="${safeImage(photo.url)}" alt="${escapeHTML(product.name)}${many ? ` — foto ${index + 1}` : ""}" width="1000" height="1000" ${index ? 'loading="lazy"' : ""}></button>`).join("");
+  const slides = photos.map((photo, index) => `<button type="button" class="detail-slide" data-gallery-open="${index}" aria-label="Perbesar foto ${index + 1} dari ${photos.length}"><img src="${safeImage(photo.url)}" alt="${escapeHTML(product.name)}${many ? `, foto ${index + 1}` : ""}" width="1000" height="1000" ${index ? 'loading="lazy"' : ""}></button>`).join("");
   const arrows = many ? `<button type="button" class="gallery-arrow prev" data-gallery-step="-1" aria-label="Foto sebelumnya">‹</button><button type="button" class="gallery-arrow next" data-gallery-step="1" aria-label="Foto berikutnya">›</button><span class="gallery-counter" aria-live="polite">1 / ${photos.length}</span>` : "";
   const thumbs = many ? `<div class="detail-thumbs" role="list">${photos.map((photo, index) => `<button type="button" role="listitem" class="${index ? "" : "active"}" data-gallery-index="${index}" aria-label="Foto ${index + 1} dari ${photos.length}"><img src="${safeImage(photo.url)}" alt="" width="64" height="64" loading="lazy"></button>`).join("")}</div>` : "";
   return `<div class="detail-gallery" data-photos='${escapeHTML(JSON.stringify(photos))}'><div class="detail-main-photo"><div class="detail-slides">${slides}</div>${arrows}</div>${thumbs}<div class="detail-image-note">Foto produk dapat berbeda menurut varian.</div></div>`;
@@ -420,7 +438,7 @@ function renderProductDetail() {
   const out = product.stock <= 0;
   const specs = (product.spec || product.description).split("·").map(spec => spec.trim()).filter(Boolean);
   const discount = product.originalPrice ? Math.round((1 - product.price / product.originalPrice) * 100) : 0;
-  $("productDetail").innerHTML = `<div class="product-detail-layout">${detailGallery(product)}<div class="detail-info"><span class="product-brand">${escapeHTML(product.brand || product.category)}</span><h2 id="detailName">${escapeHTML(product.name)}</h2><div class="detail-pricing"><strong>${money(product.price)}</strong>${product.originalPrice ? `<del>${money(product.originalPrice)}</del><span>Hemat ${discount}%</span>` : ""}</div><div class="detail-stock-row"><p class="detail-stock ${out ? "out" : ""}">${out ? "Stok sedang habis" : `✓ Stok tersedia — ${product.stock} unit`}</p><div class="share-wrap"><button type="button" class="detail-share" data-share-product="${escapeHTML(product.id)}" aria-haspopup="true" aria-expanded="false"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ASSURANCE_ICONS.share}</svg>Bagikan</button></div></div><div class="detail-specs"><h3>Spesifikasi utama</h3><ul>${specs.map(spec => `<li>${escapeHTML(spec)}</li>`).join("")}</ul></div><div class="detail-purchase"><div><label for="detailQuantity">Jumlah</label><div class="detail-qty"><button type="button" data-detail-qty="-1" aria-label="Kurangi jumlah">−</button><input id="detailQuantity" value="${detailQuantity}" readonly aria-label="Jumlah produk"><button type="button" data-detail-qty="1" aria-label="Tambah jumlah" ${detailQuantity >= product.stock ? "disabled" : ""}>+</button></div></div><div class="detail-buttons"><button class="secondary" type="button" data-detail-add ${out ? "disabled" : ""}>Tambah ke Keranjang</button><button class="primary" type="button" data-detail-buy ${out ? "disabled" : ""}>Beli Sekarang</button></div></div>${detailAssurance(product)}<div class="detail-description"><h3>Tentang produk</h3><p>${escapeHTML(product.description)}</p></div></div></div>`;
+  $("productDetail").innerHTML = `<div class="product-detail-layout">${detailGallery(product)}<div class="detail-info"><span class="product-brand">${escapeHTML(product.brand || product.category)}</span><h2 id="detailName">${escapeHTML(product.name)}</h2><div class="detail-pricing"><strong>${money(product.price)}</strong>${product.originalPrice ? `<del>${money(product.originalPrice)}</del><span>Hemat ${discount}%</span>` : ""}</div><div class="detail-stock-row"><p class="detail-stock ${out ? "out" : ""}">${out ? "Stok sedang habis" : `Stok tersedia: ${product.stock} unit`}</p><div class="share-wrap"><button type="button" class="detail-share" data-share-product="${escapeHTML(product.id)}" aria-haspopup="true" aria-expanded="false"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ASSURANCE_ICONS.share}</svg>Bagikan</button></div></div><div class="detail-specs"><h3>Spesifikasi utama</h3><ul>${specs.map(spec => `<li>${escapeHTML(spec)}</li>`).join("")}</ul></div><div class="detail-purchase"><div><label for="detailQuantity">Jumlah</label><div class="detail-qty"><button type="button" data-detail-qty="-1" aria-label="Kurangi jumlah">−</button><input id="detailQuantity" value="${detailQuantity}" readonly aria-label="Jumlah produk"><button type="button" data-detail-qty="1" aria-label="Tambah jumlah" ${detailQuantity >= product.stock ? "disabled" : ""}>+</button></div></div><div class="detail-buttons"><button class="secondary" type="button" data-detail-add ${out ? "disabled" : ""}>Tambah ke Keranjang</button><button class="primary" type="button" data-detail-buy ${out ? "disabled" : ""}>Beli Sekarang</button></div></div>${detailAssurance(product)}<div class="detail-description"><h3>Tentang produk</h3><p>${escapeHTML(product.description)}</p></div></div></div>`;
   const related = products.filter(item => item.id !== product.id && (item.category === product.category || (item.needs || []).some(need => (product.needs || []).includes(need)))).slice(0,3);
   $("relatedProducts").innerHTML = related.map(item => `<button class="related-card" type="button" data-view-product="${escapeHTML(item.id)}"><img src="${safeImage(item.image)}" alt="" width="300" height="300" loading="lazy"><span><small>${escapeHTML(item.brand || item.category)}</small><strong>${escapeHTML(item.name)}</strong><b>${money(item.price)}</b></span></button>`).join("");
 }
@@ -444,7 +462,7 @@ function renderShippingOptions() {
     return;
   }
   const notice=shippingRatesLive?'<div class="shipping-rate-source">Tarif kurir live via Biteship.</div>':shippingRateNotice?`<div class="shipping-rate-source fallback">${escapeHTML(shippingRateNotice)}</div>`:"";
-  $("shippingOptions").innerHTML=notice+shippingQuotes.map((option,index)=>`<label class="choice"><input type="radio" name="shipping" value="${escapeHTML(option.quoteId)}" ${index===0?"checked":""}><span><strong>${escapeHTML(option.name)} — ${option.price?money(option.price):"Gratis"}</strong><small>${escapeHTML(shippingEta(option))}. Tarif dikunci selama 30 menit.</small></span></label>`).join("");
+  $("shippingOptions").innerHTML=notice+shippingQuotes.map((option,index)=>`<label class="choice"><input type="radio" name="shipping" value="${escapeHTML(option.quoteId)}" ${index===0?"checked":""}><span><strong>${escapeHTML(option.name)} · ${option.price?money(option.price):"Gratis"}</strong><small>${escapeHTML(shippingEta(option))}. Tarif dikunci selama 30 menit.</small></span></label>`).join("");
 }
 async function loadShippingQuotes() {
   shippingQuotesLoading=true;renderShippingOptions();
@@ -470,7 +488,7 @@ function selectedShipping() {
   return shippingQuotes.find(option=>option.quoteId===quoteId)||shippingQuotes[0]||null;
 }
 function checkoutTotals() { const subtotal=cart.reduce((sum,item)=>{const product=products.find(entry=>entry.id===item.id);return sum+(product?(product.originalPrice||product.price)*item.qty:0);},0); const payable=cartSubtotal(); const discount=Math.max(0,subtotal-payable); const shipping=selectedShipping(); const shippingPrice=shipping?.price||0; return {subtotal,discount,payable,shipping,total:payable+shippingPrice}; }
-function updateCheckoutTotal() { const totals=checkoutTotals(); $("summarySubtotal").textContent=money(totals.subtotal); $("summaryDiscount").textContent=totals.discount?`−${money(totals.discount)}`:"Rp0"; $("summaryShipping").textContent=totals.shipping?(totals.shipping.price?money(totals.shipping.price):"Gratis"):"—"; $("summaryTotal").textContent=money(totals.total); applyPaymentAvailability(); if(checkoutStep===5)renderFinalReview(); }
+function updateCheckoutTotal() { const totals=checkoutTotals(); $("summarySubtotal").textContent=money(totals.subtotal); $("summaryDiscount").textContent=totals.discount?`−${money(totals.discount)}`:"Rp0"; $("summaryShipping").textContent=totals.shipping?(totals.shipping.price?money(totals.shipping.price):"Gratis"):"Belum dipilih"; $("summaryTotal").textContent=money(totals.total); applyPaymentAvailability(); if(checkoutStep===5)renderFinalReview(); }
 function renderCheckoutStep() { document.querySelectorAll("[data-checkout-step]").forEach(section=>section.classList.toggle("hidden",Number(section.dataset.checkoutStep)!==checkoutStep)); $("checkoutProgress").innerHTML=CHECKOUT_STEPS.map((label,index)=>`<span class="${index+1===checkoutStep?"active":index+1<checkoutStep?"done":""}"><b>${index+1<checkoutStep?"✓":index+1}</b><small>${label}</small></span>`).join(""); $("checkoutBack").classList.toggle("hidden",checkoutStep===1); $("checkoutNext").classList.toggle("hidden",checkoutStep===5); $("checkoutSubmit").classList.toggle("hidden",checkoutStep!==5); $("checkoutError").classList.add("hidden"); if(checkoutStep===5)renderFinalReview(); }
 function normalizePhone(value) { const trimmed=String(value||"").trim().replace(/[\s().-]/g,""); if(/^08\d{8,11}$/.test(trimmed))return `62${trimmed.slice(1)}`; if(/^\+?62\d{8,12}$/.test(trimmed))return trimmed.replace(/^\+/,""); return trimmed; }
 function clearFieldErrors() { document.querySelectorAll("[data-field-error]").forEach(node=>node.textContent=""); document.querySelectorAll("#checkoutForm [aria-invalid]").forEach(node=>node.removeAttribute("aria-invalid")); }
@@ -853,7 +871,7 @@ function closeShareMenu() {
 }
 function openShareMenu(button, product) {
   closeShareMenu();
-  const url = productShareUrl(product.id), text = `${product.name} — ${money(product.price)}`;
+  const url = productShareUrl(product.id), text = `${product.name} · ${money(product.price)}`;
   const links = [
     ["WhatsApp", `https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`],
     ["Facebook", `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`],
@@ -874,7 +892,7 @@ async function shareProduct(button) {
   if (button.getAttribute("aria-expanded") === "true") { closeShareMenu(); return; }
   const url = productShareUrl(product.id);
   if (navigator.share && matchMedia("(pointer: coarse)").matches) {
-    try { await navigator.share({ title: product.name, text: `${product.name} — ${money(product.price)}`, url }); return; }
+    try { await navigator.share({ title: product.name, text: `${product.name} · ${money(product.price)}`, url }); return; }
     catch (error) { if (error?.name === "AbortError") return; }
   }
   openShareMenu(button, product);
