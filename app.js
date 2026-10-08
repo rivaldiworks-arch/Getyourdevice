@@ -4,7 +4,6 @@ const CATEGORIES = ["Smartphone", "Laptop", "Tablet", "Smartwatch", "Audio", "Ac
 // Local placeholder for product photos that fail to load. It never fails itself, and the
 // onerror handler clears itself, so a broken image cannot trigger a request loop.
 const IMAGE_FALLBACK = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700"><rect width="700" height="700" fill="#f5f5f7"/><path d="M290 250h120a18 18 0 0 1 18 18v164a18 18 0 0 1-18 18H290a18 18 0 0 1-18-18V268a18 18 0 0 1 18-18z" fill="none" stroke="#c7c7cc" stroke-width="8"/><circle cx="350" cy="420" r="8" fill="#c7c7cc"/></svg>');
-const ORDER_STATUSES = ["Pending", "Paid", "Processing", "Shipped", "Completed", "Cancelled"];
 const CHECKOUT_STEPS = ["Pelanggan", "Alamat", "Pengiriman", "Pembayaran", "Tinjau"];
 
 const storage = {
@@ -54,11 +53,6 @@ function productGallery(row) {
 }
 const safeImage = (value) => /^(https?:\/\/|data:image\/)/.test(value || "") ? value : IMAGE_FALLBACK;
 
-function migrateLegacyProducts() {
-  const old = storage.get("nc_products", null);
-  if (!old?.length) return null;
-  return old.map(product => ({ ...product, category: CATEGORIES.includes(product.category) ? product.category : "Accessories", needs: product.needs || ["Produktivitas"] }));
-}
 function persist() { storage.set("gyd_cart", cart); updateCartCount(); }
 function generateCheckoutIdempotencyKey(){
   const bytes=new Uint8Array(32);
@@ -164,12 +158,10 @@ function closeStoreModals() {
 }
 function showStoreBase() {
   $("storeView").classList.remove("hidden");
-  $("adminView").classList.add("hidden");
   $("customerOrdersView").classList.add("hidden");
 }
 function showOrdersBase() {
   $("storeView").classList.add("hidden");
-  $("adminView").classList.add("hidden");
   $("customerOrdersView").classList.remove("hidden");
 }
 function queueRouteApply() {
@@ -261,7 +253,6 @@ function applyRoute(initial=false) {
 function buildNavigation() {
   $("categoryNav").innerHTML = ["Semua", ...CATEGORIES].map(category => `<button type="button" data-category="${category}" class="${category === activeCategory ? "active" : ""}">${category === "Semua" ? "Semua Produk" : category === "Accessories" ? "Aksesori" : category}</button>`).join("");
   $("categoryCards").innerHTML = CATEGORIES.map(category => `<button type="button" class="category-card" data-category="${category}"><span class="category-image" data-category-image="${category}"></span><strong>${category === "Accessories" ? "Aksesori" : category}</strong><small>Lihat koleksi</small></button>`).join("");
-  $("productCategory").innerHTML = CATEGORIES.map(category => `<option>${category}</option>`).join("");
 }
 function productCard(product, compact = false) {
   // Compact card: tap anywhere opens the product; one cart button. "Beli Sekarang" lives on
@@ -752,9 +743,6 @@ async function submitOrder(event) {
   } catch(error) { checkoutSubmitting=false; button.disabled=false; $("checkoutBack").disabled=false; button.textContent="Konfirmasi & Buat Pesanan"; $("checkoutError").textContent=checkoutErrorMessage(error.message,error.status); $("checkoutError").classList.remove("hidden"); }
 }
 
-function normalizeOrderStatus(status){return ({"Menunggu Pembayaran":"Pending","Dibayar":"Paid","Diproses":"Processing","Dikirim":"Shipped","Selesai":"Completed","Dibatalkan":"Cancelled"})[status]||status||"Pending";}
-function statusLabel(status){return ({Pending:"Menunggu Pembayaran",Paid:"Sudah Dibayar",Processing:"Sedang Diproses",Shipped:"Dalam Pengiriman",Completed:"Selesai",Cancelled:"Dibatalkan"})[normalizeOrderStatus(status)]||status;}
-function renderOrders(){const target=$("orderList");if(!orders.length){target.innerHTML='<div class="empty-state"><span class="state-icon">▤</span><h3>Belum ada pesanan</h3><p>Pesanan baru akan tampil di sini.</p></div>';return;}target.innerHTML=orders.map(order=>`<article class="admin-order-card"><div class="admin-order-head"><div><span class="overline">${escapeHTML(order.id)}</span><h3>${escapeHTML(order.customer.name)}</h3><p>${new Date(order.createdAt).toLocaleString("id-ID")} · ${escapeHTML(order.customer.phone)}</p></div><strong>${money(order.total)}</strong></div><div class="admin-order-meta"><span><small>Pengiriman</small>${escapeHTML(order.shipping||"Reguler")}</span><span><small>Pembayaran</small>${escapeHTML(order.payment)}</span><span><small>Tujuan</small>${escapeHTML(order.customer.city||order.customer.address||"-")}</span></div><p class="admin-order-items">${order.items.map(item=>`${escapeHTML(item.name)} × ${item.qty}`).join(", ")}</p><label>Status pesanan<select data-order="${escapeHTML(order.id)}" aria-label="Status pesanan ${escapeHTML(order.id)}">${ORDER_STATUSES.map(status=>`<option value="${status}" ${status===normalizeOrderStatus(order.status)?"selected":""}>${statusLabel(status)}</option>`).join("")}</select></label></article>`).join("");}
 function customerOrderStatus(status){
   const value=String(status||"").toLowerCase();
   return ({pending:"Menunggu Konfirmasi",confirmed:"Dikonfirmasi",processing:"Sedang Diproses",shipped:"Dalam Pengiriman",completed:"Selesai",cancelled:"Dibatalkan"})[value]||status||"Menunggu Konfirmasi";
@@ -857,7 +845,6 @@ function handleAction(action) {
     case "check-payment": refreshPaymentStatus({manual:true}); break;
     case "renew-payment": if(paymentSession)openGatewayPayment(paymentSession.orderNumber); break;
     case "reload-catalog": loadProducts(); break;
-    case "reset-product": $("productForm").reset(); $("editId").value=""; $("productFormTitle").textContent="Tambah Produk"; break;
   }
 }
 // Sharing a product. The link is /p/<id>, a server-rendered page whose Open Graph tags give
@@ -980,7 +967,7 @@ document.addEventListener("keydown", event => {
     galleryGoTo(track, Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + (event.key === "ArrowRight" ? 1 : -1));
   }
 }, true);
-document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openGatewayPayment(payOrder);const vaBank=event.target.closest("[data-va-bank]")?.dataset.vaBank;if(vaBank&&paymentSession)openGatewayPayment(paymentSession.orderNumber,{bank:vaBank});const copyValue=event.target.closest("[data-copy]")?.dataset.copy;if(copyValue)copyToClipboard(copyValue);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product);const edit=event.target.closest("[data-edit]")?.dataset.edit;if(edit)editProduct(edit);const del=event.target.closest("[data-delete]")?.dataset.delete;if(del)deleteProduct(del);const tab=event.target.closest("[data-admin-tab]")?.dataset.adminTab;if(tab)setAdminTab(tab); });
+document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openGatewayPayment(payOrder);const vaBank=event.target.closest("[data-va-bank]")?.dataset.vaBank;if(vaBank&&paymentSession)openGatewayPayment(paymentSession.orderNumber,{bank:vaBank});const copyValue=event.target.closest("[data-copy]")?.dataset.copy;if(copyValue)copyToClipboard(copyValue);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product); });
 document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment'],#vaBank"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
 document.addEventListener("keydown", event => { if(event.key === "Escape"&&!$("paymentModal")?.classList.contains("hidden")){closePaymentModal();return;} if(event.key === "Escape"){const root=routeParts()[0];if(root==="checkout")navigateRoute("keranjang");else if(root==="produk"&&routeParts()[1])navigateRoute("produk");else if(["keranjang","bantu-pilih"].includes(root))navigateRoute("beranda");else ["menuDrawer","cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
 function bindElementEvent(id, type, handler) { const element=$(id); if (!element) { console.warn(`Optional UI element #${id} is unavailable.`); return; } element.addEventListener(type, handler); }
