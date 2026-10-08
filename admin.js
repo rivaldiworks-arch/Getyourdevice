@@ -38,9 +38,10 @@ function adminRouteHash(route="produk"){
 }
 function setAdminTab(tab){
   document.querySelectorAll("[data-tab]").forEach(button=>button.classList.toggle("active",button.dataset.tab===tab));
-  const ordersTab=tab==="orders";
-  $("productsPanel").classList.toggle("hidden",ordersTab);
-  $("ordersPanel").classList.toggle("hidden",!ordersTab);
+  $("productsPanel").classList.toggle("hidden",tab!=="products");
+  $("ordersPanel").classList.toggle("hidden",tab!=="orders");
+  $("pricingPanel").classList.toggle("hidden",tab!=="pricing");
+  $("addProduct").classList.toggle("hidden",tab==="pricing");
 }
 function navigateAdminRoute(route="produk",{replace=false}={}){
   const target=adminRouteHash(route);
@@ -73,6 +74,7 @@ async function applyAdminRoute(initial=false){
       }
       return;
     }
+    if(root==="harga"){setAdminTab("pricing");renderPricing();return;}
     if(root==="produk"){
       setAdminTab("products");
       await loadProducts();
@@ -88,6 +90,63 @@ async function applyAdminRoute(initial=false){
     setAdminTab("products");
     await loadProducts();
   }finally{applyingAdminRoute=false;}
+}
+// Price calculator. Midtrans fees are the store's cost (Bank Indonesia forbids passing them to
+// the buyer), so they go into the selling price: the minimum price is the lowest one that still
+// leaves the target profit after the most expensive filled-in payment method. Only the QRIS rate
+// is prefilled (0.7%, Midtrans docs); the owner enters the rest from the Midtrans contract.
+const PAYMENT_FEE_METHODS=[
+  {id:"va",label:"Virtual Account"},
+  {id:"qris",label:"QRIS",percent:"0,7"},
+  {id:"gopay",label:"GoPay"},
+  {id:"dana",label:"DANA"},
+  {id:"ovo",label:"OVO"},
+  {id:"card",label:"Kartu kredit/debit"},
+  {id:"googlepay",label:"Google Pay"}
+];
+const FEE_STORAGE_KEY="gyd_admin_payment_fees";
+const parseRupiah=value=>Number(String(value||"").replace(/[^\d]/g,""))||0;
+const parsePercent=value=>{const text=String(value||"").trim().replace(",",".");return text===""?null:Number(text);};
+function loadFeeRates(){try{return JSON.parse(localStorage.getItem(FEE_STORAGE_KEY)||"null")||{};}catch{return {};}}
+function saveFeeRates(){
+  const rates={};
+  document.querySelectorAll("[data-fee]").forEach(input=>{rates[input.dataset.fee]=input.value;});
+  try{localStorage.setItem(FEE_STORAGE_KEY,JSON.stringify(rates));}catch{}
+}
+function renderPricing(){
+  if($("feeRows").childElementCount)return renderPricingResult();
+  const saved=loadFeeRates();
+  $("feeRows").innerHTML=`<div class="fee-row fee-head"><span>Metode</span><span>Persen (%)</span><span>Biaya tetap (Rp)</span></div>`+PAYMENT_FEE_METHODS.map(method=>{
+    const percent=saved[`${method.id}:percent`]??method.percent??"",flat=saved[`${method.id}:flat`]??"";
+    return `<div class="fee-row"><span>${method.label}</span><input data-fee="${method.id}:percent" inputmode="decimal" aria-label="Persen biaya ${method.label}" placeholder="%" value="${escapeHTML(percent)}"><input data-fee="${method.id}:flat" inputmode="numeric" aria-label="Biaya tetap ${method.label}" placeholder="0" value="${escapeHTML(flat)}"></div>`;
+  }).join("");
+  renderPricingResult();
+}
+function feeSchedule(){
+  return PAYMENT_FEE_METHODS.map(method=>{
+    const percent=parsePercent(document.querySelector(`[data-fee="${method.id}:percent"]`)?.value);
+    const flat=parseRupiah(document.querySelector(`[data-fee="${method.id}:flat"]`)?.value);
+    return {...method,percent,flat,filled:percent!==null||flat>0};
+  }).filter(method=>method.filled&&(method.percent===null||(method.percent>=0&&method.percent<100)));
+}
+const methodFee=(method,price)=>Math.ceil(price*(method.percent||0)/100+method.flat);
+function minimumPrice(base,fees){
+  // price - fee(price) >= base for every method; rounded up to the next Rp1.000.
+  const raw=Math.max(base,...fees.map(method=>(base+method.flat)/(1-(method.percent||0)/100)));
+  return Math.ceil(raw/1000)*1000;
+}
+function renderPricingResult(){
+  const cost=parseRupiah($("priceCost").value),profit=parseRupiah($("priceProfit").value),extra=parseRupiah($("priceExtra").value),planned=parseRupiah($("pricePlanned").value);
+  const fees=feeSchedule(),missing=PAYMENT_FEE_METHODS.length-fees.length;
+  if(!cost){$("pricingResult").innerHTML='<p class="pricing-empty">Isi harga modal untuk melihat harga jual minimum.</p>';return;}
+  if(!fees.length){$("pricingResult").innerHTML='<p class="pricing-empty">Isi minimal satu biaya metode pembayaran.</p>';return;}
+  const base=cost+profit+extra,minimum=minimumPrice(base,fees),price=planned||minimum;
+  const rows=fees.map(method=>{const fee=methodFee(method,price);return {...method,fee,net:price-fee-cost-extra};}).sort((a,b)=>a.fee-b.fee);
+  const worst=rows[rows.length-1],cheapest=rows[0];
+  $("pricingResult").innerHTML=`<div class="pricing-summary"><div><small>Harga jual minimum</small><strong>${money(minimum)}</strong><span>Untung bersih minimal ${money(profit)} untuk semua metode yang diisi. Termahal: ${escapeHTML(worst.label)}.</span></div>${planned?`<div class="${planned<minimum?"is-short":""}"><small>Harga yang direncanakan</small><strong>${money(planned)}</strong><span>${planned<minimum?`Kurang ${money(minimum-planned)} dari harga minimum.`:"Sudah di atas harga minimum."}</span></div>`:""}</div>
+    <table class="pricing-table"><caption>Rincian per metode pada harga ${money(price)}, dari biaya termurah</caption><thead><tr><th scope="col">Metode</th><th scope="col">Biaya</th><th scope="col">Untung bersih</th></tr></thead><tbody>${rows.map(row=>`<tr${row===cheapest?' class="is-cheapest"':""}><th scope="row">${escapeHTML(row.label)}${row===cheapest?" <small>termurah</small>":""}</th><td>${money(row.fee)}</td><td class="${row.net<profit?"is-short":""}">${money(row.net)}</td></tr>`).join("")}</tbody></table>
+    ${missing?`<p class="pricing-note">${missing} metode belum diisi biayanya, jadi belum ikut dihitung. Harga minimum bisa naik setelah semua diisi.</p>`:""}
+    <p class="pricing-note">Urutan metode di halaman pembayaran Midtrans diatur di dashboard Midtrans: Settings, Snap Preferences, Payment Channels. Taruh metode termurah di atas.</p>`;
 }
 // Login card views: sign in, request a reset link, and set a new password from it.
 const AUTH_VIEWS={
@@ -695,7 +754,8 @@ $("orderTable").addEventListener("click",event=>{
 $("orderDetailContent").addEventListener("submit",event=>{const form=event.target.closest("[data-refund-form]");if(!form)return;event.preventDefault();submitRefund(form);});
 $("orderStats").addEventListener("click",event=>{const view=event.target.closest("[data-order-view]")?.dataset.orderView;if(!view)return;orderFilter=orderFilter===view?"all":view;orderPage=1;renderOrders();});
 $("orderDetailContent").addEventListener("click",event=>{const actionButton=event.target.closest("[data-order-action]");if(actionButton)runOrderAction(actionButton.dataset.orderId,actionButton.dataset.orderAction);const bookId=event.target.closest("[data-shipping-book]")?.dataset.shippingBook;if(bookId)bookShipment(bookId);const trackId=event.target.closest("[data-shipping-track]")?.dataset.shippingTrack;if(trackId)refreshShipmentTracking(trackId);const labelId=event.target.closest("[data-shipping-label]")?.dataset.shippingLabel;if(labelId)printShippingLabel(labelId);});
-document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>navigateAdminRoute(button.dataset.tab==="orders"?"pesanan":"produk")));
+document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>navigateAdminRoute({orders:"pesanan",pricing:"harga"}[button.dataset.tab]||"produk")));
+$("pricingForm").addEventListener("input",event=>{if(event.target.dataset.fee)saveFeeRates();renderPricingResult();});
 window.addEventListener("hashchange",queueAdminRouteApply);
 window.addEventListener("popstate",queueAdminRouteApply);
 

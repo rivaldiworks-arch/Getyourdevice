@@ -476,3 +476,9 @@ New logos are included in the homepage payment strip. Google Pay, Visa and Maste
 ## OVO approved — 8 October 2026
 
 The production Midtrans dashboard now lists OVO as active, next to every method above. Snap's QRIS / E-Wallet group adds `ovo`: `other_qris`, `gopay`, `dana`, `ovo`. OVO prefills the customer's phone from `customer_details.phone` and gives the customer about one minute to approve in the OVO app, which the help page states. The OVO logo is the Commons text logo (see `logos/README.md`). Static QRIS (still "In progress" in the dashboard) is a counter QR, not an online checkout rail, so the store keeps using dynamic QRIS. No migration or new keys are needed.
+
+## Admin price calculator (Harga tab) — 8 October 2026
+
+Bank Indonesia forbids adding payment fees to the buyer's bill (PBI 23/6/PBI/2021, Pasal 52: no surcharge for fees a payment provider charges the merchant). The Midtrans fees therefore have to sit inside the selling price. `admin.html#harga` takes the cost price, the target net profit and any other per-order cost, plus each payment method's rate (percent and/or flat Rupiah), and returns the lowest selling price, rounded up to Rp1.000, that keeps the target profit whichever filled-in method the buyer picks. It also lists the fee and net profit per method, cheapest first, and can check a planned price. Only QRIS is prefilled (0.7%, from Midtrans' QRIS fee documentation); the other rates come from the store's Midtrans contract and are saved in that admin browser's localStorage. Nothing is stored in the database and nothing changes at checkout.
+
+The order of methods inside the Snap payment page is set in the Midtrans dashboard (Settings → Snap Preferences → Payment Channels), not by `enabled_payments`, so put the cheapest methods first there.
