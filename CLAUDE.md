@@ -2,7 +2,7 @@
 
 Static HTML/CSS/JS storefront (`index.html`, `app.js`, `styles.css`) and admin (`admin.html`, `admin.js`, `admin.css`) on Vercel, with serverless routes in `api/` and Supabase in `supabase/`. See README.md for architecture and setup.
 
-There is no `DESIGN.md` yet. For UI work, take direction from the existing storefront and the owner's instructions; antislop below is a filter, not a source of direction.
+For any UI or copy work, read `DESIGN.md` first (owner direction, dials, tokens, motion and the shopping principles), then apply antislop below as the filter. Audit reports live in `anti-slop/`.
 
 <!-- antislop:start -->
 ## antislop

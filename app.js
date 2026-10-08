@@ -27,6 +27,14 @@ const QRIS_MAX_AMOUNT = 10000000;
 // Public checkout config from /api/config: which methods and VA banks are live.
 let checkoutConfig = null;
 let activeCategory = "Semua";
+// Price bands match how buyers search ("HP 2 jutaan"); a band with no products in the current view is not offered.
+const BUDGET_BANDS = [
+  { id:"u2", label:"Di bawah Rp2 juta", min:0, max:2000000 },
+  { id:"2-5", label:"Rp2–5 juta", min:2000000, max:5000000 },
+  { id:"5-10", label:"Rp5–10 juta", min:5000000, max:10000000 },
+  { id:"10+", label:"Di atas Rp10 juta", min:10000000, max:Infinity }
+];
+let activeBudget = null;
 let recommendation = null;
 let detailProductId = null;
 let detailQuantity = 1;
@@ -134,7 +142,8 @@ async function loadProducts() {
   try { renderShowcases(); } catch (error) { console.error("Optional product showcases failed", error); }
 }
 function showToast(message) { clearTimeout(toastTimer); $("toast").textContent = message; $("toast").classList.remove("hidden"); toastTimer = setTimeout(() => $("toast").classList.add("hidden"), 2600); }
-function updateCartCount() { const count = cart.reduce((sum, item) => sum + item.qty, 0); $("cartCount").textContent = count > 99 ? "99+" : count; $("cartCount").setAttribute("aria-label", `${count} item`); $("cartCount").dataset.empty = count ? "false" : "true"; }
+let lastCartCount = null;
+function updateCartCount() { const count = cart.reduce((sum, item) => sum + item.qty, 0); const badge = $("cartCount"); if (lastCartCount !== null && count > lastCartCount) { badge.classList.remove("bump"); requestAnimationFrame(() => badge.classList.add("bump")); } lastCartCount = count; $("cartCount").textContent = count > 99 ? "99+" : count; $("cartCount").setAttribute("aria-label", `${count} item`); $("cartCount").dataset.empty = count ? "false" : "true"; }
 function setModal(id, open) { const element = $(id); element.classList.toggle("hidden", !open); element.setAttribute("aria-hidden", String(!open)); document.body.style.overflow = document.querySelector(".modal:not(.hidden), .overlay:not(.hidden)") ? "hidden" : ""; if (open) setTimeout(() => element.querySelector("button, input, select")?.focus(), 0); }
 
 function routeParts() {
@@ -346,6 +355,10 @@ function filteredProducts() {
   const query = $("searchInput").value.trim().toLowerCase();
   let result = products.filter(product => (activeCategory === "Semua" || product.category === activeCategory) && `${product.name} ${product.category} ${product.description}`.toLowerCase().includes(query));
   if (recommendation) result = result.filter(product => Number(product.price) <= recommendation.budget && (product.needs || []).includes(recommendation.need));
+  return sortProducts(result);
+}
+function inBudget(product, band) { return !band || (Number(product.price) >= band.min && Number(product.price) < band.max); }
+function sortProducts(result) {
   const sort = $("sortSelect").value;
   if (sort === "low") result.sort((a,b) => a.price-b.price); else if (sort === "high") result.sort((a,b) => b.price-a.price); else if (sort === "name") result.sort((a,b) => a.name.localeCompare(b.name));
   else result.sort((a,b) => Number(b.stock > 0) - Number(a.stock > 0)); // featured: buyable products first, catalog order otherwise
@@ -360,15 +373,26 @@ function renderProducts() {
         : '<div class="error-state"><span class="state-icon">!</span><h3>Katalog belum dapat dimuat</h3><p>Koneksi ke server sedang bermasalah. Coba lagi sebentar.</p><button class="secondary" type="button" data-action="reload-catalog">Coba Lagi</button></div>';
       return;
     }
-    const result = filteredProducts();
+    const unbudgeted = filteredProducts();
+    const band = BUDGET_BANDS.find(item => item.id === activeBudget);
+    const result = unbudgeted.filter(product => inBudget(product, band));
     const query = $("searchInput").value.trim();
-    $("resultText").textContent = recommendation ? `${result.length} pilihan untuk kebutuhan ${recommendation.need.toLowerCase()} sesuai anggaran Anda.` : query || activeCategory !== "Semua" ? `${result.length} produk ditemukan.` : "Semua produk. Yang stoknya tersedia tampil lebih dulu.";
+    renderBudgetChips(unbudgeted);
+    const title = $("productsTitle");
+    if (title) title.textContent = activeCategory === "Semua" ? "Semua produk" : activeCategory === "Accessories" ? "Aksesori" : activeCategory;
+    $("resultText").textContent = recommendation ? `${result.length} pilihan untuk kebutuhan ${recommendation.need.toLowerCase()} sesuai anggaran Anda.` : query || activeCategory !== "Semua" || band ? `${result.length} produk ditemukan${band ? `, ${band.label.toLowerCase()}` : ""}.` : "Produk dengan stok tersedia tampil lebih dulu.";
     if (!result.length) { $("productGrid").innerHTML = `<div class="empty-state"><span class="state-icon">⌕</span><h3>Produk belum ditemukan</h3><p>Coba kata pencarian, kategori, atau anggaran yang berbeda.</p><button class="secondary" type="button" data-action="reset-filter">Tampilkan Semua Produk</button></div>`; return; }
-    $("productGrid").innerHTML = result.map(product => productCard(product)).join("");
+    $("productGrid").innerHTML = result.map((product, index) => productCard(product).replace('class="product-card', `style="--i:${Math.min(index, 11)}" class="product-card`)).join("");
   } catch (error) { console.error(error); $("productGrid").innerHTML = `<div class="error-state"><span class="state-icon">!</span><h3>Produk gagal ditampilkan</h3><p>Silakan coba muat kembali halaman.</p><button class="secondary" type="button" onclick="location.reload()">Muat Ulang</button></div>`; }
 }
+function renderBudgetChips(list) {
+  const target = $("budgetChips");
+  if (!target) return;
+  const bands = BUDGET_BANDS.filter(band => band.id === activeBudget || list.some(product => inBudget(product, band)));
+  target.innerHTML = bands.length < 2 && !activeBudget ? "" : [`<button type="button" data-budget="" aria-pressed="${!activeBudget}">Semua harga</button>`, ...bands.map(band => `<button type="button" data-budget="${band.id}" aria-pressed="${band.id === activeBudget}">${band.label}</button>`)].join("");
+}
 function selectCategory(category) { if(category==="Semua")navigateRoute("produk");else navigateRoute(`kategori/${category}`); }
-function resetFilters() { activeCategory = "Semua"; recommendation = null; $("searchInput").value = ""; $("sortSelect").value = "featured"; navigateRoute("produk"); }
+function resetFilters() { activeCategory = "Semua"; recommendation = null; activeBudget = null; $("searchInput").value = ""; $("sortSelect").value = "featured"; navigateRoute("produk"); }
 
 function addToCart(id, openAfter = false, quantity = 1) {
   const product = products.find(item => item.id === id); if (!product || product.stock <= 0) { showToast("Maaf, stok produk sedang habis."); return false; }
@@ -967,7 +991,7 @@ document.addEventListener("keydown", event => {
     galleryGoTo(track, Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + (event.key === "ArrowRight" ? 1 : -1));
   }
 }, true);
-document.addEventListener("click", event => { const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openGatewayPayment(payOrder);const vaBank=event.target.closest("[data-va-bank]")?.dataset.vaBank;if(vaBank&&paymentSession)openGatewayPayment(paymentSession.orderNumber,{bank:vaBank});const copyValue=event.target.closest("[data-copy]")?.dataset.copy;if(copyValue)copyToClipboard(copyValue);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product); });
+document.addEventListener("click", event => { const budget=event.target.closest("[data-budget]");if(budget){activeBudget=budget.dataset.budget||null;renderProducts();} const action=event.target.closest("[data-action]")?.dataset.action;if(action)handleAction(action);const category=event.target.closest("[data-category]")?.dataset.category;if(category)selectCategory(category);const payOrder=event.target.closest("[data-pay-order]")?.dataset.payOrder;if(payOrder)openGatewayPayment(payOrder);const vaBank=event.target.closest("[data-va-bank]")?.dataset.vaBank;if(vaBank&&paymentSession)openGatewayPayment(paymentSession.orderNumber,{bank:vaBank});const copyValue=event.target.closest("[data-copy]")?.dataset.copy;if(copyValue)copyToClipboard(copyValue);const add=event.target.closest("[data-add]")?.dataset.add;if(add)addToCart(add);const buy=event.target.closest("[data-buy]")?.dataset.buy;if(buy&&addToCart(buy))startCheckout();const qty=event.target.closest("[data-qty]");if(qty)changeQty(qty.dataset.qty,Number(qty.dataset.delta));const detailQty=event.target.closest("[data-detail-qty]")?.dataset.detailQty;if(detailQty)changeDetailQuantity(Number(detailQty));if(event.target.closest("[data-detail-add]"))addDetailToCart();if(event.target.closest("[data-detail-buy]"))addDetailToCart(true);const remove=event.target.closest("[data-remove]")?.dataset.remove;if(remove){cart=cart.filter(item=>item.id!==remove);persist();renderCart();showToast("Produk dihapus dari keranjang.");}const view=event.target.closest("[data-view-product]")?.dataset.viewProduct;if(view)openProductDetail(view);const productCard=event.target.closest("[data-product]");if(productCard&&!event.target.closest("button,a,input,select"))openProductDetail(productCard.dataset.product); });
 document.addEventListener("change", event => { if(event.target.matches("input[name='shipping'],input[name='payment'],#vaBank"))updateCheckoutTotal();if(event.target.id==="sortSelect")renderProducts();if(event.target.matches("[data-order]")){const order=orders.find(item=>item.id===event.target.dataset.order);if(order){order.status=event.target.value;persist();renderCustomerOrders();showToast("Status pesanan diperbarui.");}} });
 document.addEventListener("keydown", event => { if(event.key === "Escape"&&!$("paymentModal")?.classList.contains("hidden")){closePaymentModal();return;} if(event.key === "Escape"){const root=routeParts()[0];if(root==="checkout")navigateRoute("keranjang");else if(root==="produk"&&routeParts()[1])navigateRoute("produk");else if(["keranjang","bantu-pilih"].includes(root))navigateRoute("beranda");else ["menuDrawer","cartDrawer","checkoutModal","productModal","helperModal","successModal"].forEach(id=>setModal(id,false));}if((event.key==="Enter"||event.key===" ")&&event.target.matches("[data-product]")){event.preventDefault();openProductDetail(event.target.dataset.product);} });
 function bindElementEvent(id, type, handler) { const element=$(id); if (!element) { console.warn(`Optional UI element #${id} is unavailable.`); return; } element.addEventListener(type, handler); }
@@ -976,7 +1000,22 @@ bindElementEvent("searchInput", "input", () => { recommendation=null;renderProdu
 bindElementEvent("checkoutForm", "submit", submitOrder);
 bindElementEvent("helperForm", "submit", event => { event.preventDefault(); recommendation={need:new FormData(event.target).get("need"),budget:Number($("budgetSelect")?.value)};activeCategory="Semua";if($("searchInput"))$("searchInput").value="";buildNavigation();renderProducts();setModal("helperModal",false);navigateRoute("produk");showToast("Rekomendasi khusus Anda sudah siap."); });
 
+// Hero line-art: drawn in once, then a light pointer parallax on mouse devices. Off with reduced motion.
+function initializeHeroMotion() {
+  const art = document.querySelector(".hero-art");
+  if (!art) return;
+  art.querySelectorAll(".hero-gadget").forEach((svg, index) => { svg.style.setProperty("--i", index); svg.querySelectorAll("path,rect,circle").forEach(shape => shape.setAttribute("pathLength", "1")); });
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  art.classList.add("is-drawing");
+  const hero = art.closest(".store-hero");
+  if (!hero || !matchMedia("(pointer: fine)").matches) return;
+  let targetX = 0, targetY = 0, x = 0, y = 0, frame = 0;
+  const step = () => { x += (targetX - x) * .08; y += (targetY - y) * .08; art.style.setProperty("--px", x.toFixed(3)); art.style.setProperty("--py", y.toFixed(3)); frame = Math.abs(targetX - x) + Math.abs(targetY - y) > .001 ? requestAnimationFrame(step) : 0; };
+  hero.addEventListener("pointermove", event => { const box = hero.getBoundingClientRect(); targetX = (event.clientX - box.left) / box.width - .5; targetY = (event.clientY - box.top) / box.height - .5; if (!frame) frame = requestAnimationFrame(step); });
+  hero.addEventListener("pointerleave", () => { targetX = 0; targetY = 0; if (!frame) frame = requestAnimationFrame(step); });
+}
 function initializeMotion() {
+  initializeHeroMotion();
   const header = document.querySelector(".site-header");
   const revealItems = document.querySelectorAll(".reveal");
   if (!("IntersectionObserver" in window)) revealItems.forEach(item => item.classList.add("is-visible"));
