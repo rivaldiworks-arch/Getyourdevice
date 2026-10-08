@@ -23,7 +23,7 @@ function shareImage(product,origin){
 }
 function sharePage(product,origin){
   const url=`${origin}/p/${product.id}`,target=`/#produk/${product.id}`,image=shareImage(product,origin);
-  const title=`${product.name} — ${rupiah(product.price)}`;
+  const title=`${product.name} · ${rupiah(product.price)}`;
   const summary=String(product.description||"").replace(/\s+/g," ").trim();
   const description=(summary.length>180?`${summary.slice(0,177).trimEnd()}…`:summary)||`Beli ${product.name} di getyourdevice. Pembayaran aman, pengiriman ke seluruh Indonesia.`;
   const meta=[

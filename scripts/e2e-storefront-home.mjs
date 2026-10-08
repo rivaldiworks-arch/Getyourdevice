@@ -93,9 +93,9 @@ for(const width of [1440,834,390]){
   assert.match(logo.family,/^"?Outfit/);
   // Scroll order: the "Baru" and promo showcases, then products, after categories; reassurance sits just above the footer.
   const order=await page.evaluate(()=>[...document.querySelectorAll("#storeView > section")].map(section=>section.id||section.getAttribute("aria-labelledby")));
-  assert.deepEqual(order,["heroTitle","categoryTitle","newSection","promoSection","productsSection","dealTitle","latestPhonesTitle","laptopTitle","popularTitle","whyTitle"]);
+  assert.deepEqual(order,["heroTitle","categoryTitle","newSection","promoSection","productsSection","audioPanel","latestPhonesTitle","laptopPanel","popularTitle","whyTitle"]);
   assert.equal(await page.locator(".benefits").count(),0,"service promises are not repeated above the fold");
-  assert.equal(await page.locator(".trust-section .why-grid article").count(),4);
+  assert.equal(await page.locator(".trust-section .why-grid article").count(),3,"three concrete promises, no filler card");
   assert.ok(await page.locator(".trust-section .brand-tile").count()>=15,"payment and courier options are listed");
   // Featured order puts buyable products first.
   const stocks=await page.evaluate(()=>[...document.querySelectorAll("#productGrid .product-card")].map(card=>!card.querySelector("button[data-add]")?.disabled));
@@ -250,7 +250,7 @@ for(const width of [320,360,390,414,834,1024,1180]){
     const wa=new URL(await page.locator('.share-menu a',{hasText:"WhatsApp"}).getAttribute("href"));
     assert.equal(wa.origin+wa.pathname,"https://wa.me/");
     assert.ok(wa.searchParams.get("text").endsWith(`\n${shareUrl}`),"WhatsApp text ends with the share link");
-    assert.ok(wa.searchParams.get("text").startsWith(`${shared.name} — Rp`),"WhatsApp text starts with name and price");
+    assert.ok(wa.searchParams.get("text").startsWith(`${shared.name} · Rp`),"WhatsApp text starts with name and price");
     assert.equal(new URL(await page.locator('.share-menu a',{hasText:"Facebook"}).getAttribute("href")).searchParams.get("u"),shareUrl);
     await page.keyboard.press("Escape");
     await page.waitForSelector(".share-menu",{state:"detached"});
@@ -389,7 +389,7 @@ assert.deepEqual(errors,[],"no page errors");
   const [data]=await page.evaluate(()=>window.__shared);
   assert.equal(data.url,`${origin}/p/${target.id}`);
   assert.equal(data.title,target.name);
-  assert.match(data.text,/— Rp/);
+  assert.match(data.text,/ · Rp/);
   assert.equal(await page.locator(".share-menu").count(),0,"no fallback menu when the share sheet is used");
   await context.close();
 }

@@ -24,7 +24,7 @@ assert.equal(page.statusCode,200);
 assert.match(page.headers["content-type"],/text\/html/);
 assert.match(page.headers["cache-control"],/s-maxage=600/);
 assert.equal(og(page.body,"og:url"),`https://www.getyourdevice.id/p/${id}`);
-assert.equal(og(page.body,"og:title"),"iPhone Air 256 GB &lt;b&gt;&quot;x&quot;&lt;/b&gt; — Rp 19.999.000","title carries the price and is escaped");
+assert.equal(og(page.body,"og:title"),"iPhone Air 256 GB &lt;b&gt;&quot;x&quot;&lt;/b&gt; · Rp 19.999.000","title carries the price and is escaped");
 assert.equal(og(page.body,"og:image"),"https://img.test/wide.jpg","first https gallery photo is the share image");
 assert.equal(og(page.body,"og:image:width"),"1600");assert.equal(og(page.body,"og:image:height"),"1200");
 assert.equal(og(page.body,"twitter:card"),"summary_large_image");
