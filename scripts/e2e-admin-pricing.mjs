@@ -56,10 +56,10 @@ for(const width of [1280,390]){
   assert.match(await page.locator("#feeStatus").innerText(),/Terisi tarif standar Midtrans/);
   assert.equal(await page.locator('[data-tab="pricing"]').getAttribute("class"),"active","Harga tab is active");
 
-  // Midtrans' published standard rates come prefilled; QRIS and GoPay already include PPN.
+  // Midtrans' published standard rates come prefilled; no method is assumed PPN-inclusive.
   const standard={"va:flat":"4000","qris:percent":"0,7","gopay:percent":"2","dana:percent":"1,5","ovo:percent":"1,5","card:percent":"2,9","card:flat":"2000","googlepay:percent":"2,9","googlepay:flat":"2000"};
   for(const [key,value] of Object.entries(standard)) assert.equal(await page.locator(`[data-fee="${key}"]`).inputValue(),value,key);
-  assert.deepEqual(await page.locator('[data-fee$=":taxIncluded"]:checked').evaluateAll(els=>els.map(el=>el.dataset.fee)),["qris:taxIncluded","gopay:taxIncluded"]);
+  assert.deepEqual(await page.locator('[data-fee$=":taxIncluded"]:checked').evaluateAll(els=>els.map(el=>el.dataset.fee)),[]);
   assert.match(await page.locator("#pricingResult").innerText(),/Isi harga modal/);
 
   // Cost 10.000.000 + profit 500.000; QRIS 0.7% and a card rate of 3% + Rp2.000, PPN 11% on fees.
@@ -75,10 +75,14 @@ for(const width of [1280,390]){
   const rows=await page.locator(".pricing-table tbody tr").allInnerTexts();
   assert.match(rows[0],/^Virtual Account/,"cheapest method listed first");
   assert.ok(rows.every(row=>rupiah(row.split("\t").pop())>=500000),"every filled method keeps the target profit");
-  // PPN is added only where the rate excludes it.
+  // PPN on top of every fee by default; ticking a method takes it off that method only.
   const feeOf=label=>rupiah(rows.find(row=>row.startsWith(label)).split("\t")[1]);
   assert.equal(feeOf("Virtual Account"),4440,"VA fee + 11% PPN");
-  assert.equal(feeOf("QRIS"),Math.ceil(minimum*0.007),"QRIS rate already includes PPN");
+  assert.equal(feeOf("QRIS"),Math.ceil(minimum*0.007*1.11),"QRIS fee + 11% PPN");
+  await page.locator('[data-fee="qris:taxIncluded"]').check();
+  const qrisIncluded=rupiah((await page.locator(".pricing-table tbody tr").allInnerTexts()).find(row=>row.startsWith("QRIS")).split("\t")[1]);
+  assert.equal(qrisIncluded,Math.ceil(minimum*0.007),"ticked: QRIS rate taken as PPN-inclusive");
+  await page.locator('[data-fee="qris:taxIncluded"]').uncheck();
 
   // Shipping is billed through Midtrans too, so its fee comes out of the profit and raises the minimum.
   await page.fill("#priceShipping","200000");
@@ -132,11 +136,33 @@ for(const width of [1280,390]){
   assert.equal(await page.locator('[data-fee="card:percent"]').inputValue(),"2,9","blank field takes the standard rate");
   assert.equal(await page.locator('[data-fee="va:flat"]').inputValue(),"4000");
   assert.equal(await page.locator('[data-fee="qris:percent"]').inputValue(),"0,7","typed value is kept");
-  assert.equal(await page.locator("#feeTax").inputValue(),"11");
-  assert.equal(await page.locator('[data-fee="qris:taxIncluded"]').isChecked(),true);
+  assert.equal(await page.locator("#feeTax").inputValue(),"11","the old PPN 0 workaround goes back to 11%");
+  assert.equal(await page.locator('[data-fee="qris:taxIncluded"]').isChecked(),false);
   await page.waitForFunction(()=>/Tersimpan untuk semua admin/.test(document.getElementById("feeStatus").textContent));
-  assert.equal(db.feeRow.rates.version,"2","upgraded rates are saved once");
+  assert.equal(db.feeRow.rates.version,"3","upgraded rates are saved once");
   assert.equal(db.feeRow.rates["card:percent"],"2,9");
+  await context.close();
+}
+
+// A PPN rate the owner entered from the invoice survives the upgrade.
+{
+  const db={migrated:true,writes:0,feeRow:{id:1,updated_at:"2026-10-08T16:47:00Z",rates:{"qris:percent":"0,7","tax:percent":"12"}}};
+  const {context,page}=await openPricing(1280,db);
+  assert.equal(await page.locator("#feeTax").inputValue(),"12","custom PPN is kept");
+  await context.close();
+}
+
+// Rows saved by version 2 had QRIS and GoPay ticked by default; that tick is withdrawn, the rest stays.
+{
+  const db={migrated:true,writes:0,feeRow:{id:1,updated_at:"2026-10-08T17:05:00Z",rates:{version:"2","qris:percent":"0,7","qris:taxIncluded":"1","gopay:percent":"2","gopay:taxIncluded":"1","dana:percent":"1,4","dana:taxIncluded":"1","tax:percent":"0"}}};
+  const {context,page}=await openPricing(1280,db);
+  assert.equal(await page.locator('[data-fee="qris:taxIncluded"]').isChecked(),false);
+  assert.equal(await page.locator('[data-fee="gopay:taxIncluded"]').isChecked(),false);
+  assert.equal(await page.locator('[data-fee="dana:taxIncluded"]').isChecked(),true,"a tick the owner set on another method stays");
+  assert.equal(await page.locator('[data-fee="dana:percent"]').inputValue(),"1,4");
+  assert.equal(await page.locator("#feeTax").inputValue(),"0","a PPN rate chosen under version 2 is kept, 0 included");
+  await page.waitForFunction(()=>/Tersimpan untuk semua admin/.test(document.getElementById("feeStatus").textContent));
+  assert.equal(db.feeRow.rates.version,"3");
   await context.close();
 }
 

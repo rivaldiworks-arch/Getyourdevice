@@ -41,9 +41,9 @@
             <label>Harga jual yang direncanakan (Rp) <small>opsional, untuk cek untung per metode</small><input id="pricePlanned" inputmode="numeric" placeholder="Kosongkan untuk pakai harga minimum"></label>
           </fieldset>
           <fieldset class="pricing-card"><legend>Biaya per metode pembayaran</legend>
-            <p class="pricing-help">Terisi tarif standar Midtrans (midtrans.com/id/biaya). Ganti kalau kontrak Anda berbeda. Centang "Sudah termasuk PPN" untuk tarif yang sudah memuat PPN (QRIS dan GoPay). Baris yang dikosongkan tidak ikut dihitung. Tarif disimpan otomatis.</p>
+            <p class="pricing-help">Terisi tarif standar Midtrans (midtrans.com/id/biaya). Ganti kalau kontrak Anda berbeda. Centang "Sudah termasuk PPN" hanya kalau kontrak atau invoice Midtrans Anda menyebut tarif itu sudah memuat PPN. Baris yang dikosongkan tidak ikut dihitung. Tarif disimpan otomatis.</p>
             <p id="feeStatus" class="fee-status" role="status"></p>
-            <label class="fee-tax">PPN atas biaya Midtrans (%) <small>Ditambahkan ke biaya metode yang belum termasuk PPN (Virtual Account, DANA, OVO, kartu). Cocokkan dengan invoice Midtrans Anda.</small><input id="feeTax" data-fee="tax:percent" inputmode="decimal" value="11"></label>
+            <label class="fee-tax">PPN atas biaya Midtrans (%) <small>Ditambahkan ke biaya setiap metode yang tidak dicentang "Sudah termasuk PPN". Cocokkan dengan invoice Midtrans Anda.</small><input id="feeTax" data-fee="tax:percent" inputmode="decimal" value="11"></label>
             <div id="feeRows" class="fee-rows"></div>
           </fieldset>
         </form>
