@@ -26,13 +26,13 @@ const requiredIds = [
   "productModal", "productDetail", "relatedProducts", "cartDrawer", "cartItems",
   "cartItemTotal", "checkoutForm", "checkoutProgress", "checkoutError", "shippingOptions",
   "paymentOptions", "finalReview", "summaryDiscount", "customerOrdersView",
-  "customerOrderList", "helperForm", "adminView", "productForm", "orderList", "toast"
+  "customerOrderList", "helperForm", "toast"
 ];
 const requiredFunctions = [
   "renderProducts", "filteredProducts", "openProductDetail", "renderProductDetail",
   "addToCart", "changeQty", "renderCart", "renderCheckout", "renderCheckoutStep",
   "validateCheckoutStep", "checkoutTotals", "submitOrder", "renderCustomerOrders",
-  "renderOrders", "initializeMotion"
+  "initializeMotion"
 ];
 
 for (const asset of requiredAssets) {

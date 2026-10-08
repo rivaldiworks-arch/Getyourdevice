@@ -120,6 +120,12 @@ for(const width of [1440,834,390]){
   await page.waitForTimeout(1200);
   assert.equal(JSON.stringify([...imageRequests]),settled,"broken images are not retried in a loop");
   assert.ok([...imageRequests.values()].every(count=>count<=6),`no runaway image requests: ${JSON.stringify([...imageRequests.values()])}`);
+  // Budget filter: a price band narrows the grid, "Semua harga" restores it.
+  await page.locator('#budgetChips [data-budget="u2"]').click();
+  assert.equal(await page.locator("#productGrid .product-card").count(),products.filter(p=>p.price<2000000).length,"budget band filters the grid");
+  assert.equal(await page.locator('#budgetChips [data-budget="u2"]').getAttribute("aria-pressed"),"true");
+  await page.locator('#budgetChips [data-budget=""]').click();
+  assert.equal(await page.locator("#productGrid .product-card").count(),products.length,"all prices restores the grid");
   // Every payment and courier logo is served and decodes; a broken logo would show as an empty tile.
   const logos=page.locator(".trust-section .brand-tile img");
   assert.ok(await logos.count()>=7,"bank, e-wallet and courier logos are shown");
@@ -186,6 +192,7 @@ for(const width of [320,360,390,414,834,1024,1180]){
   await page.locator('#menuDrawer [data-category="Laptop"]').click();
   await page.waitForSelector("#menuDrawer.hidden",{state:"attached"});
   assert.equal(await page.locator("#categoryNav .active").innerText(),"Laptop","menu category filters the catalog");
+  assert.equal(await page.locator("#productsTitle").innerText(),"Laptop","the products heading names the active category");
   // Footer: real contact only, policy links, localized category label.
   const footer=await page.locator("footer").innerText();
   assert.equal(await page.locator('footer a[href="mailto:support@getyourdevice.id"]').count(),1,"footer shows the store email");
