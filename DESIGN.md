@@ -48,6 +48,7 @@ Biru dan kuning berasal dari logo GYD, bukan dari palet bawaan AI. Brand produk 
 
 - **Outfit** (`--font-display`): judul dan wordmark. Ini font logo GYD, jadi judul membawa suara brand.
 - **Plus Jakarta Sans** (`--font-body`): teks dan UI. Font ini dibuat oleh foundry Indonesia (Tokotype) untuk antarmuka. Angkanya jelas untuk harga Rupiah, dan karakternya netral untuk semua brand.
+- Font cadangan sebelum webfont termuat: Segoe UI, Roboto, Arial. Jangan pakai `system-ui`, karena di Linux bisa jatuh ke DejaVu Sans yang jauh lebih lebar dan membuat layout HP melebar.
 - Font sistem Apple (SF Pro) tidak dipakai. Label kapital berjarak lebar tidak dipakai. Eyebrow hanya ada kalau menambah informasi yang tidak ada di judul.
 
 ## Bentuk dan kedalaman
